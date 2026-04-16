@@ -1,53 +1,45 @@
 package com.example.notification_service.service;
 
+import com.example.notification_service.dto.Meta;
 import com.example.notification_service.dto.PaginationDTO;
 import com.example.notification_service.dto.notification.BulkNotificationRequest;
 import com.example.notification_service.exception.NotificationNotFoundException;
 import com.example.notification_service.messaging.NotificationEvent;
 import com.example.notification_service.model.Notification;
 import com.example.notification_service.repository.NotificationRepository;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
+import org.mockito.Captor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
-import org.mockito.MockedStatic;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 
-import java.util.Arrays;
-import java.util.Collections;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.ArgumentMatchers.*;
-import static org.mockito.Mockito.*;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
-/**
- * Unit Test cho NotificationService - Module 10 (Phần 3a): Thông báo.
- *
- * Chiến lược:
- * - Mock NotificationRepository, UserService, SocketIOBroadcastService.
- * - Sử dụng MockedStatic cho SecurityUtil.getCurrentUserJWT() trong createBulkNotificationsByConditions.
- * - Minh chứng (CheckDB): verify(notificationRepository).save(any(Notification.class)).
- * - Dọn dẹp (Rollback): Không dùng DB thật, Mockito reset sau mỗi test.
- */
 @ExtendWith(MockitoExtension.class)
-@DisplayName("NotificationService Unit Tests")
+@DisplayName("NotificationService Unit Test")
 class NotificationServiceTest {
 
-    // -----------------------------------------------------------------------
-    // Mock dependencies - tất cả giao tiếp ngoài service đều được mock
-    // -----------------------------------------------------------------------
-
+    // ===== Dependencies =====
     @Mock
     private NotificationRepository notificationRepository;
 
@@ -57,391 +49,344 @@ class NotificationServiceTest {
     @Mock
     private SocketIOBroadcastService socketIOBroadcastService;
 
-    // Service đang được kiểm tra (System Under Test)
     @InjectMocks
     private NotificationService notificationService;
 
-    // -----------------------------------------------------------------------
-    // Dữ liệu dùng chung (Fixture)
-    // -----------------------------------------------------------------------
+    @Captor
+    private ArgumentCaptor<Notification> notificationCaptor;
 
-    private Notification unreadNotification;
-    private Notification readNotification;
-
-    @BeforeEach
-    void setUp() {
-        // Thông báo chưa đọc
-        unreadNotification = new Notification();
-        unreadNotification.setId(1L);
-        unreadNotification.setRecipientId(100L);
-        unreadNotification.setTitle("Test Title");
-        unreadNotification.setMessage("Test Message");
-        unreadNotification.setRead(false);
-        unreadNotification.setDeliveryStatus("SENT");
-
-        // Thông báo đã đọc
-        readNotification = new Notification();
-        readNotification.setId(2L);
-        readNotification.setRecipientId(100L);
-        readNotification.setRead(true);
-        readNotification.setDeliveryStatus("SENT");
-    }
-
-    // =======================================================================
-    // PHẦN 1: Hàm createNotification()
-    // =======================================================================
-
-    // Test Case ID: UTIL-NT01
-    // Mục tiêu: Tạo thông báo hợp lệ -> lưu với deliveryStatus=SENT, gọi pushNotification
+    // ===== NS-TC01 =====
     @Test
-    @DisplayName("UTIL-NT01: createNotification - Phải lưu SENT và gọi pushNotification")
-    void createNotification_ValidInputs_ShouldSaveWithCorrectFieldsAndBroadcast() {
-        // Chuẩn bị: Chuẩn bị dữ liệu trả về khi save()
-        Notification savedNotif = new Notification();
-        savedNotif.setId(10L);
-        savedNotif.setRecipientId(100L);
-        savedNotif.setTitle("New Notification");
-        savedNotif.setDeliveryStatus("SENT");
+    @DisplayName("NS-TC01: createNotification - dữ liệu hợp lệ -> tạo mới notification với trạng thái mặc định unread")
+    void NS_TC01_createNotification_validInput_createNewNotificationWithDefaultUnreadStatus() {
+        // Arrange
+        Long recipientId = 10L;
+        String title = "Welcome";
+        String message = "Hello";
 
-        ArgumentCaptor<Notification> captor = ArgumentCaptor.forClass(Notification.class);
-        when(notificationRepository.save(captor.capture())).thenReturn(savedNotif);
-        doNothing().when(socketIOBroadcastService).pushNotification(any());
+        when(notificationRepository.save(any(Notification.class))).thenAnswer(invocation -> {
+            Notification n = invocation.getArgument(0, Notification.class);
+            n.setId(1L);
+            return n;
+        });
 
-        // Thực thi
-        Notification result = notificationService.createNotification(100L, "New Notification", "Content");
+        // Act
+        Notification saved = notificationService.createNotification(recipientId, title, message);
 
-        // Kiểm tra: deliveryStatus phải là "SENT", sentAt phải có giá trị
-        Notification captured = captor.getValue();
-        assertThat(captured.getDeliveryStatus()).isEqualTo("SENT");
-        assertThat(captured.getSentAt()).isNotNull();
-        assertThat(result.getId()).isEqualTo(10L);
+        // Assert
+        assertThat(saved).isNotNull();
+        assertThat(saved.getId()).isEqualTo(1L);
+        assertThat(saved.getRecipientId()).isEqualTo(recipientId);
+        assertThat(saved.getTitle()).isEqualTo(title);
+        assertThat(saved.getMessage()).isEqualTo(message);
+        assertThat(saved.getSentAt()).isNotNull();
+        assertThat(saved.getDeliveryStatus()).isEqualTo("SENT");
+        assertThat(saved.isRead()).isFalse();
 
-        // Minh chứng (CheckDB): save() được gọi 1 lần
-        verify(notificationRepository, times(1)).save(any(Notification.class));
-        // SocketIO broadcast phải được gọi
+        verify(notificationRepository, times(1)).save(notificationCaptor.capture());
+        Notification toSave = notificationCaptor.getValue();
+        assertThat(toSave.getRecipientId()).isEqualTo(recipientId);
+        assertThat(toSave.isRead()).isFalse();
+
         verify(socketIOBroadcastService, times(1)).pushNotification(any());
     }
 
-    // =======================================================================
-    // PHẦN 2: Hàm markAsRead()
-    // =======================================================================
-
-    // Test Case ID: UTIL-NT02
-    // Mục tiêu: Thông báo chưa đọc -> set isRead=true, khuếch đại unreadCount
+    // ===== NS-TC02 =====
     @Test
-    @DisplayName("UTIL-NT02: markAsRead - Chưa đọc, phải set isRead=true và broadcast unreadCount")
-    void markAsRead_UnreadNotification_ShouldSetReadTrueAndBroadcastUnreadCount() {
-        // Chuẩn bị
-        when(notificationRepository.findById(1L)).thenReturn(Optional.of(unreadNotification));
-        when(notificationRepository.save(any(Notification.class))).thenAnswer(inv -> inv.getArgument(0));
-        when(notificationRepository.countByRecipientIdAndIsReadFalse(100L)).thenReturn(0L);
-        doNothing().when(socketIOBroadcastService).publishUnreadCount(anyLong(), anyLong());
+    @DisplayName("NS-TC02: markAsRead - notification tồn tại được đánh dấu đã đọc, không tồn tại ném exception")
+    void NS_TC02_markAsRead_existingMarkedRead_notFoundThrows() {
+        // --- Case 1: Existing notification, isRead=false -> update to read ---
+        Notification existing = new Notification();
+        existing.setId(100L);
+        existing.setRecipientId(77L);
+        existing.setTitle("T");
+        existing.setMessage("M");
+        existing.setRead(false);
 
-        // Thực thi
-        notificationService.markAsRead(1L);
+        when(notificationRepository.findById(100L)).thenReturn(Optional.of(existing));
+        when(notificationRepository.save(any(Notification.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(notificationRepository.countByRecipientIdAndIsReadFalse(77L)).thenReturn(3L);
 
-        // Kiểm tra: isRead phải là true, readAt được set
-        ArgumentCaptor<Notification> captor = ArgumentCaptor.forClass(Notification.class);
-        verify(notificationRepository, times(1)).save(captor.capture());
-        assertThat(captor.getValue().isRead()).isTrue();
-        assertThat(captor.getValue().getReadAt()).isNotNull();
+        notificationService.markAsRead(100L);
 
-        // Minh chứng (CheckDB): publishUnreadCount được gọi
-        verify(socketIOBroadcastService, times(1)).publishUnreadCount(eq(100L), anyLong());
-    }
+        verify(notificationRepository, times(1)).findById(100L);
+        verify(notificationRepository, times(1)).save(notificationCaptor.capture());
+        Notification updated = notificationCaptor.getValue();
+        assertThat(updated.isRead()).isTrue();
+        assertThat(updated.getReadAt()).isNotNull();
 
-    // Test Case ID: UTIL-NT03
-    // Mục tiêu: Thông báo đã đọc -> KHÔNG gọi save() lẫn publishUnreadCount() (tránh ghi dữ liệu thừa)
-    @Test
-    @DisplayName("UTIL-NT03: markAsRead - Đã đọc, KHÔNG gọi save() lẫn publishUnreadCount()")
-    void markAsRead_AlreadyReadNotification_ShouldNotSaveNorBroadcast() {
-        // Chuẩn bị: Notification đã isRead=true
-        when(notificationRepository.findById(2L)).thenReturn(Optional.of(readNotification));
+        verify(socketIOBroadcastService, times(1)).pushNotification(any());
+        verify(socketIOBroadcastService, times(1)).publishUnreadCount(77L, 3L);
 
-        // Thực thi
-        notificationService.markAsRead(2L);
-
-        // Minh chứng (CheckDB): save() KHÔNG được gọi (không cập nhật DB)
-        verify(notificationRepository, never()).save(any());
-        // Broadcast KHÔNG được gọi
-        verify(socketIOBroadcastService, never()).publishUnreadCount(anyLong(), anyLong());
-    }
-
-    // Test Case ID: UTIL-NT04
-    // Mục tiêu: ID không tồn tại -> throw NotificationNotFoundException
-    @Test
-    @DisplayName("UTIL-NT04: markAsRead - ID không tồn tại, phải throw NotificationNotFoundException")
-    void markAsRead_NonExistentNotification_ShouldThrowNotificationNotFoundException() {
-        // Chuẩn bị: Repository không tìm thấy
+        // --- Case 2: Not found -> throw exception ---
         when(notificationRepository.findById(999L)).thenReturn(Optional.empty());
 
-        // Thực thi & Kiểm tra
         assertThatThrownBy(() -> notificationService.markAsRead(999L))
                 .isInstanceOf(NotificationNotFoundException.class);
 
-        // Minh chứng (CheckDB): save() KHÔNG được gọi
+        verify(notificationRepository, times(1)).findById(999L);
         verify(notificationRepository, never()).save(any());
     }
 
-    // =======================================================================
-    // PHẦN 3: Hàm markAllAsRead()
-    // =======================================================================
-
-    // Test Case ID: UTIL-NT05
-    // Mục tiêu: Có thông báo chưa đọc -> trả về count và broadcast unreadCount=0
+    // Extra coverage: already read -> no save/publish/unreadCount
     @Test
-    @DisplayName("UTIL-NT05: markAllAsRead - Có thông báo chưa đọc, phải broadcast unreadCount=0")
-    void markAllAsRead_WithUnreadNotifications_ShouldReturnCountAndBroadcastZero() {
-        // Chuẩn bị: repository.markAllAsReadByRecipientId trả về 3 (3 bản ghi được cập nhật)
-        when(notificationRepository.markAllAsReadByRecipientId(eq(100L), any())).thenReturn(3);
-        doNothing().when(socketIOBroadcastService).publishUnreadCount(anyLong(), anyLong());
+    @DisplayName("[Extra] markAsRead - notification đã đọc sẵn -> không cập nhật lại")
+    void markAsRead_alreadyRead_noUpdate() {
+        Notification existing = new Notification();
+        existing.setId(200L);
+        existing.setRecipientId(88L);
+        existing.setRead(true);
+        existing.setReadAt(LocalDateTime.now().minusDays(1));
 
-        // Thực thi
-        int count = notificationService.markAllAsRead(100L);
+        when(notificationRepository.findById(200L)).thenReturn(Optional.of(existing));
 
-        // Kiểm tra: Trả về số lượng đã cập nhật
-        assertThat(count).isEqualTo(3);
-        // Minh chứng (CheckDB): publishUnreadCount được gọi với unreadCount=0
-        verify(socketIOBroadcastService, times(1)).publishUnreadCount(eq(100L), eq(0L));
-    }
+        notificationService.markAsRead(200L);
 
-    // Test Case ID: UTIL-NT06
-    // Mục tiêu: Không có thông báo chưa đọc -> KHÔNG broadcast (tránh bắn tin thừa)
-    @Test
-    @DisplayName("UTIL-NT06: markAllAsRead - Không có thông báo chưa đọc, KHÔNG broadcast")
-    void markAllAsRead_WithNoUnreadNotifications_ShouldReturnZeroAndNotBroadcast() {
-        // Chuẩn bị: 0 bản ghi được cập nhật
-        when(notificationRepository.markAllAsReadByRecipientId(eq(100L), any())).thenReturn(0);
-
-        // Thực thi
-        int count = notificationService.markAllAsRead(100L);
-
-        // Kiểm tra: Trả về 0
-        assertThat(count).isEqualTo(0);
-        // Broadcast KHÔNG được gọi khi count = 0
+        verify(notificationRepository, times(1)).findById(200L);
+        verify(notificationRepository, never()).save(any());
+        verify(socketIOBroadcastService, never()).pushNotification(any());
         verify(socketIOBroadcastService, never()).publishUnreadCount(anyLong(), anyLong());
     }
 
-    // =======================================================================
-    // PHẦN 4: Hàm getAllNotificationsWithFilters()
-    // =======================================================================
-
-    // Test Case ID: UTIL-NT07
-    // Mục tiêu: Có recipientId -> gọi repository.findByRecipientId()
+    // ===== NS-TC03 =====
     @Test
-    @DisplayName("UTIL-NT07: getAllNotificationsWithFilters - Có recipientId, gọi findByRecipientId")
-    void getAllNotificationsWithFilters_WithRecipientId_ShouldQueryByRecipientId() {
-        // Chuẩn bị
-        Pageable pageable = PageRequest.of(0, 10);
-        Page<Notification> mockPage = new PageImpl<>(Collections.singletonList(unreadNotification), pageable, 1);
-        when(notificationRepository.findByRecipientId(eq(100L), eq(pageable))).thenReturn(mockPage);
+    @DisplayName("NS-TC03: markAllAsRead - đánh dấu toàn bộ notification của recipient là đã đọc")
+    void NS_TC03_markAllAsRead_markAllAsReadAndBroadcastUnreadCount() {
+        // Arrange
+        Long recipientId = 55L;
+        when(notificationRepository.markAllAsReadByRecipientId(eq(recipientId), any(LocalDateTime.class)))
+                .thenReturn(5);
 
-        // Thực thi
-        PaginationDTO result = notificationService.getAllNotificationsWithFilters(100L, null, pageable);
+        // Act
+        int updated = notificationService.markAllAsRead(recipientId);
 
-        // Kiểm tra
-        assertThat(result.getMeta().getTotal()).isEqualTo(1L);
-        // Minh chứng (CheckDB): findByRecipientId được gọi, findByDeliveryStatus KHÔNG được gọi
-        verify(notificationRepository, times(1)).findByRecipientId(eq(100L), eq(pageable));
+        // Assert
+        assertThat(updated).isEqualTo(5);
+        verify(notificationRepository, times(1)).markAllAsReadByRecipientId(eq(recipientId), any(LocalDateTime.class));
+        verify(socketIOBroadcastService, times(1)).publishUnreadCount(recipientId, 0L);
+    }
+
+    // Extra coverage: updatedCount = 0 -> no broadcast
+    @Test
+    @DisplayName("[Extra] markAllAsRead - không có notification nào được update -> không broadcast")
+    void markAllAsRead_noUpdate_noBroadcast() {
+        Long recipientId = 56L;
+        when(notificationRepository.markAllAsReadByRecipientId(eq(recipientId), any(LocalDateTime.class)))
+                .thenReturn(0);
+
+        int updated = notificationService.markAllAsRead(recipientId);
+
+        assertThat(updated).isZero();
+        verify(socketIOBroadcastService, never()).publishUnreadCount(anyLong(), anyLong());
+    }
+
+    // ===== NS-TC04 =====
+    @Test
+    @DisplayName("NS-TC04: getAllNotificationsWithFilters - lọc đúng danh sách notification và phân trang đúng")
+    void NS_TC04_getAllNotificationsWithFilters_filterAndPaginationCorrect() {
+        // Arrange
+        Pageable pageable = PageRequest.of(1, 2); // page index=1 -> meta.page should be 2
+
+        Notification n1 = new Notification();
+        n1.setId(1L);
+        Notification n2 = new Notification();
+        n2.setId(2L);
+
+        Page<Notification> page = new PageImpl<>(List.of(n1, n2), pageable, 10);
+
+        when(notificationRepository.findByRecipientId(eq(11L), eq(pageable))).thenReturn(page);
+
+        // Act
+        PaginationDTO dto = notificationService.getAllNotificationsWithFilters(11L, null, pageable);
+
+        // Assert
+        assertThat(dto).isNotNull();
+        assertThat(dto.getResult()).isInstanceOf(List.class);
+        assertThat((List<?>) dto.getResult()).hasSize(2);
+        assertThat(((Notification) ((List<?>) dto.getResult()).get(0)).getId()).isEqualTo(1L);
+
+        Meta meta = dto.getMeta();
+        assertThat(meta).isNotNull();
+        assertThat(meta.getPage()).isEqualTo(2);
+        assertThat(meta.getPageSize()).isEqualTo(2);
+        assertThat(meta.getTotal()).isEqualTo(10);
+        assertThat(meta.getPages()).isEqualTo(5);
+
+        verify(notificationRepository, times(1)).findByRecipientId(11L, pageable);
         verify(notificationRepository, never()).findByDeliveryStatus(any(), any());
         verify(notificationRepository, never()).findAll(any(Pageable.class));
     }
 
-    // Test Case ID: UTIL-NT08
-    // Mục tiêu: recipientId=null + có status -> gọi repository.findByDeliveryStatus()
+    // Extra coverage: status filter branch when recipientId == null
     @Test
-    @DisplayName("UTIL-NT08: getAllNotificationsWithFilters - Có status, gọi findByDeliveryStatus")
-    void getAllNotificationsWithFilters_WithStatus_ShouldQueryByStatus() {
-        // Chuẩn bị
-        Pageable pageable = PageRequest.of(0, 10);
-        Page<Notification> mockPage = new PageImpl<>(Collections.emptyList(), pageable, 0);
-        when(notificationRepository.findByDeliveryStatus(eq("SENT"), eq(pageable))).thenReturn(mockPage);
+    @DisplayName("[Extra] getAllNotificationsWithFilters - recipientId null, status có giá trị -> lọc theo status")
+    void getAllNotificationsWithFilters_statusBranch() {
+        Pageable pageable = PageRequest.of(0, 3);
+        Page<Notification> page = new PageImpl<>(List.of(), pageable, 0);
 
-        // Thực thi
-        PaginationDTO result = notificationService.getAllNotificationsWithFilters(null, "SENT", pageable);
+        when(notificationRepository.findByDeliveryStatus(eq("SENT"), eq(pageable))).thenReturn(page);
 
-        // Minh chứng (CheckDB): findByDeliveryStatus được gọi
-        verify(notificationRepository, times(1)).findByDeliveryStatus(eq("SENT"), eq(pageable));
+        PaginationDTO dto = notificationService.getAllNotificationsWithFilters(null, "SENT", pageable);
+
+        assertThat(dto.getMeta().getPage()).isEqualTo(1);
+        assertThat(dto.getMeta().getPageSize()).isEqualTo(3);
+        assertThat(dto.getMeta().getTotal()).isZero();
+        assertThat(dto.getMeta().getPages()).isZero();
+
+        verify(notificationRepository, times(1)).findByDeliveryStatus("SENT", pageable);
+        verify(notificationRepository, never()).findAll(any(Pageable.class));
+        verify(notificationRepository, never()).findByRecipientId(anyLong(), any(Pageable.class));
     }
 
-    // Test Case ID: UTIL-NT09
-    // Mục tiêu: Cả hai null -> gọi repository.findAll()
+    // Extra coverage: all branch when both recipientId and status are null
     @Test
-    @DisplayName("UTIL-NT09: getAllNotificationsWithFilters - Cả hai null, gọi findAll()")
-    void getAllNotificationsWithFilters_WithNullBoth_ShouldQueryAll() {
-        // Chuẩn bị
-        Pageable pageable = PageRequest.of(0, 10);
-        Page<Notification> mockPage = new PageImpl<>(Collections.emptyList(), pageable, 0);
-        when(notificationRepository.findAll(eq(pageable))).thenReturn(mockPage);
+    @DisplayName("[Extra] getAllNotificationsWithFilters - recipientId null, status null -> lấy tất cả")
+    void getAllNotificationsWithFilters_findAllBranch() {
+        Pageable pageable = PageRequest.of(0, 1);
+        Notification n = new Notification();
+        n.setId(9L);
+        Page<Notification> page = new PageImpl<>(List.of(n), pageable, 1);
 
-        // Thực thi
-        PaginationDTO result = notificationService.getAllNotificationsWithFilters(null, null, pageable);
+        when(notificationRepository.findAll(eq(pageable))).thenReturn(page);
 
-        // Minh chứng (CheckDB): findAll() được gọi
-        verify(notificationRepository, times(1)).findAll(eq(pageable));
+        PaginationDTO dto = notificationService.getAllNotificationsWithFilters(null, null, pageable);
+
+        assertThat(((List<?>) dto.getResult())).hasSize(1);
+        assertThat(dto.getMeta().getTotal()).isEqualTo(1);
+
+        verify(notificationRepository, times(1)).findAll(pageable);
     }
 
-    // =======================================================================
-    // PHẦN 5: Hàm getNotificationStats()
-    // =======================================================================
-
-    // Test Case ID: UTIL-NT10
-    // Mục tiêu: Có recipientId -> gọi countByRecipientIdAndIsReadFalse (không gọi toàn hệ thống)
+    // ===== NS-TC05 =====
     @Test
-    @DisplayName("UTIL-NT10: getNotificationStats - Có recipientId, phải gọi countByRecipient")
-    void getNotificationStats_WithRecipientId_ShouldReturnUnreadCountForRecipient() {
-        // Chuẩn bị
-        when(notificationRepository.count()).thenReturn(10L);
-        when(notificationRepository.countByRecipientIdAndIsReadFalse(100L)).thenReturn(3L);
+    @DisplayName("NS-TC05: getNotificationStats - trả về thống kê notification đúng theo recipientId")
+    void NS_TC05_getNotificationStats_returnCorrectStatsByRecipient() {
+        // Arrange
+        when(notificationRepository.count()).thenReturn(100L);
+        when(notificationRepository.countByRecipientIdAndIsReadFalse(22L)).thenReturn(7L);
 
-        // Thực thi
-        Map<String, Object> stats = notificationService.getNotificationStats(100L);
+        // Act
+        Map<String, Object> stats = notificationService.getNotificationStats(22L);
 
-        // Kiểm tra: unreadNotifications phải là 3 (của recipient cụ thể)
-        assertThat(stats.get("unreadNotifications")).isEqualTo(3L);
-        // KHÔNG gọi countByIsReadFalse() toàn hệ thống
+        // Assert
+        assertThat(stats).isNotNull();
+        assertThat(stats.get("totalNotifications")).isEqualTo(100L);
+        assertThat(stats.get("unreadNotifications")).isEqualTo(7L);
+
+        verify(notificationRepository, times(1)).count();
+        verify(notificationRepository, times(1)).countByRecipientIdAndIsReadFalse(22L);
         verify(notificationRepository, never()).countByIsReadFalse();
     }
 
-    // Test Case ID: UTIL-NT11
-    // Mục tiêu: recipientId=null -> gọi countByIsReadFalse() toàn hệ thống
+    // Extra coverage: recipientId null -> countByIsReadFalse
     @Test
-    @DisplayName("UTIL-NT11: getNotificationStats - recipientId null, phải gọi countByIsReadFalse toàn hệ thống")
-    void getNotificationStats_WithNullRecipientId_ShouldReturnGlobalUnreadCount() {
-        // Chuẩn bị
-        when(notificationRepository.count()).thenReturn(50L);
-        when(notificationRepository.countByIsReadFalse()).thenReturn(15L);
+    @DisplayName("[Extra] getNotificationStats - recipientId null -> thống kê unread toàn hệ thống")
+    void getNotificationStats_recipientNull_usesGlobalUnreadCount() {
+        when(notificationRepository.count()).thenReturn(5L);
+        when(notificationRepository.countByIsReadFalse()).thenReturn(2L);
 
-        // Thực thi
         Map<String, Object> stats = notificationService.getNotificationStats(null);
 
-        // Kiểm tra: unreadNotifications là 15 (toàn hệ thống)
-        assertThat(stats.get("unreadNotifications")).isEqualTo(15L);
-        // KHÔNG gọi countByRecipientIdAndIsReadFalse
+        assertThat(stats.get("totalNotifications")).isEqualTo(5L);
+        assertThat(stats.get("unreadNotifications")).isEqualTo(2L);
+
+        verify(notificationRepository, times(1)).countByIsReadFalse();
         verify(notificationRepository, never()).countByRecipientIdAndIsReadFalse(anyLong());
     }
 
-    // =======================================================================
-    // PHẦN 6: Hàm processNotificationEvent()
-    // =======================================================================
-
-    // Test Case ID: UTIL-NT12
-    // Mục tiêu: Event có recipientId -> gọi createNotification() đúng 1 lần
+    // ===== NS-TC06 =====
     @Test
-    @DisplayName("UTIL-NT12: processNotificationEvent - 1 recipient, createNotification được gọi 1 lần")
-    void processNotificationEvent_WithSingleRecipient_ShouldCreateOneNotification() {
-        // Chuẩn bị: Event có recipientId cụ thể
+    @DisplayName("NS-TC06: processNotificationEvent - xử lý event và tạo notification đúng dữ liệu")
+    void NS_TC06_processNotificationEvent_createNotificationsFromEvent() {
+        // Arrange
         NotificationEvent event = new NotificationEvent();
-        event.setRecipientId(100L);
         event.setTitle("Event Title");
         event.setMessage("Event Message");
+        event.setRecipientIds(List.of(1L, 2L, 2L, null));
 
-        // Mock createNotification (gọi save bên trong)
-        when(notificationRepository.save(any(Notification.class))).thenAnswer(inv -> {
-            Notification n = inv.getArgument(0);
-            n.setId(99L);
+        when(notificationRepository.save(any(Notification.class))).thenAnswer(invocation -> {
+            Notification n = invocation.getArgument(0, Notification.class);
+            n.setId(999L);
             return n;
         });
-        doNothing().when(socketIOBroadcastService).pushNotification(any());
 
-        // Thực thi
+        // Act
         notificationService.processNotificationEvent(event);
 
-        // Minh chứng (CheckDB): save() được gọi đúng 1 lần (cho 1 recipient)
-        verify(notificationRepository, times(1)).save(any(Notification.class));
+        // Assert
+        verify(notificationRepository, times(2)).save(any(Notification.class));
+        verify(socketIOBroadcastService, times(2)).pushNotification(any());
+
+        verify(notificationRepository, times(2)).save(notificationCaptor.capture());
+        List<Notification> savedList = notificationCaptor.getAllValues();
+        assertThat(savedList).allSatisfy(n -> {
+            assertThat(n.getTitle()).isEqualTo("Event Title");
+            assertThat(n.getMessage()).isEqualTo("Event Message");
+            assertThat(n.getDeliveryStatus()).isEqualTo("SENT");
+        });
+
+        assertThat(savedList.stream().map(Notification::getRecipientId).distinct().toList())
+                .containsExactlyInAnyOrder(1L, 2L);
     }
 
-    // Test Case ID: UTIL-NT13
-    // Mục tiêu: Event không có recipient nào -> KHÔNG gọi createNotification (tránh save thừa)
+    // Extra coverage: event resolves to empty recipients -> do nothing
     @Test
-    @DisplayName("UTIL-NT13: processNotificationEvent - Không có recipient, không gọi save()")
-    void processNotificationEvent_WithEmptyRecipients_ShouldNotCreateAnyNotification() {
-        // Chuẩn bị: Event không có recipientId, recipientIds, includeAllEmployees
+    @DisplayName("[Extra] processNotificationEvent - không có recipient -> không tạo notification")
+    void processNotificationEvent_emptyRecipients_doNothing() {
         NotificationEvent event = new NotificationEvent();
-        event.setTitle("Title");
-        event.setMessage("Message");
-        // Tất cả recipient source đều null
+        event.setTitle("T");
+        event.setMessage("M");
+        event.setRecipientIds(List.of());
 
-        // Thực thi
         notificationService.processNotificationEvent(event);
 
-        // Minh chứng (CheckDB): save() KHÔNG được gọi
         verify(notificationRepository, never()).save(any());
+        verify(socketIOBroadcastService, never()).pushNotification(any());
     }
 
-    // =======================================================================
-    // PHẦN 7: Hàm createBulkNotificationsByConditions()
-    // =======================================================================
-
-    // Test Case ID: UTIL-NT14
-    // Mục tiêu: includeAllEmployees=true -> gọi getAllEmployeeIds() và tạo cho từng người
+    // ===== NS-TC07 =====
     @Test
-    @DisplayName("UTIL-NT14: createBulkNotifications - includeAllEmployees, phải gọi getAllEmployeeIds")
-    void createBulkNotifications_IncludeAllEmployees_ShouldCallGetAllEmployeeIdsAndCreateForEach() {
-        // Chuẩn bị
+    @DisplayName("NS-TC07: createBulkNotificationsByConditions - tạo bulk notification đúng đối tượng nhận")
+    void NS_TC07_createBulkNotificationsByConditions_createBulkCorrectRecipients() {
+        // Arrange
         BulkNotificationRequest request = new BulkNotificationRequest();
-        request.setIncludeAllEmployees(true);
-        request.setTitle("Company Announcement");
-        request.setMessage("Important message");
+        request.setTitle("Bulk Title");
+        request.setMessage("Bulk Message");
+        request.setRecipientIds(List.of(10L, 11L, 10L));
 
-        // UserService trả về 3 nhân viên
-        when(userService.getAllEmployeeIds(any())).thenReturn(Arrays.asList(1L, 2L, 3L));
-        when(notificationRepository.save(any(Notification.class))).thenAnswer(inv -> {
-            Notification n = inv.getArgument(0);
-            n.setId((long) (Math.random() * 1000));
+        when(notificationRepository.save(any(Notification.class))).thenAnswer(invocation -> {
+            Notification n = invocation.getArgument(0, Notification.class);
+            n.setId(1L);
             return n;
         });
-        doNothing().when(socketIOBroadcastService).pushNotification(any());
 
-        // Dùng MockedStatic để mock SecurityUtil.getCurrentUserJWT() (static method)
-        try (MockedStatic<com.example.notification_service.utils.SecurityUtil> securityUtil =
-                     mockStatic(com.example.notification_service.utils.SecurityUtil.class)) {
-            securityUtil.when(com.example.notification_service.utils.SecurityUtil::getCurrentUserJWT)
-                    .thenReturn(java.util.Optional.of("mock-token"));
+        // Act
+        int createdCount = notificationService.createBulkNotificationsByConditions(request);
 
-            // Thực thi
-            int count = notificationService.createBulkNotificationsByConditions(request);
+        // Assert
+        assertThat(createdCount).isEqualTo(2);
+        verify(notificationRepository, times(2)).save(any(Notification.class));
+        verify(socketIOBroadcastService, times(2)).pushNotification(any());
 
-            // Kiểm tra: Tạo 3 thông báo (cho 3 nhân viên)
-            assertThat(count).isEqualTo(3);
-            // Minh chứng (CheckDB): save() được gọi 3 lần
-            verify(notificationRepository, times(3)).save(any(Notification.class));
-            // Xác nhận getAllEmployeeIds() được gọi
-            verify(userService, times(1)).getAllEmployeeIds(any());
-        }
+        verify(notificationRepository, times(2)).save(notificationCaptor.capture());
+        assertThat(notificationCaptor.getAllValues())
+                .extracting(Notification::getRecipientId)
+                .containsExactlyInAnyOrder(10L, 11L);
     }
 
-    // Test Case ID: UTIL-NT15
-    // Mục tiêu: recipientIds cụ thể -> tạo thông báo cho từng ID, trả về số lượng đúng
+    // Extra coverage: bulk recipients empty -> returns 0 / no interactions
     @Test
-    @DisplayName("UTIL-NT15: createBulkNotifications - recipientIds [1L,2L], phải tạo 2 thông báo")
-    void createBulkNotifications_WithSpecificRecipientIds_ShouldCreateForEachId() {
-        // Chuẩn bị
+    @DisplayName("[Extra] createBulkNotificationsByConditions - recipient list rỗng -> không tạo gì")
+    void createBulkNotificationsByConditions_emptyRecipients_returnZero() {
         BulkNotificationRequest request = new BulkNotificationRequest();
-        request.setRecipientIds(Arrays.asList(1L, 2L));
-        request.setTitle("Hello");
-        request.setMessage("World");
+        request.setTitle("Bulk");
+        request.setMessage("Msg");
+        request.setRecipientIds(List.of());
 
-        when(notificationRepository.save(any(Notification.class))).thenAnswer(inv -> {
-            Notification n = inv.getArgument(0);
-            n.setId((long) (Math.random() * 1000));
-            return n;
-        });
-        doNothing().when(socketIOBroadcastService).pushNotification(any());
+        int createdCount = notificationService.createBulkNotificationsByConditions(request);
 
-        // Dùng MockedStatic cho SecurityUtil
-        try (MockedStatic<com.example.notification_service.utils.SecurityUtil> securityUtil =
-                     mockStatic(com.example.notification_service.utils.SecurityUtil.class)) {
-            securityUtil.when(com.example.notification_service.utils.SecurityUtil::getCurrentUserJWT)
-                    .thenReturn(java.util.Optional.of("mock-token"));
-
-            // Thực thi
-            int count = notificationService.createBulkNotificationsByConditions(request);
-
-            // Kiểm tra: Tạo cho 2 nhân viên
-            assertThat(count).isEqualTo(2);
-            // Minh chứng (CheckDB): save() được gọi 2 lần
-            verify(notificationRepository, times(2)).save(any(Notification.class));
-        }
+        assertThat(createdCount).isZero();
+        verify(notificationRepository, never()).save(any());
+        verify(socketIOBroadcastService, never()).pushNotification(any());
     }
 }
