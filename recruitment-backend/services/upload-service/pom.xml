@@ -109,7 +109,8 @@
 				<configuration>
 					<excludes>
 						<exclude>com/example/upload_service/controller/**</exclude>
-						<exclude>com/example/upload_service/config/CloudinaryConfig.class</exclude>
+						<exclude>com/example/upload_service/config/**</exclude>
+						<exclude>**/UploadServiceApplication.*</exclude>
 					</excludes>
 				</configuration>
 			</plugin>

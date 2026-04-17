@@ -7,10 +7,10 @@ import org.springframework.test.context.ActiveProfiles;
 
 @SpringBootTest
 @ActiveProfiles("test")
+@Disabled("Context load test - bỏ qua khi không có Kafka thật")
 class JobServiceApplicationTests {
 
 	@Test
-	@Disabled("Context load test - bỏ qua khi không có Kafka thật")
 	void contextLoads() {
 	}
 

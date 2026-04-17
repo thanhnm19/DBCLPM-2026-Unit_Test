@@ -67,3 +67,4 @@ __pycache__/
 .nb-gradle/
 
 docs/
+.CLAUDE.md

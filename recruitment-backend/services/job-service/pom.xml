@@ -141,14 +141,22 @@
 				</executions>
 				<configuration>
 					<excludes>
-						<exclude>com/example/job_service/repository/**</exclude>
 						<exclude>com/example/job_service/service/UserClient.class</exclude>
 						<exclude>com/example/job_service/service/CandidateClient.class</exclude>
 						<exclude>com/example/job_service/service/WorkflowClient.class</exclude>
+						<exclude>com/example/job_service/service/UserClient$*.class</exclude>
+						<exclude>com/example/job_service/service/CandidateClient$*.class</exclude>
+						<exclude>com/example/job_service/service/WorkflowClient$*.class</exclude>
+
+						<exclude>**/JobServiceApplication.*</exclude>
+						<exclude>com/example/job_service/exception/**</exclude>
+						<exclude>com/example/job_service/utils/**</exclude>
+						<exclude>com/example/job_service/controller/**</exclude>
+						<exclude>com/example/job_service/messaging/**</exclude>
 						<exclude>com/example/job_service/dto/**</exclude>
+						<exclude>com/example/job_service/repository/**</exclude>
 						<exclude>com/example/job_service/model/**</exclude>
-						<exclude>com/example/job_service/utils/enums/**</exclude>
-						<exclude>com/example/job_service/messaging/OfferWorkflowProducer.class</exclude>
+						<exclude>com/example/job_service/config/**</exclude>
 					</excludes>
 				</configuration>
 			</plugin>

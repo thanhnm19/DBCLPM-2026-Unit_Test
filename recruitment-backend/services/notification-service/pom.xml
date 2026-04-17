@@ -146,12 +146,23 @@
 				</executions>
 				<configuration>
 					<excludes>
-						<exclude>com/example/notification_service/repository/**</exclude>
+						
 						<exclude>com/example/notification_service/service/UserService.class</exclude>
+						<exclude>com/example/notification_service/service/UserService$*.class</exclude>
 						<exclude>com/example/notification_service/service/SocketIOBroadcastService.class</exclude>
-						<exclude>com/example/notification_service/model/**</exclude>
-						<exclude>com/example/notification_service/messaging/NotificationEvent.class</exclude>
+						<exclude>com/example/notification_service/service/SocketIOBroadcastService$*.class</exclude>
+						<exclude>com/example/notification_service/websocket/**</exclude>
+
+						<exclude>**/NotificationServiceApplication.*</exclude>
+						<exclude>com/example/notification_service/exception/**</exclude>
+						<exclude>com/example/notification_service/utils/**</exclude>
+						<exclude>com/example/notification_service/controller/**</exclude>
+						<exclude>com/example/notification_service/exception/**</exclude>
+						<exclude>com/example/notification_service/messaging/**</exclude>
 						<exclude>com/example/notification_service/dto/**</exclude>
+						<exclude>com/example/notification_service/repository/**</exclude>
+						<exclude>com/example/notification_service/model/**</exclude>
+						<exclude>com/example/notification_service/config/**</exclude>
 					</excludes>
 				</configuration>
 			</plugin>

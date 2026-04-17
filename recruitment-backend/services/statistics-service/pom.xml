@@ -138,8 +138,15 @@
 				<configuration>
 					<excludes>
 						<exclude>com/example/statistics_service/service/client/**</exclude>
-						<exclude>com/example/statistics_service/utils/SecurityUtil.class</exclude>
+
+						<exclude>**/StatisticsServiceApplication.*</exclude>
+						<exclude>com/example/statistics_service/exception/**</exclude>
+						<exclude>com/example/statistics_service/utils/**</exclude>
+						<exclude>com/example/statistics_service/controller/**</exclude>
+						<exclude>com/example/statistics_service/exception/**</exclude>
 						<exclude>com/example/statistics_service/dto/**</exclude>
+						<exclude>com/example/statistics_service/model/**</exclude>
+						<exclude>com/example/statistics_service/config/**</exclude>
 					</excludes>
 				</configuration>
 			</plugin>
