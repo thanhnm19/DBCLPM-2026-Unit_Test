@@ -65,3 +65,5 @@ __pycache__/
 *$py.class
 .gradle/
 .nb-gradle/
+
+docs/
