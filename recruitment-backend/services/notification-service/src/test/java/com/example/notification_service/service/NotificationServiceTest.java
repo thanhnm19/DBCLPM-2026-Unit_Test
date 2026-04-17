@@ -10,23 +10,29 @@ import com.example.notification_service.repository.NotificationRepository;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.api.function.Executable;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Captor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.mockito.invocation.InvocationOnMock;
+import org.mockito.stubbing.Answer;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.Set;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
@@ -34,6 +40,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 @ExtendWith(MockitoExtension.class)
 @DisplayName("NotificationService Unit Test")
@@ -44,6 +51,7 @@ class NotificationServiceTest {
     private NotificationRepository notificationRepository;
 
     @Mock
+    @SuppressWarnings("unused")
     private UserService userService;
 
     @Mock
@@ -64,10 +72,13 @@ class NotificationServiceTest {
         String title = "Welcome";
         String message = "Hello";
 
-        when(notificationRepository.save(any(Notification.class))).thenAnswer(invocation -> {
-            Notification n = invocation.getArgument(0, Notification.class);
-            n.setId(1L);
-            return n;
+        when(notificationRepository.save(any(Notification.class))).thenAnswer(new Answer<Notification>() {
+            @Override
+            public Notification answer(InvocationOnMock invocation) {
+                Notification n = invocation.getArgument(0, Notification.class);
+                n.setId(1L);
+                return n;
+            }
         });
 
         // Act
@@ -122,8 +133,12 @@ class NotificationServiceTest {
         org.mockito.Mockito.clearInvocations(notificationRepository);
         when(notificationRepository.findById(999L)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> notificationService.markAsRead(999L))
-                .isInstanceOf(NotificationNotFoundException.class);
+        assertThrows(NotificationNotFoundException.class, new Executable() {
+            @Override
+            public void execute() {
+                notificationService.markAsRead(999L);
+            }
+        });
 
         verify(notificationRepository, times(1)).findById(999L);
         verify(notificationRepository, never()).save(any());
@@ -193,7 +208,7 @@ class NotificationServiceTest {
         Notification n2 = new Notification();
         n2.setId(2L);
 
-        Page<Notification> page = new PageImpl<>(List.of(n1, n2), pageable, 10);
+        Page<Notification> page = new PageImpl<Notification>(Arrays.asList(n1, n2), pageable, 10);
 
         when(notificationRepository.findByRecipientId(eq(11L), eq(pageable))).thenReturn(page);
 
@@ -223,7 +238,7 @@ class NotificationServiceTest {
     @DisplayName("[Extra] getAllNotificationsWithFilters - recipientId null, status có giá trị -> lọc theo status")
     void getAllNotificationsWithFilters_statusBranch() {
         Pageable pageable = PageRequest.of(0, 3);
-        Page<Notification> page = new PageImpl<>(List.of(), pageable, 0);
+        Page<Notification> page = new PageImpl<Notification>(Collections.<Notification>emptyList(), pageable, 0);
 
         when(notificationRepository.findByDeliveryStatus(eq("SENT"), eq(pageable))).thenReturn(page);
 
@@ -246,7 +261,7 @@ class NotificationServiceTest {
         Pageable pageable = PageRequest.of(0, 1);
         Notification n = new Notification();
         n.setId(9L);
-        Page<Notification> page = new PageImpl<>(List.of(n), pageable, 1);
+        Page<Notification> page = new PageImpl<Notification>(Collections.singletonList(n), pageable, 1);
 
         when(notificationRepository.findAll(eq(pageable))).thenReturn(page);
 
@@ -320,14 +335,17 @@ class NotificationServiceTest {
 
         verify(notificationRepository, times(2)).save(notificationCaptor.capture());
         List<Notification> savedList = notificationCaptor.getAllValues();
-        assertThat(savedList).allSatisfy(n -> {
+        for (Notification n : savedList) {
             assertThat(n.getTitle()).isEqualTo("Event Title");
             assertThat(n.getMessage()).isEqualTo("Event Message");
             assertThat(n.getDeliveryStatus()).isEqualTo("SENT");
-        });
+        }
 
-        assertThat(savedList.stream().map(Notification::getRecipientId).distinct().toList())
-                .containsExactlyInAnyOrder(1L, 2L);
+        Set<Long> recipientIds = new HashSet<Long>();
+        for (Notification n : savedList) {
+            recipientIds.add(n.getRecipientId());
+        }
+        assertThat(recipientIds).containsExactlyInAnyOrder(1L, 2L);
     }
 
     // Extra coverage: event resolves to empty recipients -> do nothing
@@ -337,7 +355,7 @@ class NotificationServiceTest {
         NotificationEvent event = new NotificationEvent();
         event.setTitle("T");
         event.setMessage("M");
-        event.setRecipientIds(List.of());
+        event.setRecipientIds(Collections.emptyList());
 
         notificationService.processNotificationEvent(event);
 
@@ -353,12 +371,15 @@ class NotificationServiceTest {
         BulkNotificationRequest request = new BulkNotificationRequest();
         request.setTitle("Bulk Title");
         request.setMessage("Bulk Message");
-        request.setRecipientIds(List.of(10L, 11L, 10L));
+        request.setRecipientIds(Arrays.asList(10L, 11L, 10L));
 
-        when(notificationRepository.save(any(Notification.class))).thenAnswer(invocation -> {
-            Notification n = invocation.getArgument(0, Notification.class);
-            n.setId(1L);
-            return n;
+        when(notificationRepository.save(any(Notification.class))).thenAnswer(new Answer<Notification>() {
+            @Override
+            public Notification answer(InvocationOnMock invocation) {
+                Notification n = invocation.getArgument(0, Notification.class);
+                n.setId(1L);
+                return n;
+            }
         });
 
         // Act
@@ -371,7 +392,7 @@ class NotificationServiceTest {
 
         verify(notificationRepository, times(2)).save(notificationCaptor.capture());
         assertThat(notificationCaptor.getAllValues())
-                .extracting(Notification::getRecipientId)
+                .extracting("recipientId")
                 .containsExactlyInAnyOrder(10L, 11L);
     }
 
@@ -382,7 +403,7 @@ class NotificationServiceTest {
         BulkNotificationRequest request = new BulkNotificationRequest();
         request.setTitle("Bulk");
         request.setMessage("Msg");
-        request.setRecipientIds(List.of());
+        request.setRecipientIds(Collections.emptyList());
 
         int createdCount = notificationService.createBulkNotificationsByConditions(request);
 
