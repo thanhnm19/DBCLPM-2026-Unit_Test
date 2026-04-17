@@ -551,4 +551,186 @@ class OfferServiceTest {
         // Xác nhận delete() vật lý KHÔNG được gọi
         verify(offerRepository, never()).delete(any(Offer.class));
     }
+
+    // =======================================================================
+    // PHẦN 10: Các hàm Read / Aggregate Data (DTO)
+    // =======================================================================
+
+    // Test Case ID: OFF-TC22
+    // Mục tiêu: Tìm kiếm Offer theo ID, trả về Offer nếu tồn tại, throw IdInvalidException nếu không
+    @Test
+    @DisplayName("OFF-TC22: findById - Trả về Offer nếu tồn tại, throw nếu không")
+    void findById_ShouldReturnOffer_OrThrow() throws IdInvalidException {
+        // Chuẩn bị: Mocks cho trường hợp ID hợp lệ và không hợp lệ
+        when(offerRepository.findById(1L)).thenReturn(Optional.of(draftOffer));
+        
+        // Thực thi (Case 1)
+        Offer result = offerService.findById(1L);
+        
+        // Kiểm tra (Case 1): ID trả về phải trùng khớp
+        assertThat(result.getId()).isEqualTo(1L);
+
+        // Chuẩn bị & Thực thi (Case 2): ID không tồn tại
+        when(offerRepository.findById(99L)).thenReturn(Optional.empty());
+        
+        // Kiểm tra (Case 2): Phải throw IdInvalidException
+        assertThatThrownBy(() -> offerService.findById(99L))
+                .isInstanceOf(IdInvalidException.class);
+    }
+
+    // Test Case ID: OFF-TC23
+    // Mục tiêu: Giao tiếp với các HTTP Client để tổng hợp đầy đủ dữ liệu cho OfferWithUserDTO
+    @Test
+    @DisplayName("OFF-TC23: getByIdWithUser - Data Aggregation đầy đủ các Client")
+    void getByIdWithUser_ShouldAggregateDataCorrectly() throws Exception {
+        // Chuẩn bị: Dữ liệu Mock JSON đại diện cho response từ external services (User, Candidate, Workflow)
+        com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+        
+        // Mock Employee Response
+        com.fasterxml.jackson.databind.node.ObjectNode employeeNode = mapper.createObjectNode();
+        employeeNode.put("name", "Nguyen Van A");
+        com.fasterxml.jackson.databind.node.ObjectNode positionNode = mapper.createObjectNode();
+        positionNode.put("level", "Senior");
+        employeeNode.set("position", positionNode);
+
+        // Mock Candidate Response
+        com.fasterxml.jackson.databind.node.ObjectNode candidateNode = mapper.createObjectNode();
+        candidateNode.put("name", "Candidate B");
+        candidateNode.put("jobPositionId", 500L);
+
+        // Mock Department Response
+        com.fasterxml.jackson.databind.node.ObjectNode deptNode = mapper.createObjectNode();
+        deptNode.put("name", "Phòng IT");
+        
+        // Mock Workflow Response
+        com.fasterxml.jackson.databind.node.ObjectNode workflowNode = mapper.createObjectNode();
+        workflowNode.put("status", "ACTIVE");
+
+        // Mock JobPosition
+        com.example.job_service.model.JobPosition jobPos = new com.example.job_service.model.JobPosition();
+        jobPos.setTitle("Java Dev");
+        com.example.job_service.model.RecruitmentRequest req = new com.example.job_service.model.RecruitmentRequest();
+        req.setDepartmentId(9L);
+        jobPos.setRecruitmentRequest(req);
+
+        // Mock behaviors cho toàn bộ các Feign Clients
+        when(offerRepository.findById(1L)).thenReturn(Optional.of(draftOffer));
+        when(userService.getEmployeeById(10L, "token")).thenReturn(org.springframework.http.ResponseEntity.ok(employeeNode));
+        when(candidateClient.getCandidateById(100L, "token")).thenReturn(org.springframework.http.ResponseEntity.ok(candidateNode));
+        when(jobPositionService.findById(500L)).thenReturn(jobPos);
+        when(userService.getDepartmentById(9L, "token")).thenReturn(org.springframework.http.ResponseEntity.ok(deptNode));
+        when(workflowServiceClient.getWorkflowInfoByRequestId(any(), any(), any(), any())).thenReturn(workflowNode);
+
+        // Thực thi
+        com.example.job_service.dto.offer.OfferWithUserDTO result = offerService.getByIdWithUser(1L, "token");
+
+        // Kiểm tra: Các thuộc tính phân mảnh được gộp lại chính xác vào thành 1 DTO duy nhất
+        assertThat(result).isNotNull();
+        assertThat(result.getLevelName()).isEqualTo("Senior");
+        assertThat(result.getDepartmentName()).isEqualTo("Phòng IT");
+        assertThat(result.getJobPositionTitle()).isEqualTo("Java Dev");
+    }
+
+    // Test Case ID: OFF-TC24
+    // Mục tiêu: Tổng hợp DTO nhưng bọc trong chuẩn SingleResponseDTO trả về cho Controller theo Base API
+    @Test
+    @DisplayName("OFF-TC24: getByIdWithUserAndMetadata - Bao bọc bởi SingleResponseDTO")
+    void getByIdWithUserAndMetadata_ShouldWrapInSingleResponseDTO() throws Exception {
+        // Chuẩn bị: Tái sử dụng/Mock nhánh tối giản, bỏ qua các client phụ bằng cách set ID = null để tránh lỗi NullPointerException
+        draftOffer.setRequesterId(null);
+        draftOffer.setCandidateId(null);
+        draftOffer.setOwnerUserId(null);
+        draftOffer.setWorkflowId(null);
+        when(offerRepository.findById(1L)).thenReturn(Optional.of(draftOffer));
+        
+        // Thực thi
+        com.example.job_service.dto.SingleResponseDTO<com.example.job_service.dto.offer.OfferWithUserDTO> result = 
+            offerService.getByIdWithUserAndMetadata(1L, "token");
+            
+        // Kiểm tra: Dữ liệu được bọc đúng chuẩn SingleResponseDTO
+        assertThat(result.getData()).isNotNull();
+        assertThat(result.getData().getId()).isEqualTo(1L);
+    }
+
+    // Test Case ID: OFF-TC25
+    // Mục tiêu: Hàm xem chi tiết trang OfferDetail, phải map và tổng hợp đúng tên requester, candidate email/phone.
+    @Test
+    @DisplayName("OFF-TC25: getByIdDetail - Aggregation chi tiết cho trang Offer Detail")
+    void getByIdDetail_ShouldAggregateDetailCorrectly() throws Exception {
+        // Chuẩn bị: Mock Data tối thiểu để đi ngang qua các nhanh logic JSON Parsing
+        draftOffer.setRequesterId(10L);
+        draftOffer.setOwnerUserId(10L);
+        draftOffer.setCandidateId(100L);
+        draftOffer.setWorkflowId(50L);
+        
+        com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+        
+        com.fasterxml.jackson.databind.node.ObjectNode employeeNode = mapper.createObjectNode();
+        employeeNode.put("name", "Nguyen Van A");
+
+        com.fasterxml.jackson.databind.node.ObjectNode candidateNode = mapper.createObjectNode();
+        candidateNode.put("name", "Candidate B");
+        candidateNode.put("email", "b@gmail.com");
+        candidateNode.put("phone", "0123");
+
+        com.fasterxml.jackson.databind.node.ObjectNode workflowNode = mapper.createObjectNode();
+        workflowNode.put("status", "COMPLETED");
+
+        when(offerRepository.findById(1L)).thenReturn(Optional.of(draftOffer));
+        
+        // Sử dụng lenient() vì logic parse JSON có thể gọi hoặc skip tuỳ ý, tránh lỗi UnnecessaryStubbingException của Mockito
+        lenient().when(userService.getEmployeeById(10L, "token")).thenReturn(org.springframework.http.ResponseEntity.ok(employeeNode));
+        lenient().when(candidateClient.getCandidateById(100L, "token")).thenReturn(org.springframework.http.ResponseEntity.ok(candidateNode));
+        lenient().when(workflowServiceClient.getWorkflowInfoByRequestId(1L, 50L, "OFFER", "token")).thenReturn(workflowNode);
+
+        // Thực thi
+        com.example.job_service.dto.offer.OfferDetailDTO result = offerService.getByIdDetail(1L, "token");
+
+        // Kiểm tra: Các field của DetailDTO được map đúng giá trị
+        assertThat(result.getRequesterName()).isEqualTo("Nguyen Van A");
+        assertThat(result.getCandidateName()).isEqualTo("Candidate B");
+        assertThat(result.getCandidateEmail()).isEqualTo("b@gmail.com");
+        assertThat(result.getCandidatePhone()).isEqualTo("0123");
+    }
+
+    // Test Case ID: OFF-TC26
+    // Mục tiêu: Lấy danh sách Offer có hỗ trợ filter phân trang và user name map.
+    @Test
+    @DisplayName("OFF-TC26: getAllWithFilters - Trả về phân trang và mapping đúng")
+    void getAllWithFilters_ShouldReturnPaginationDTO() {
+        // Chuẩn bị: Dữ liệu phân trang
+        org.springframework.data.domain.Pageable pageable = org.springframework.data.domain.PageRequest.of(0, 10);
+        org.springframework.data.domain.Page<Offer> page = new org.springframework.data.domain.PageImpl<>(java.util.List.of(draftOffer), pageable, 1);
+        
+        // Setup draftOffer loại bỏ các key để tránh gọi mock client không cần thiết
+        draftOffer.setRequesterId(null);
+        draftOffer.setCandidateId(null);
+        draftOffer.setWorkflowId(null);
+
+        when(offerRepository.findByFilters(OfferStatus.DRAFT, 10L, "keyword", pageable)).thenReturn(page);
+        when(userService.getEmployeesByIds(any(), eq("token"))).thenReturn(java.util.Map.of());
+
+        // Thực thi
+        com.example.job_service.dto.PaginationDTO result = offerService.getAllWithFilters("DRAFT", 10L, "keyword", "token", pageable);
+
+        // Kiểm tra: Phân trang tổng hợp đúng Metadata và số lượng List Result
+        assertThat(result.getMeta().getTotal()).isEqualTo(1);
+        assertThat(result.getResult()).isInstanceOf(java.util.List.class);
+    }
+
+    // Test Case ID: OFF-TC27
+    // Mục tiêu: Hàm tìm kiếm dạng List không Support phân trang (dùng cho export, batch update)
+    @Test
+    @DisplayName("OFF-TC27: findAllWithFilters - Tìm kiếm danh sách List Offer")
+    void findAllWithFilters_ShouldReturnList() {
+        // Chuẩn bị
+        when(offerRepository.findByFiltersList(OfferStatus.DRAFT, 1L, 2L, 3L, 1000L, 2000L, null, null, "key"))
+            .thenReturn(java.util.List.of(draftOffer));
+            
+        // Thực thi
+        java.util.List<Offer> results = offerService.findAllWithFilters("DRAFT", 1L, 2L, 3L, 1000L, 2000L, null, null, "key");
+        
+        // Kiểm tra: Trả về nguyên mẫu List Data
+        assertThat(results).hasSize(1);
+    }
 }

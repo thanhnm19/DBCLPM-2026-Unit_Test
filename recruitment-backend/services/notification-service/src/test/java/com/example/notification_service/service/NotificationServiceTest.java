@@ -320,14 +320,17 @@ class NotificationServiceTest {
 
         verify(notificationRepository, times(2)).save(notificationCaptor.capture());
         List<Notification> savedList = notificationCaptor.getAllValues();
-        assertThat(savedList).allSatisfy(n -> {
+        for (Notification n : savedList) {
             assertThat(n.getTitle()).isEqualTo("Event Title");
             assertThat(n.getMessage()).isEqualTo("Event Message");
             assertThat(n.getDeliveryStatus()).isEqualTo("SENT");
-        });
+        }
 
-        assertThat(savedList.stream().map(Notification::getRecipientId).distinct().toList())
-                .containsExactlyInAnyOrder(1L, 2L);
+        Set<Long> recipientIds = new HashSet<Long>();
+        for (Notification n : savedList) {
+            recipientIds.add(n.getRecipientId());
+        }
+        assertThat(recipientIds).containsExactlyInAnyOrder(1L, 2L);
     }
 
     // Extra coverage: event resolves to empty recipients -> do nothing
