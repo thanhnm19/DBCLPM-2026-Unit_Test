@@ -130,6 +130,7 @@ class NotificationServiceTest {
         verify(socketIOBroadcastService, times(1)).publishUnreadCount(77L, 3L);
 
         // --- Case 2: Not found -> throw exception ---
+        org.mockito.Mockito.clearInvocations(notificationRepository);
         when(notificationRepository.findById(999L)).thenReturn(Optional.empty());
 
         assertThrows(NotificationNotFoundException.class, new Executable() {
@@ -317,15 +318,12 @@ class NotificationServiceTest {
         NotificationEvent event = new NotificationEvent();
         event.setTitle("Event Title");
         event.setMessage("Event Message");
-        event.setRecipientIds(Arrays.asList(1L, 2L, 2L, null));
+        event.setRecipientIds(java.util.Arrays.asList(1L, 2L, 2L, null));
 
-        when(notificationRepository.save(any(Notification.class))).thenAnswer(new Answer<Notification>() {
-            @Override
-            public Notification answer(InvocationOnMock invocation) {
-                Notification n = invocation.getArgument(0, Notification.class);
-                n.setId(999L);
-                return n;
-            }
+        when(notificationRepository.save(any(Notification.class))).thenAnswer(invocation -> {
+            Notification n = invocation.getArgument(0, Notification.class);
+            n.setId(999L);
+            return n;
         });
 
         // Act

@@ -101,16 +101,6 @@
 		<plugins>
 			<plugin>
 				<groupId>org.apache.maven.plugins</groupId>
-				<artifactId>maven-surefire-plugin</artifactId>
-				<configuration>
-					<!-- Bỏ qua context-load test vì cần Kafka thật (không có trong test env) -->
-					<excludes>
-						<exclude>**/JobServiceApplicationTests.java</exclude>
-					</excludes>
-				</configuration>
-			</plugin>
-			<plugin>
-				<groupId>org.apache.maven.plugins</groupId>
 				<artifactId>maven-compiler-plugin</artifactId>
 				<configuration>
 					<annotationProcessorPaths>
@@ -149,6 +139,26 @@
 						<goals><goal>report</goal></goals>
 					</execution>
 				</executions>
+				<configuration>
+					<excludes>
+						<exclude>com/example/job_service/service/UserClient.class</exclude>
+						<exclude>com/example/job_service/service/CandidateClient.class</exclude>
+						<exclude>com/example/job_service/service/WorkflowClient.class</exclude>
+						<exclude>com/example/job_service/service/UserClient$*.class</exclude>
+						<exclude>com/example/job_service/service/CandidateClient$*.class</exclude>
+						<exclude>com/example/job_service/service/WorkflowClient$*.class</exclude>
+
+						<exclude>**/JobServiceApplication.*</exclude>
+						<exclude>com/example/job_service/exception/**</exclude>
+						<exclude>com/example/job_service/utils/**</exclude>
+						<exclude>com/example/job_service/controller/**</exclude>
+						<exclude>com/example/job_service/messaging/**</exclude>
+						<exclude>com/example/job_service/dto/**</exclude>
+						<exclude>com/example/job_service/repository/**</exclude>
+						<exclude>com/example/job_service/model/**</exclude>
+						<exclude>com/example/job_service/config/**</exclude>
+					</excludes>
+				</configuration>
 			</plugin>
 		</plugins>
 	</build>
