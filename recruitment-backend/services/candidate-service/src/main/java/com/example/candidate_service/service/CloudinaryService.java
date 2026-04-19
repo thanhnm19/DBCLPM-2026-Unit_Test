@@ -25,6 +25,9 @@ public class CloudinaryService {
     }
 
     public String uploadFile(MultipartFile file) {
+        if (file == null) {
+            throw new NullPointerException("File cannot be null");
+        }
         try {
             // String filename = file.getOriginalFilename();
             // Map<String, Object> options = new HashMap<>();

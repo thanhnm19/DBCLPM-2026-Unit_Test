@@ -1,0 +1,115 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" 
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <!-- Khai báo Root POM vừa tạo làm parent -->
+    <parent>
+        <groupId>com.example</groupId>
+        <artifactId>recruitment-backend-aggregator</artifactId>
+        <version>0.0.1-SNAPSHOT</version>
+        <relativePath>../pom.xml</relativePath>
+    </parent>
+
+    <artifactId>coverage-report</artifactId>
+    <packaging>pom</packaging>
+
+    <name>Coverage Report</name>
+    <description>Module tổng hợp báo cáo JaCoCo từ tất cả các backend services</description>
+
+    <dependencies>
+        <!-- Phải đưa tất cả các module cần report vào dependencies để aggregate có thể tìm thấy codebase và file exe -->
+        <dependency><groupId>com.example</groupId><artifactId>gateway</artifactId><version>0.0.1-SNAPSHOT</version></dependency>
+        <dependency><groupId>com.example</groupId><artifactId>candidate-service</artifactId><version>0.0.1-SNAPSHOT</version></dependency>
+        <dependency><groupId>com.example</groupId><artifactId>communications-service</artifactId><version>0.0.1-SNAPSHOT</version></dependency>
+        <dependency><groupId>com.example</groupId><artifactId>email-service</artifactId><version>0.0.1-SNAPSHOT</version></dependency>
+        <dependency><groupId>com.example</groupId><artifactId>job-service</artifactId><version>0.0.1-SNAPSHOT</version></dependency>
+        <dependency><groupId>com.example</groupId><artifactId>notification-service</artifactId><version>0.0.1-SNAPSHOT</version></dependency>
+        <dependency><groupId>com.example</groupId><artifactId>schedule-service</artifactId><version>0.0.1-SNAPSHOT</version></dependency>
+        <dependency><groupId>com.example</groupId><artifactId>statistics-service</artifactId><version>0.0.1-SNAPSHOT</version></dependency>
+        <dependency><groupId>com.example</groupId><artifactId>upload-service</artifactId><version>0.0.1-SNAPSHOT</version></dependency>
+        <dependency><groupId>com.example</groupId><artifactId>user-service</artifactId><version>0.0.1-SNAPSHOT</version></dependency>
+        <dependency><groupId>com.example</groupId><artifactId>workflow-service</artifactId><version>0.0.1-SNAPSHOT</version></dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.jacoco</groupId>
+                <artifactId>jacoco-maven-plugin</artifactId>
+                <!-- Dùng chung phiên bản 0.8.13 như candidate-service (hoặc 0.8.12 như job-service) -->
+                <version>0.8.13</version>
+                <executions>
+                    <execution>
+                        <id>report-aggregate</id>
+                        <phase>verify</phase>
+                        <goals>
+                            <goal>report-aggregate</goal>
+                        </goals>
+                        <configuration>
+                            <outputDirectory>${project.build.directory}/site/jacoco-aggregate</outputDirectory>
+                            
+                            <!-- 1. Cấu hình bao gồm (Inclusions) -->
+                            <includes>
+                                <!-- Mặc định với các service ta lấy service logic -->
+                                <include>com/example/*/service/**</include>
+                                
+                                <!-- Đặc thù User-service: Giữ lại interceptor và JwtUtil -->
+                                <include>com/example/user_service/config/PermissionInterceptor.class</include>
+                                <include>com/example/user_service/utils/JwtUtil*</include>
+                            </includes>
+
+                            <!-- 2. Cấu hình loại trừ (Exclusions) - Khớp chính xác 100% với POM từng service -->
+                            <excludes>
+                                <!-- Boilerplate chung -->
+                                <exclude>**/*Application.*</exclude>
+                                <exclude>com/example/*/controller/**</exclude>
+                                <exclude>com/example/*/dto/**</exclude>
+                                <exclude>com/example/*/model/**</exclude>
+                                <exclude>com/example/*/repository/**</exclude>
+                                <exclude>com/example/*/exception/**</exclude>
+                                <exclude>com/example/*/messaging/**</exclude>
+                                
+                                <!-- Đặc thù Notification-service -->
+                                <exclude>com/example/notification_service/service/UserService.class</exclude>
+                                <exclude>com/example/notification_service/service/UserService$*.class</exclude>
+                                <exclude>com/example/notification_service/service/SocketIOBroadcastService.class</exclude>
+                                <exclude>com/example/notification_service/service/SocketIOBroadcastService$*.class</exclude>
+                                <exclude>com/example/notification_service/websocket/**</exclude>
+                                <exclude>com/example/notification_service/utils/**</exclude>
+                                <exclude>com/example/notification_service/config/**</exclude>
+
+                                <!-- Đặc thù Job-service -->
+                                <exclude>com/example/job_service/service/UserClient.class</exclude>
+                                <exclude>com/example/job_service/service/CandidateClient.class</exclude>
+                                <exclude>com/example/job_service/service/WorkflowClient.class</exclude>
+                                <exclude>com/example/job_service/service/UserClient$*.class</exclude>
+                                <exclude>com/example/job_service/service/CandidateClient$*.class</exclude>
+                                <exclude>com/example/job_service/service/WorkflowClient$*.class</exclude>
+                                <exclude>com/example/job_service/utils/**</exclude>
+                                <exclude>com/example/job_service/config/**</exclude>
+
+                                <!-- Đặc thù Statistics-service -->
+                                <exclude>com/example/statistics_service/service/client/**</exclude>
+                                <exclude>com/example/statistics_service/utils/**</exclude>
+                                <exclude>com/example/statistics_service/config/**</exclude>
+
+                                <!-- Đặc thù Upload-service (Chỉ loại trừ controller và config như POM gốc) -->
+                                <exclude>com/example/upload_service/config/**</exclude>
+
+                                <!-- Đặc thù User-service (Bỏ config/utils khác, giữ lại JwtUtil/Interceptor đã include ở trên) -->
+                                <exclude>com/example/user_service/config/!(PermissionInterceptor)*</exclude>
+                                <exclude>com/example/user_service/utils/!(JwtUtil)*</exclude>
+
+                                <!-- Các service mặc định khác (communications, email, schedule, etc.) loại bỏ config/utils -->
+                                <exclude>com/example/!(user_service|upload_service|notification_service|job_service|statistics_service)/config/**</exclude>
+                                <exclude>com/example/!(user_service|upload_service|notification_service|job_service|statistics_service)/utils/**</exclude>
+                            </excludes>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+</project>
