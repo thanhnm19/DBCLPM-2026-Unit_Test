@@ -312,4 +312,72 @@ class ScheduleStatusUpdateServiceTest {
             assertEquals(2, saved.size());
         }
     }
+
+    @Test
+    @DisplayName("SCH-STATUS-TC-007: sendReminderNotifications - bỏ qua schedule thiếu startTime/reminderTime và không saveAll nếu không có cái nào đến giờ")
+    void testSendReminderNotifications_SkipInvalidAndNoDue_RemainsNoSave_SCH_STATUS_TC_007() {
+        // Testcase ID: SCH-STATUS-TC-007
+        // Objective: Cover nhánh continue khi thiếu startTime/reminderTime + nhánh
+        // schedulesToRemind empty => return sớm
+
+        // arrange
+        Schedule missingStart = new Schedule();
+        missingStart.setId(1L);
+        missingStart.setReminderTime(10);
+        missingStart.setStartTime(null);
+
+        Schedule missingReminder = new Schedule();
+        missingReminder.setId(2L);
+        missingReminder.setStartTime(LocalDateTime.now().plusHours(1));
+        missingReminder.setReminderTime(null);
+
+        Schedule notDue = new Schedule();
+        notDue.setId(3L);
+        notDue.setStartTime(LocalDateTime.now().plusHours(2));
+        notDue.setReminderTime(10);
+        notDue.setParticipants(new HashSet<>());
+
+        when(scheduleRepository.findSchedulesForReminder(any(LocalDateTime.class)))
+                .thenReturn(List.of(missingStart, missingReminder, notDue));
+
+        // act
+        scheduleStatusUpdateService.sendReminderNotifications();
+
+        // assert
+        verify(notificationProducer, never()).sendNotificationToMultiple(anyList(), anyString(), anyString(), any());
+        verify(scheduleRepository, never()).saveAll(anyList());
+    }
+
+    @Test
+    @DisplayName("SCH-STATUS-TC-008: sendReminderNotifications - participants null -> không gửi, vẫn set reminderSent=true và saveAll")
+    void testSendReminderNotifications_NullParticipants_SetReminderSent_SaveAll_SCH_STATUS_TC_008() {
+        // Testcase ID: SCH-STATUS-TC-008
+        // Objective: Cover nhánh participantIds empty do participants null => set
+        // reminderSent=true
+
+        // arrange
+        Schedule schedule = new Schedule();
+        schedule.setId(10L);
+        schedule.setTitle("Null participants");
+        schedule.setStartTime(LocalDateTime.now().plusMinutes(1));
+        schedule.setReminderTime(1);
+        schedule.setReminderSent(false);
+        schedule.setParticipants(null);
+
+        when(scheduleRepository.findSchedulesForReminder(any(LocalDateTime.class)))
+                .thenReturn(Collections.singletonList(schedule));
+
+        try (MockedStatic<SecurityUtil> mockedSecurity = org.mockito.Mockito.mockStatic(SecurityUtil.class)) {
+            mockedSecurity.when(SecurityUtil::getCurrentUserJWT).thenReturn(Optional.empty());
+
+            // act
+            scheduleStatusUpdateService.sendReminderNotifications();
+
+            // assert
+            assertEquals(Boolean.TRUE, schedule.getReminderSent());
+            verify(notificationProducer, never()).sendNotificationToMultiple(anyList(), anyString(), anyString(),
+                    any());
+            verify(scheduleRepository, times(1)).saveAll(eq(Collections.singletonList(schedule)));
+        }
+    }
 }
