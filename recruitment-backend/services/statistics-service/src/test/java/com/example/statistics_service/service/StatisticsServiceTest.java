@@ -484,4 +484,280 @@ class StatisticsServiceTest {
                     isNull());
         }
     }
+
+    // Test Case ID: UTIL-ST14
+    // Mục tiêu: formatSalary - min == null
+    @Test
+    @DisplayName("UTIL-ST14: formatSalary - min == null phải lấy max")
+    void getJobOpenings_WithMinNull_ShouldFormatMax() {
+        JsonNode pos = buildJobPositionNode(false, "Ha Noi", null, "20000000");
+        PaginationDTO dto = new PaginationDTO(); dto.setResult(Arrays.asList(pos));
+        
+        try (MockedStatic<SecurityUtil> secUtil = mockStatic(SecurityUtil.class)) {
+            secUtil.when(SecurityUtil::extractUserRole).thenReturn("CEO");
+            when(jobServiceClient.getJobPositions(any(), any(), anyInt(), anyInt())).thenReturn(dto);
+            List<JobOpeningDTO> res = statisticsService.getJobOpenings("token", 1, 10);
+            assertThat(res.get(0).getSalaryDisplay()).isEqualTo("20 triệu");
+        }
+    }
+
+    // Test Case ID: UTIL-ST15
+    // Mục tiêu: formatSalary - min bằng max
+    @Test
+    @DisplayName("UTIL-ST15: formatSalary - min bằng max")
+    void getJobOpenings_WithMinEqualMax_ShouldFormatMin() {
+        JsonNode pos = buildJobPositionNode(false, "Ha Noi", "10000000", "10000000");
+        PaginationDTO dto = new PaginationDTO(); dto.setResult(Arrays.asList(pos));
+        
+        try (MockedStatic<SecurityUtil> secUtil = mockStatic(SecurityUtil.class)) {
+            secUtil.when(SecurityUtil::extractUserRole).thenReturn("CEO");
+            when(jobServiceClient.getJobPositions(any(), any(), anyInt(), anyInt())).thenReturn(dto);
+            List<JobOpeningDTO> res = statisticsService.getJobOpenings("token", 1, 10);
+            assertThat(res.get(0).getSalaryDisplay()).isEqualTo("10 triệu");
+        }
+    }
+
+    // Test Case ID: UTIL-ST16
+    // Mục tiêu: formatVND - thousands (amount < 1_000_000)
+    @Test
+    @DisplayName("UTIL-ST16: formatSalary - amount < 1 triệu để rơi vào thousands")
+    void getJobOpenings_WithLessThanOneMillion_ShouldFormatThousands() {
+        JsonNode pos = buildJobPositionNode(false, "Ha Noi", "500000", null);
+        PaginationDTO dto = new PaginationDTO(); dto.setResult(Arrays.asList(pos));
+        
+        try (MockedStatic<SecurityUtil> secUtil = mockStatic(SecurityUtil.class)) {
+            secUtil.when(SecurityUtil::extractUserRole).thenReturn("CEO");
+            when(jobServiceClient.getJobPositions(any(), any(), anyInt(), anyInt())).thenReturn(dto);
+            List<JobOpeningDTO> res = statisticsService.getJobOpenings("token", 1, 10);
+            assertThat(res.get(0).getSalaryDisplay()).isEqualTo("500 triệu"); // Do logic chia 1000 rồi ghép " triệu"
+        }
+    }
+
+    // Test Case ID: UTIL-ST17
+    // Mục tiêu: formatVND - amount == null (bằng Reflection)
+    @Test
+    @DisplayName("UTIL-ST17: formatVND - lượng tiền null (Reflection)")
+    void formatVND_WithNullAmount_ShouldReturnZero() throws Exception {
+        java.lang.reflect.Method method = StatisticsService.class.getDeclaredMethod("formatVND", java.math.BigDecimal.class);
+        method.setAccessible(true);
+        String result = (String) method.invoke(statisticsService, (java.math.BigDecimal) null);
+        assertThat(result).isEqualTo("0");
+    }
+
+    // Test Case ID: UTIL-ST18
+    // Mục tiêu: getDepartmentIdForStatistics - role = null
+    @Test
+    @DisplayName("UTIL-ST18: getDepartmentIdForStatistics - role = null")
+    void getDepartmentId_WithNullRole() {
+        try (MockedStatic<SecurityUtil> secUtil = mockStatic(SecurityUtil.class)) {
+            secUtil.when(SecurityUtil::extractUserRole).thenReturn(null);
+            when(candidateServiceClient.getApplicationsForStatistics(any(), any(), any(), any(), any(), isNull())).thenReturn(Collections.emptyList());
+            when(communicationServiceClient.getSchedulesForStatistics(any(), any(), any(), any(), any())).thenReturn(Collections.emptyList());
+            statisticsService.getSummaryStatistics("token", null, null);
+            verify(candidateServiceClient, times(1)).getApplicationsForStatistics(any(), isNull(), any(), any(), any(), isNull());
+        }
+    }
+
+    // Test Case ID: UTIL-ST19
+    // Mục tiêu: getDepartmentIdForStatistics - STAFF HR
+    @Test
+    @DisplayName("UTIL-ST19: getDepartmentIdForStatistics - STAFF phòng HR thì lấy tất cả")
+    void getDepartmentId_StaffHr_ShouldBeNull() {
+        try (MockedStatic<SecurityUtil> secUtil = mockStatic(SecurityUtil.class)) {
+            secUtil.when(SecurityUtil::extractUserRole).thenReturn("STAFF");
+            secUtil.when(SecurityUtil::extractDepartmentCode).thenReturn("HR");
+            when(candidateServiceClient.getApplicationsForStatistics(any(), any(), any(), any(), any(), isNull())).thenReturn(Collections.emptyList());
+            when(communicationServiceClient.getSchedulesForStatistics(any(), any(), any(), any(), any())).thenReturn(Collections.emptyList());
+            statisticsService.getSummaryStatistics("token", null, null);
+            verify(candidateServiceClient, times(1)).getApplicationsForStatistics(any(), isNull(), any(), any(), any(), isNull());
+        }
+    }
+
+    // Test Case ID: UTIL-ST20
+    // Mục tiêu: getDepartmentIdForStatistics - STAFF IT
+    @Test
+    @DisplayName("UTIL-ST20: getDepartmentIdForStatistics - STAFF phòng IT thì lấy nội bộ")
+    void getDepartmentId_StaffIT_ShouldReturnDepartmentId() {
+        try (MockedStatic<SecurityUtil> secUtil = mockStatic(SecurityUtil.class)) {
+            secUtil.when(SecurityUtil::extractUserRole).thenReturn("STAFF");
+            secUtil.when(SecurityUtil::extractDepartmentCode).thenReturn("IT");
+            secUtil.when(SecurityUtil::extractDepartmentId).thenReturn(2L);
+            when(candidateServiceClient.getApplicationsForStatistics(any(), any(), any(), any(), any(), eq(2L))).thenReturn(Collections.emptyList());
+            when(communicationServiceClient.getSchedulesForStatistics(any(), any(), any(), any(), any())).thenReturn(Collections.emptyList());
+            statisticsService.getSummaryStatistics("token", null, null);
+            verify(candidateServiceClient, times(1)).getApplicationsForStatistics(any(), isNull(), any(), any(), any(), eq(2L));
+        }
+    }
+
+    // Test Case ID: UTIL-ST21
+    // Mục tiêu: getDepartmentIdForStatistics - MANAGER HR
+    @Test
+    @DisplayName("UTIL-ST21: getDepartmentIdForStatistics - MANAGER phòng HR thì lấy tất cả")
+    void getDepartmentId_ManagerHr_ShouldBeNull() {
+        try (MockedStatic<SecurityUtil> secUtil = mockStatic(SecurityUtil.class)) {
+            secUtil.when(SecurityUtil::extractUserRole).thenReturn("MANAGER");
+            secUtil.when(SecurityUtil::extractDepartmentCode).thenReturn("HR");
+            when(candidateServiceClient.getApplicationsForStatistics(any(), any(), any(), any(), any(), isNull())).thenReturn(Collections.emptyList());
+            when(communicationServiceClient.getSchedulesForStatistics(any(), any(), any(), any(), any())).thenReturn(Collections.emptyList());
+            statisticsService.getSummaryStatistics("token", null, null);
+            verify(candidateServiceClient, times(1)).getApplicationsForStatistics(any(), isNull(), any(), any(), any(), isNull());
+        }
+    }
+
+    // Test Case ID: UTIL-ST22
+    // Mục tiêu: getDepartmentIdForStatistics - MANAGER IT
+    @Test
+    @DisplayName("UTIL-ST22: getDepartmentIdForStatistics - MANAGER phòng IT thì lấy nội bộ")
+    void getDepartmentId_ManagerIT_ShouldReturnDepartmentId() {
+        try (MockedStatic<SecurityUtil> secUtil = mockStatic(SecurityUtil.class)) {
+            secUtil.when(SecurityUtil::extractUserRole).thenReturn("MANAGER");
+            secUtil.when(SecurityUtil::extractDepartmentCode).thenReturn("IT");
+            secUtil.when(SecurityUtil::extractDepartmentId).thenReturn(3L);
+            when(candidateServiceClient.getApplicationsForStatistics(any(), any(), any(), any(), any(), eq(3L))).thenReturn(Collections.emptyList());
+            when(communicationServiceClient.getSchedulesForStatistics(any(), any(), any(), any(), any())).thenReturn(Collections.emptyList());
+            statisticsService.getSummaryStatistics("token", null, null);
+            verify(candidateServiceClient, times(1)).getApplicationsForStatistics(any(), isNull(), any(), any(), any(), eq(3L));
+        }
+    }
+
+    // Test Case ID: UTIL-ST23
+    // Mục tiêu: getDepartmentIdForStatistics - GUEST
+    @Test
+    @DisplayName("UTIL-ST23: getDepartmentIdForStatistics - Role GUEST không thuộc switch")
+    void getDepartmentId_Guest_ShouldBeNull() {
+        try (MockedStatic<SecurityUtil> secUtil = mockStatic(SecurityUtil.class)) {
+            secUtil.when(SecurityUtil::extractUserRole).thenReturn("GUEST");
+            when(candidateServiceClient.getApplicationsForStatistics(any(), any(), any(), any(), any(), isNull())).thenReturn(Collections.emptyList());
+            when(communicationServiceClient.getSchedulesForStatistics(any(), any(), any(), any(), any())).thenReturn(Collections.emptyList());
+            statisticsService.getSummaryStatistics("token", null, null);
+            verify(candidateServiceClient, times(1)).getApplicationsForStatistics(any(), isNull(), any(), any(), any(), isNull());
+        }
+    }
+
+    // Test Case ID: UTIL-ST24
+    // Mục tiêu: filterApplications By DateRange - Exception 
+    @Test
+    @DisplayName("UTIL-ST24: filterApplications - Handle exception date parse ngầm định false")
+    void filterApplications_ExceptionParsing() {
+        List<JsonNode> applications = Arrays.asList(buildApplicationNode("INVALID_DATE", "PENDING"));
+        try (MockedStatic<SecurityUtil> secUtil = mockStatic(SecurityUtil.class)) {
+            secUtil.when(SecurityUtil::extractUserRole).thenReturn("CEO");
+            when(candidateServiceClient.getApplicationsForStatistics(any(), any(), any(), any(), any(), any())).thenReturn(applications);
+            when(communicationServiceClient.getSchedulesForStatistics(any(), any(), any(), any(), any())).thenReturn(Collections.emptyList());
+            
+            SummaryStatisticsDTO result = statisticsService.getSummaryStatistics("token", LocalDate.now(), LocalDate.now().plusDays(1));
+            assertThat(result.getApplications()).isEqualTo(0L);
+        }
+    }
+
+    // Test Case ID: UTIL-ST25
+    // Mục tiêu: filterApplications By DateRange And Status - Exception
+    @Test
+    @DisplayName("UTIL-ST25: filterApplicationsAndStatus - Handle exception date parse ngầm định false")
+    void filterApplicationsAndStatus_ExceptionParsing() {
+        List<JsonNode> applications = Arrays.asList(buildApplicationNode("INVALID_DATE", "HIRED"));
+        try (MockedStatic<SecurityUtil> secUtil = mockStatic(SecurityUtil.class)) {
+            secUtil.when(SecurityUtil::extractUserRole).thenReturn("CEO");
+            when(candidateServiceClient.getApplicationsForStatistics(any(), any(), any(), any(), any(), any())).thenReturn(applications);
+            when(communicationServiceClient.getSchedulesForStatistics(any(), any(), any(), any(), any())).thenReturn(Collections.emptyList());
+            
+            SummaryStatisticsDTO result = statisticsService.getSummaryStatistics("token", LocalDate.now(), LocalDate.now().plusDays(1));
+            assertThat(result.getHired()).isEqualTo(0L); // Trượt khỏi block if (catch exception trả false)
+        }
+    }
+
+    // Test Case ID: UTIL-ST26
+    // Mục tiêu: filterSchedules - Cover nhánh parse thành công và exception
+    @Test
+    @DisplayName("UTIL-ST26: filterSchedules - Valid và Invalid Date")
+    void filterSchedules_ValidAndException() {
+        List<JsonNode> schedules = Arrays.asList(
+            buildScheduleNode("2026-04-10T10:00:00"), // Valid (năm 2026 trong Range)
+            buildScheduleNode("INVALID_TIME") // Exception
+        );
+
+        try (MockedStatic<SecurityUtil> secUtil = mockStatic(SecurityUtil.class)) {
+            secUtil.when(SecurityUtil::extractUserRole).thenReturn("CEO");
+            when(candidateServiceClient.getApplicationsForStatistics(any(), any(), any(), any(), any(), any())).thenReturn(Collections.emptyList());
+            when(communicationServiceClient.getSchedulesForStatistics(any(), any(), any(), any(), any())).thenReturn(schedules);
+
+            SummaryStatisticsDTO result = statisticsService.getSummaryStatistics("token", LocalDate.of(2026,4,1), LocalDate.of(2026,4,30));
+            assertThat(result.getInterviews()).isEqualTo(1L); // Nhận 1 bản valid
+        }
+    }
+
+    // Test Case ID: UTIL-ST27
+    // Mục tiêu: parseDateTime - Fallback to LocalDate
+    @Test
+    @DisplayName("UTIL-ST27: parseDateTime - Fallback catch to LocalDate")
+    void parseDateTime_FallbackToLocalDate() {
+        ObjectNode schedule = objectMapper.createObjectNode();
+        schedule.put("id", 1L);
+        schedule.put("startTime", "2026-04-20"); // Thiếu Time nên nhảy vào fallback catch
+        
+        try (MockedStatic<SecurityUtil> secUtil = mockStatic(SecurityUtil.class)) {
+            secUtil.when(SecurityUtil::extractEmployeeId).thenReturn(10L);
+            when(communicationServiceClient.getUpcomingSchedules(any(), anyLong(), anyInt()))
+                .thenReturn(Collections.singletonList(schedule));
+            
+            UpcomingScheduleDTO result = statisticsService.getUpcomingSchedules("token", 10);
+            assertThat(result.getSchedules().get(0).getDate()).isEqualTo("2026-04-20");
+        }
+    }
+
+    // Test Case ID: UTIL-ST28
+    // Mục tiêu: parseDateTime - Return null completely
+    @Test
+    @DisplayName("UTIL-ST28: parseDateTime - Exception hoàn toàn -> null")
+    void parseDateTime_FullExceptionReturnNull() {
+        ObjectNode schedule = objectMapper.createObjectNode();
+        schedule.put("id", 1L);
+        schedule.put("startTime", "TOTALLY_INVALID");
+        
+        try (MockedStatic<SecurityUtil> secUtil = mockStatic(SecurityUtil.class)) {
+            secUtil.when(SecurityUtil::extractEmployeeId).thenReturn(10L);
+            when(communicationServiceClient.getUpcomingSchedules(any(), anyLong(), anyInt()))
+                .thenReturn(Collections.singletonList(schedule));
+            
+            UpcomingScheduleDTO result = statisticsService.getUpcomingSchedules("token", 10);
+            assertThat(result.getSchedules().get(0).getDate()).isEqualTo(""); // Null fallback ""
+        }
+    }
+
+    // Test Case ID: UTIL-ST29
+    // Mục tiêu: convertToJsonNode - obj == null
+    @Test
+    @DisplayName("UTIL-ST29: convertToJsonNode - obj null")
+    void convertToJsonNode_NullObject() {
+        PaginationDTO dto = new PaginationDTO();
+        dto.setResult(Arrays.asList((Object)null)); // Chèn 1 Object null
+        
+        try (MockedStatic<SecurityUtil> secUtil = mockStatic(SecurityUtil.class)) {
+            secUtil.when(SecurityUtil::extractUserRole).thenReturn("CEO");
+            when(jobServiceClient.getJobPositions(any(), any(), anyInt(), anyInt())).thenReturn(dto);
+            List<JobOpeningDTO> res = statisticsService.getJobOpenings("token", 1, 10);
+            assertThat(res).isEmpty(); // Object null bị ignore filter
+        }
+    }
+
+    // Test Case ID: UTIL-ST30
+    // Mục tiêu: convertToJsonNode - ObjectMapper exception
+    @Test
+    @DisplayName("UTIL-ST30: convertToJsonNode - IllegalArgument Exception")
+    void convertToJsonNode_ObjectMapperException() {
+        PaginationDTO dto = new PaginationDTO();
+        // Tạo 1 object lủng để serialize throw Exception
+        Object badObj = new Object() {
+            @Override
+            public String toString() { return "Bad Object"; }
+        }; 
+        dto.setResult(Arrays.asList(badObj));
+        
+        try (MockedStatic<SecurityUtil> secUtil = mockStatic(SecurityUtil.class)) {
+            secUtil.when(SecurityUtil::extractUserRole).thenReturn("CEO");
+            when(jobServiceClient.getJobPositions(any(), any(), anyInt(), anyInt())).thenReturn(dto);
+            List<JobOpeningDTO> res = statisticsService.getJobOpenings("token", 1, 10);
+            assertThat(res).isEmpty(); // Bị ignored
+        }
+    }
 }
