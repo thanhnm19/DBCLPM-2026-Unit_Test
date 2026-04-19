@@ -1,26 +1,24 @@
 package com.example.candidate_service.service;
 
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.times;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
+import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.*;
+import static org.mockito.Mockito.*;
 
-import java.time.Instant;
+import java.time.LocalDateTime;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.DisplayNameGeneration;
+import org.junit.jupiter.api.DisplayNameGenerator;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 
 import com.example.candidate_service.dto.comment.CommentResponseDTO;
@@ -31,11 +29,11 @@ import com.example.candidate_service.model.Candidate;
 import com.example.candidate_service.model.Comment;
 import com.example.candidate_service.repository.CandidateRepository;
 import com.example.candidate_service.repository.CommentRepository;
-import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 
-@DisplayName("CommentService Unit Test")
 @ExtendWith(MockitoExtension.class)
+@DisplayNameGeneration(DisplayNameGenerator.ReplaceUnderscores.class)
 class CommentServiceTest {
 
     @Mock
@@ -50,274 +48,292 @@ class CommentServiceTest {
     @InjectMocks
     private CommentService commentService;
 
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    private ObjectMapper objectMapper;
 
-    // Helper methods
-    private Candidate buildCandidate(Long id) {
-        Candidate c = new Candidate();
-        c.setId(id);
-        return c;
-    }
-
-    private Comment buildComment(Long id, Long candidateId, Long employeeId, String content) {
-        Comment c = new Comment();
-        c.setId(id);
-        c.setEmployeeId(employeeId);
-        c.setContent(content);
-        c.setCandidate(buildCandidate(candidateId));
-        // createdAt may be set by JPA auditing; set if setter exists
-        try {
-            c.getClass().getMethod("setCreatedAt", Instant.class).invoke(c, Instant.parse("2026-04-17T00:00:00Z"));
-        } catch (Exception ignored) {
-            // ignore if model doesn't expose setCreatedAt
-        }
-        return c;
-    }
-
-    private CreateCommentDTO buildCreateDTO(Long candidateId, String content) {
-        CreateCommentDTO dto = new CreateCommentDTO();
-        dto.setCandidateId(candidateId);
-        dto.setContent(content);
-        return dto;
-    }
-
-    private UpdateCommentDTO buildUpdateDTO(String content) {
-        UpdateCommentDTO dto = new UpdateCommentDTO();
-        dto.setContent(content);
-        return dto;
+    @BeforeEach
+    void setUp() {
+        objectMapper = new ObjectMapper();
     }
 
     @Test
-    @DisplayName("CMS-TC01: getByCandidateId - lấy danh sách comment theo candidateId và map employeeName đúng")
-    void CMS_TC01_getByCandidateId_shouldReturnMappedComments_andBatchFetchEmployeeNames() throws Exception {
-        // CMS-TC01: Ensure candidate exists + batch lấy employee names + mapping DTO
-        // (join employeeName)
-        Long candidateId = 10L;
+    @DisplayName("CS-TC-030: getByCandidateId - lấy danh sách bình luận và enrich employeeName")
+    void testGetByCandidateId_CS_TC_030() throws Exception {
+        // Testcase ID: CS-TC-030
+        // Objective: Xác nhận lấy danh sách bình luận và enrich employeeName
+
+        // arrange
+        Long candidateId = 1L;
         String token = "Bearer test-token";
 
-        Comment c1 = buildComment(1L, candidateId, 100L, "note-1");
-        Comment c2 = buildComment(2L, candidateId, 200L, "note-2");
-
-        JsonNode idToName = objectMapper.readTree("{\"100\":\"Alice\",\"200\":\"Bob\"}");
-
         when(candidateRepository.existsById(candidateId)).thenReturn(true);
-        when(commentRepository.findByCandidate_Id(candidateId)).thenReturn(List.of(c1, c2));
-        when(userService.getEmployeeNames(eq(List.of(100L, 200L)), eq(token)))
-                .thenReturn(new ResponseEntity<>(idToName, HttpStatus.OK));
 
+        LocalDateTime t1 = LocalDateTime.of(2026, 4, 19, 0, 0, 0);
+        LocalDateTime t2 = LocalDateTime.of(2026, 4, 19, 0, 0, 1);
+
+        Comment c1 = new Comment();
+        c1.setId(10L);
+        c1.setEmployeeId(5L);
+        c1.setContent("Hello");
+        c1.setCreatedAt(t1);
+
+        Comment c2 = new Comment();
+        c2.setId(11L);
+        c2.setEmployeeId(6L);
+        c2.setContent("Hi");
+        c2.setCreatedAt(t2);
+
+        when(commentRepository.findByCandidate_Id(candidateId)).thenReturn(Arrays.asList(c1, c2));
+
+        ObjectNode idToName = objectMapper.createObjectNode();
+        idToName.put("5", "Nguyen Van A");
+        // intentionally leave "6" missing to cover null-branch in mapping
+        when(userService.getEmployeeNames(anyList(), eq(token))).thenReturn(ResponseEntity.ok(idToName));
+
+        // act
         List<CommentResponseDTO> result = commentService.getByCandidateId(candidateId, token);
 
-        assertThat(result).hasSize(2);
-        assertThat(result).extracting(CommentResponseDTO::getId).containsExactly(1L, 2L);
-        assertThat(result).extracting(CommentResponseDTO::getEmployeeId).containsExactly(100L, 200L);
-        assertThat(result).extracting(CommentResponseDTO::getContent).containsExactly("note-1", "note-2");
-        assertThat(result).extracting(CommentResponseDTO::getEmployeeName).containsExactly("Alice", "Bob");
+        // assert
+        assertNotNull(result);
+        assertFalse(result.isEmpty());
+        assertEquals(2, result.size());
+
+        CommentResponseDTO d1 = result.get(0);
+        assertEquals(10L, d1.getId());
+        assertEquals(5L, d1.getEmployeeId());
+        assertEquals("Hello", d1.getContent());
+        assertEquals(t1, d1.getCreatedAt());
+        assertEquals("Nguyen Van A", d1.getEmployeeName());
+
+        CommentResponseDTO d2 = result.get(1);
+        assertEquals(11L, d2.getId());
+        assertEquals(6L, d2.getEmployeeId());
+        assertEquals("Hi", d2.getContent());
+        assertEquals(t2, d2.getCreatedAt());
+        assertNull(d2.getEmployeeName());
 
         verify(candidateRepository, times(1)).existsById(candidateId);
         verify(commentRepository, times(1)).findByCandidate_Id(candidateId);
-        verify(userService, times(1)).getEmployeeNames(eq(List.of(100L, 200L)), eq(token));
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<Long>> idsCaptor = (ArgumentCaptor<List<Long>>) (ArgumentCaptor<?>) ArgumentCaptor
+                .forClass(List.class);
+        verify(userService, times(1)).getEmployeeNames(idsCaptor.capture(), eq(token));
+        List<Long> capturedIds = idsCaptor.getValue();
+        assertNotNull(capturedIds);
+        assertEquals(2, capturedIds.size());
+        assertTrue(capturedIds.containsAll(Arrays.asList(5L, 6L)));
+
+        verifyNoMoreInteractions(candidateRepository, commentRepository, userService);
     }
 
     @Test
-    @DisplayName("CMS-TC01: getByCandidateId - lấy danh sách comment theo candidateId và map employeeName đúng")
-    void CMS_TC01_getByCandidateId_whenCandidateNotExists_shouldThrow() {
-        // CMS-TC01: Candidate không tồn tại → throw exception
-        Long candidateId = 404L;
+    @DisplayName("CS-TC-031: getByCandidateId - candidate không tồn tại ném IdInvalidException")
+    void testGetByCandidateId_CandidateNotFound_CS_TC_031() {
+        // Testcase ID: CS-TC-031
+        // Objective: Xác nhận lỗi khi candidate không tồn tại
 
+        // arrange
+        Long candidateId = 999L;
+        String token = "Bearer test-token";
         when(candidateRepository.existsById(candidateId)).thenReturn(false);
 
-        assertThatThrownBy(() -> commentService.getByCandidateId(candidateId, "token"))
-                .isInstanceOf(IdInvalidException.class)
-                .hasMessageContaining("Ứng viên không tồn tại");
+        // act
+        IdInvalidException ex = assertThrows(IdInvalidException.class,
+                () -> commentService.getByCandidateId(candidateId, token));
+
+        // assert
+        assertEquals("Ứng viên không tồn tại", ex.getMessage());
 
         verify(candidateRepository, times(1)).existsById(candidateId);
-        verify(commentRepository, never()).findByCandidate_Id(any());
-        verify(userService, never()).getEmployeeNames(any(), any());
+        verify(commentRepository, never()).findByCandidate_Id(anyLong());
+        verify(userService, never()).getEmployeeNames(anyList(), anyString());
+        verifyNoMoreInteractions(candidateRepository, commentRepository, userService);
     }
 
     @Test
-    @DisplayName("CMS-TC01: getByCandidateId - lấy danh sách comment theo candidateId và map employeeName đúng")
-    void CMS_TC01_getByCandidateId_whenNoComments_shouldReturnEmptyList_andNotCallUserService() throws Exception {
-        // CMS-TC01: Comments rỗng → trả về list rỗng
-        Long candidateId = 11L;
+    @DisplayName("CS-TC-032: getById - lấy đúng comment theo ID")
+    void testGetById_CS_TC_032() throws Exception {
+        // Testcase ID: CS-TC-032
+        // Objective: Lấy đúng comment theo ID
 
-        when(candidateRepository.existsById(candidateId)).thenReturn(true);
-        when(commentRepository.findByCandidate_Id(candidateId)).thenReturn(List.of());
+        // arrange
+        Long id = 1L;
+        LocalDateTime t = LocalDateTime.of(2026, 4, 19, 0, 0, 0);
 
-        List<CommentResponseDTO> result = commentService.getByCandidateId(candidateId, "token");
+        Comment c = new Comment();
+        c.setId(id);
+        c.setEmployeeId(5L);
+        c.setContent("Content");
+        c.setCreatedAt(t);
 
-        assertThat(result).isNotNull();
-        assertThat(result).isEmpty();
+        when(commentRepository.findById(id)).thenReturn(Optional.of(c));
 
-        verify(candidateRepository, times(1)).existsById(candidateId);
-        verify(commentRepository, times(1)).findByCandidate_Id(candidateId);
-        verify(userService, never()).getEmployeeNames(any(), any());
+        // act
+        CommentResponseDTO result = commentService.getById(id);
+
+        // assert
+        assertNotNull(result);
+        assertEquals(1L, result.getId());
+        assertEquals(5L, result.getEmployeeId());
+        assertEquals("Content", result.getContent());
+        assertEquals(t, result.getCreatedAt());
+        assertNull(result.getEmployeeName());
+
+        verify(commentRepository, times(1)).findById(id);
+        verifyNoMoreInteractions(commentRepository, candidateRepository, userService);
     }
 
     @Test
-    @DisplayName("CMS-TC02: getById - id tồn tại trả CommentDTO, id không tồn tại ném IdInvalidException")
-    void CMS_TC02_getById_whenExists_shouldReturnCommentResponse() throws Exception {
-        // CMS-TC02: ID tồn tại → trả về comment
-        Comment c = buildComment(1L, 10L, 100L, "hello");
-        when(commentRepository.findById(1L)).thenReturn(Optional.of(c));
+    @DisplayName("CS-TC-033: getById - comment không tồn tại ném IdInvalidException")
+    void testGetById_NotFound_CS_TC_033() {
+        // Testcase ID: CS-TC-033
+        // Objective: Xác nhận lỗi khi comment không tồn tại
 
-        CommentResponseDTO dto = commentService.getById(1L);
+        // arrange
+        Long id = 999L;
+        when(commentRepository.findById(id)).thenReturn(Optional.empty());
 
-        assertThat(dto).isNotNull();
-        assertThat(dto.getId()).isEqualTo(1L);
-        assertThat(dto.getEmployeeId()).isEqualTo(100L);
-        assertThat(dto.getContent()).isEqualTo("hello");
+        // act
+        IdInvalidException ex = assertThrows(IdInvalidException.class, () -> commentService.getById(id));
 
-        verify(commentRepository, times(1)).findById(1L);
+        // assert
+        assertEquals("Bình luận không tồn tại", ex.getMessage());
+
+        verify(commentRepository, times(1)).findById(id);
+        verifyNoMoreInteractions(commentRepository, candidateRepository, userService);
     }
 
     @Test
-    @DisplayName("CMS-TC02: getById - id tồn tại trả CommentDTO, id không tồn tại ném IdInvalidException")
-    void CMS_TC02_getById_whenNotExists_shouldThrow() {
-        // CMS-TC02: ID không tồn tại → throw exception
-        when(commentRepository.findById(999L)).thenReturn(Optional.empty());
+    @DisplayName("CS-TC-034: create - tạo bình luận thành công")
+    void testCreate_CS_TC_034() throws Exception {
+        // Testcase ID: CS-TC-034
+        // Objective: Tạo bình luận thành công
 
-        assertThatThrownBy(() -> commentService.getById(999L))
-                .isInstanceOf(IdInvalidException.class)
-                .hasMessageContaining("Bình luận không tồn tại");
+        // arrange
+        Long employeeId = 5L;
 
-        verify(commentRepository, times(1)).findById(999L);
-    }
+        CreateCommentDTO dto = new CreateCommentDTO();
+        dto.setCandidateId(1L);
+        dto.setContent("New comment");
 
-    @Test
-    @DisplayName("CMS-TC03: create - dữ liệu hợp lệ -> tạo mới comment và gán employeeId đúng")
-    void CMS_TC03_create_whenValid_shouldAttachFieldsAndSave() throws Exception {
-        // CMS-TC03: Input hợp lệ → save thành công (gắn candidate + employeeId +
-        // content)
-        Long candidateId = 10L;
-        Long employeeId = 123L;
-        CreateCommentDTO dto = buildCreateDTO(candidateId, "new-comment");
+        Candidate candidate = new Candidate();
+        candidate.setId(1L);
 
-        Candidate candidate = buildCandidate(candidateId);
+        when(candidateRepository.findById(dto.getCandidateId())).thenReturn(Optional.of(candidate));
 
-        when(candidateRepository.findById(candidateId)).thenReturn(Optional.of(candidate));
-        when(commentRepository.save(any(Comment.class))).thenAnswer(inv -> {
-            Comment arg = inv.getArgument(0);
-            arg.setId(77L);
+        LocalDateTime createdAt = LocalDateTime.of(2026, 4, 19, 0, 0, 0);
+        when(commentRepository.save(any(Comment.class))).thenAnswer(invocation -> {
+            Comment arg = invocation.getArgument(0, Comment.class);
+            arg.setId(100L);
+            arg.setCreatedAt(createdAt);
             return arg;
         });
 
-        CommentResponseDTO saved = commentService.create(dto, employeeId);
+        // act
+        CommentResponseDTO result = commentService.create(dto, employeeId);
 
-        assertThat(saved).isNotNull();
-        assertThat(saved.getId()).isEqualTo(77L);
-        assertThat(saved.getEmployeeId()).isEqualTo(employeeId);
-        assertThat(saved.getContent()).isEqualTo("new-comment");
+        // assert
+        assertNotNull(result);
+        assertEquals(100L, result.getId());
+        assertEquals(employeeId, result.getEmployeeId());
+        assertEquals("New comment", result.getContent());
+        assertEquals(createdAt, result.getCreatedAt());
 
-        ArgumentCaptor<Comment> captor = ArgumentCaptor.forClass(Comment.class);
-        verify(commentRepository, times(1)).save(captor.capture());
-        Comment toSave = captor.getValue();
-        assertThat(toSave.getCandidate()).isNotNull();
-        assertThat(toSave.getCandidate().getId()).isEqualTo(candidateId);
-        assertThat(toSave.getEmployeeId()).isEqualTo(employeeId);
-        assertThat(toSave.getContent()).isEqualTo("new-comment");
+        ArgumentCaptor<Comment> commentCaptor = ArgumentCaptor.forClass(Comment.class);
+        verify(commentRepository, times(1)).save(commentCaptor.capture());
+        Comment savedEntity = commentCaptor.getValue();
+        assertNotNull(savedEntity);
+        assertNotNull(savedEntity.getCandidate());
+        assertEquals(1L, savedEntity.getCandidate().getId());
+        assertEquals(5L, savedEntity.getEmployeeId());
+        assertEquals("New comment", savedEntity.getContent());
 
-        verify(candidateRepository, times(1)).findById(candidateId);
+        verify(candidateRepository, times(1)).findById(1L);
+        verifyNoMoreInteractions(commentRepository, candidateRepository, userService);
     }
 
     @Test
-    @DisplayName("CMS-TC03: create - dữ liệu hợp lệ -> tạo mới comment và gán employeeId đúng")
-    void CMS_TC03_create_whenCandidateNotExists_shouldThrow() {
-        // CMS-TC03: Candidate không tồn tại → throw exception
-        Long candidateId = 404L;
-        CreateCommentDTO dto = buildCreateDTO(candidateId, "x");
+    @DisplayName("CS-TC-035: update - cập nhật nội dung bình luận thành công")
+    void testUpdate_CS_TC_035() throws Exception {
+        // Testcase ID: CS-TC-035
+        // Objective: Cập nhật nội dung bình luận thành công
 
-        when(candidateRepository.findById(candidateId)).thenReturn(Optional.empty());
+        // arrange
+        Long id = 1L;
+        Long employeeId = 5L;
 
-        assertThatThrownBy(() -> commentService.create(dto, 1L))
-                .isInstanceOf(IdInvalidException.class)
-                .hasMessageContaining("Ứng viên không tồn tại");
+        UpdateCommentDTO dto = new UpdateCommentDTO();
+        dto.setContent("Updated");
 
-        verify(candidateRepository, times(1)).findById(candidateId);
-        verify(commentRepository, never()).save(any());
+        LocalDateTime t = LocalDateTime.of(2026, 4, 19, 0, 0, 0);
+
+        Comment existing = new Comment();
+        existing.setId(id);
+        existing.setEmployeeId(employeeId);
+        existing.setContent("Old");
+        existing.setCreatedAt(t);
+
+        when(commentRepository.findById(id)).thenReturn(Optional.of(existing));
+        when(commentRepository.save(any(Comment.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0, Comment.class));
+
+        // act
+        CommentResponseDTO result = commentService.update(id, dto, employeeId);
+
+        // assert
+        assertNotNull(result);
+        assertEquals(id, result.getId());
+        assertEquals(employeeId, result.getEmployeeId());
+        assertEquals("Updated", result.getContent());
+        assertEquals(t, result.getCreatedAt());
+        assertNull(result.getEmployeeName());
+
+        ArgumentCaptor<Comment> commentCaptor = ArgumentCaptor.forClass(Comment.class);
+        verify(commentRepository, times(1)).save(commentCaptor.capture());
+        Comment saved = commentCaptor.getValue();
+        assertEquals("Updated", saved.getContent());
+
+        verify(commentRepository, times(1)).findById(id);
+        verifyNoMoreInteractions(commentRepository, candidateRepository, userService);
     }
 
     @Test
-    @DisplayName("CMS-TC04: update - chỉ cập nhật các field có giá trị và trả về comment đã cập nhật")
-    void CMS_TC04_update_whenContentProvided_shouldUpdateAndSave() throws Exception {
-        // CMS-TC04: Update thành công khi có field hợp lệ
-        Comment existing = buildComment(5L, 10L, 100L, "old");
-        when(commentRepository.findById(5L)).thenReturn(Optional.of(existing));
-        when(commentRepository.save(any(Comment.class))).thenAnswer(inv -> inv.getArgument(0));
+    @DisplayName("CS-TC-036: delete - xóa bình luận thành công")
+    void testDelete_CS_TC_036() throws Exception {
+        // Testcase ID: CS-TC-036
+        // Objective: Xóa bình luận thành công
 
-        UpdateCommentDTO dto = buildUpdateDTO("new");
-        CommentResponseDTO updated = commentService.update(5L, dto, 999L);
+        // arrange
+        Long id = 1L;
+        when(commentRepository.existsById(id)).thenReturn(true);
 
-        assertThat(updated.getId()).isEqualTo(5L);
-        assertThat(updated.getContent()).isEqualTo("new");
+        // act
+        commentService.delete(id);
 
-        ArgumentCaptor<Comment> captor = ArgumentCaptor.forClass(Comment.class);
-        verify(commentRepository, times(1)).save(captor.capture());
-        assertThat(captor.getValue().getContent()).isEqualTo("new");
-
-        verify(commentRepository, times(1)).findById(5L);
+        // assert
+        verify(commentRepository, times(1)).existsById(id);
+        verify(commentRepository, times(1)).deleteById(id);
+        verifyNoMoreInteractions(commentRepository, candidateRepository, userService);
     }
 
     @Test
-    @DisplayName("CMS-TC04: update - chỉ cập nhật các field có giá trị và trả về comment đã cập nhật")
-    void CMS_TC04_update_whenContentNull_shouldNotOverwriteExistingContent() throws Exception {
-        // CMS-TC04: DTO có field null → không overwrite
-        Comment existing = buildComment(6L, 10L, 100L, "keep-me");
-        when(commentRepository.findById(6L)).thenReturn(Optional.of(existing));
-        when(commentRepository.save(any(Comment.class))).thenAnswer(inv -> inv.getArgument(0));
+    @DisplayName("CS-TC-037: delete - comment không tồn tại ném IdInvalidException")
+    void testDelete_NotFound_CS_TC_037() {
+        // Testcase ID: CS-TC-037
+        // Objective: Xác nhận lỗi khi xóa comment không tồn tại
 
-        UpdateCommentDTO dto = buildUpdateDTO(null);
-        CommentResponseDTO updated = commentService.update(6L, dto, 999L);
+        // arrange
+        Long id = 999L;
+        when(commentRepository.existsById(id)).thenReturn(false);
 
-        assertThat(updated.getId()).isEqualTo(6L);
-        assertThat(updated.getContent()).isEqualTo("keep-me");
+        // act
+        IdInvalidException ex = assertThrows(IdInvalidException.class, () -> commentService.delete(id));
 
-        ArgumentCaptor<Comment> captor = ArgumentCaptor.forClass(Comment.class);
-        verify(commentRepository, times(1)).save(captor.capture());
-        assertThat(captor.getValue().getContent()).isEqualTo("keep-me");
+        // assert
+        assertEquals("Bình luận không tồn tại", ex.getMessage());
 
-        verify(commentRepository, times(1)).findById(6L);
-    }
-
-    @Test
-    @DisplayName("CMS-TC04: update - chỉ cập nhật các field có giá trị và trả về comment đã cập nhật")
-    void CMS_TC04_update_whenCommentNotExists_shouldThrow() {
-        // CMS-TC04: Comment không tồn tại → throw exception
-        when(commentRepository.findById(999L)).thenReturn(Optional.empty());
-
-        UpdateCommentDTO dto = buildUpdateDTO("x");
-
-        assertThatThrownBy(() -> commentService.update(999L, dto, 1L))
-                .isInstanceOf(IdInvalidException.class)
-                .hasMessageContaining("Bình luận không tồn tại");
-
-        verify(commentRepository, times(1)).findById(999L);
-        verify(commentRepository, never()).save(any());
-    }
-
-    @Test
-    @DisplayName("CMS-TC05: delete - id tồn tại xóa thành công, id không tồn tại ném IdInvalidException")
-    void CMS_TC05_delete_whenExists_shouldDeleteById() throws Exception {
-        // CMS-TC05: ID tồn tại → delete thành công
-        when(commentRepository.existsById(1L)).thenReturn(true);
-
-        commentService.delete(1L);
-
-        verify(commentRepository, times(1)).existsById(1L);
-        verify(commentRepository, times(1)).deleteById(1L);
-    }
-
-    @Test
-    @DisplayName("CMS-TC05: delete - id tồn tại xóa thành công, id không tồn tại ném IdInvalidException")
-    void CMS_TC05_delete_whenNotExists_shouldThrow() {
-        // CMS-TC05: ID không tồn tại → throw exception
-        when(commentRepository.existsById(2L)).thenReturn(false);
-
-        assertThatThrownBy(() -> commentService.delete(2L))
-                .isInstanceOf(IdInvalidException.class)
-                .hasMessageContaining("Bình luận không tồn tại");
-
-        verify(commentRepository, times(1)).existsById(2L);
-        verify(commentRepository, never()).deleteById(any());
+        verify(commentRepository, times(1)).existsById(id);
+        verify(commentRepository, never()).deleteById(anyLong());
+        verifyNoMoreInteractions(commentRepository, candidateRepository, userService);
     }
 }
