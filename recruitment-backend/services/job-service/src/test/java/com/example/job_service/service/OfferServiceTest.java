@@ -145,15 +145,18 @@ class OfferServiceTest {
     // =======================================================================
 
     // Test Case ID: OFF-TC02
-    // Mục tiêu: Offer ở DRAFT, cập nhật trường không null
+    // Mục tiêu: Offer ở DRAFT, cập nhật đầy đủ các trường (Đạt 100% Branch Coverage cho hàm update)
     @Test
-    @DisplayName("OFF-TC02: update - Offer DRAFT, phải cập nhật trường không null")
-    void update_DraftOfferWithValidFields_ShouldUpdateNonNullFields() throws IdInvalidException {
-        // Chuẩn bị
+    @DisplayName("OFF-TC02: update - Offer DRAFT, phải cập nhật đầy đủ các trường không null")
+    void update_DraftOfferWithFullFields_ShouldUpdateAllNonNullFields() throws IdInvalidException {
+        // Chuẩn bị: DTO có tất cả các trường để phủ hết các nhánh if (dto.getXXX() != null)
         UpdateOfferDTO dto = new UpdateOfferDTO();
+        dto.setCandidateId(101L);
         dto.setBasicSalary(25_000_000L);
-        dto.setNotes("Updated notes");
-        // candidateId = null -> không cập nhật
+        dto.setProbationSalaryRate(90);
+        dto.setOnboardingDate(LocalDate.of(2026, 7, 1));
+        dto.setProbationPeriod(3);
+        dto.setNotes("Updated notes and conditions");
 
         when(offerRepository.findById(1L)).thenReturn(Optional.of(draftOffer));
         when(offerRepository.save(any(Offer.class))).thenAnswer(inv -> inv.getArgument(0));
@@ -161,12 +164,15 @@ class OfferServiceTest {
         // Thực thi
         Offer result = offerService.update(1L, dto);
 
-        // Kiểm tra: Salary và notes được cập nhật; candidateId giữ nguyên
+        // Kiểm tra: Tất cả các trường đã được cập nhật chính xác từ DTO
+        assertThat(result.getCandidateId()).isEqualTo(101L);
         assertThat(result.getBasicSalary()).isEqualTo(25_000_000L);
-        assertThat(result.getNotes()).isEqualTo("Updated notes");
-        assertThat(result.getCandidateId()).isEqualTo(100L); // giữ nguyên
+        assertThat(result.getProbationSalaryRate()).isEqualTo(90);
+        assertThat(result.getOnboardingDate()).isEqualTo(LocalDate.of(2026, 7, 1));
+        assertThat(result.getProbationPeriod()).isEqualTo(3);
+        assertThat(result.getNotes()).isEqualTo("Updated notes and conditions");
 
-        // Minh chứng (CheckDB): save() được gọi
+        // Minh chứng (CheckDB): save() được gọi đúng 1 lần
         verify(offerRepository, times(1)).save(any(Offer.class));
     }
 
@@ -653,44 +659,85 @@ class OfferServiceTest {
     }
 
     // Test Case ID: OFF-TC25
-    // Mục tiêu: Hàm xem chi tiết trang OfferDetail, phải map và tổng hợp đúng tên requester, candidate email/phone.
+    // Mục tiêu: Hàm xem chi tiết trang OfferDetail, phải map và tổng hợp đúng tên requester, candidate email/phone và thông tin JobPosition/Department
     @Test
     @DisplayName("OFF-TC25: getByIdDetail - Aggregation chi tiết cho trang Offer Detail")
     void getByIdDetail_ShouldAggregateDetailCorrectly() throws Exception {
-        // Chuẩn bị: Mock Data tối thiểu để đi ngang qua các nhanh logic JSON Parsing
+        // Chuẩn bị: Mock Data đầy đủ để đi qua các nhánh logic JSON Parsing, JobPosition và Department
         draftOffer.setRequesterId(10L);
         draftOffer.setOwnerUserId(10L);
         draftOffer.setCandidateId(100L);
         draftOffer.setWorkflowId(50L);
-        
+
         com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
-        
+
         com.fasterxml.jackson.databind.node.ObjectNode employeeNode = mapper.createObjectNode();
         employeeNode.put("name", "Nguyen Van A");
+        // Thêm position node để phủ nhánh if (employee.has("position"))
+        com.fasterxml.jackson.databind.node.ObjectNode posNode = mapper.createObjectNode();
+        posNode.put("level", "Senior");
+        employeeNode.set("position", posNode);
 
         com.fasterxml.jackson.databind.node.ObjectNode candidateNode = mapper.createObjectNode();
         candidateNode.put("name", "Candidate B");
         candidateNode.put("email", "b@gmail.com");
         candidateNode.put("phone", "0123");
+        candidateNode.put("jobPositionId", 500L); // Để phủ nhánh lấy JobPosition
+
+        com.fasterxml.jackson.databind.node.ObjectNode deptNode = mapper.createObjectNode();
+        deptNode.put("name", "Phòng Nhân Sự");
 
         com.fasterxml.jackson.databind.node.ObjectNode workflowNode = mapper.createObjectNode();
         workflowNode.put("status", "COMPLETED");
 
+        // Mock JobPosition và RecruitmentRequest
+        com.example.job_service.model.JobPosition mockJob = new com.example.job_service.model.JobPosition();
+        mockJob.setTitle("Java Developer");
+        com.example.job_service.model.RecruitmentRequest mockRR = new com.example.job_service.model.RecruitmentRequest();
+        mockRR.setDepartmentId(9L);
+        mockJob.setRecruitmentRequest(mockRR);
+
         when(offerRepository.findById(1L)).thenReturn(Optional.of(draftOffer));
-        
-        // Sử dụng lenient() vì logic parse JSON có thể gọi hoặc skip tuỳ ý, tránh lỗi UnnecessaryStubbingException của Mockito
+
+        // Sử dụng lenient() để tránh lỗi UnnecessaryStubbingException
         lenient().when(userService.getEmployeeById(10L, "token")).thenReturn(org.springframework.http.ResponseEntity.ok(employeeNode));
         lenient().when(candidateClient.getCandidateById(100L, "token")).thenReturn(org.springframework.http.ResponseEntity.ok(candidateNode));
+        lenient().when(jobPositionService.findById(500L)).thenReturn(mockJob);
+        lenient().when(userService.getDepartmentById(9L, "token")).thenReturn(org.springframework.http.ResponseEntity.ok(deptNode));
         lenient().when(workflowServiceClient.getWorkflowInfoByRequestId(1L, 50L, "OFFER", "token")).thenReturn(workflowNode);
 
         // Thực thi
         com.example.job_service.dto.offer.OfferDetailDTO result = offerService.getByIdDetail(1L, "token");
 
-        // Kiểm tra: Các field của DetailDTO được map đúng giá trị
+        // Kiểm tra: Các field của DetailDTO được map đúng giá trị từ nhiều nguồn
         assertThat(result.getRequesterName()).isEqualTo("Nguyen Van A");
         assertThat(result.getCandidateName()).isEqualTo("Candidate B");
-        assertThat(result.getCandidateEmail()).isEqualTo("b@gmail.com");
-        assertThat(result.getCandidatePhone()).isEqualTo("0123");
+        assertThat(result.getJobPositionTitle()).isEqualTo("Java Developer");
+        assertThat(result.getDepartmentName()).isEqualTo("Phòng Nhân Sự");
+        assertThat(result.getLevelName()).isEqualTo("Senior");
+    }
+
+    // Test Case ID: OFF-TC28
+    // Mục tiêu: Kiểm tra fallback level name (sử dụng position.name nếu position.level không có)
+    @Test
+    @DisplayName("OFF-TC28: convertToDetailDTO - Fallback level name sang position.name")
+    void convertToDetailDTO_LevelNameFallback_ShouldUsePositionName() throws Exception {
+        // Chuẩn bị: Employee có position node nhưng không có level, chỉ có name
+        draftOffer.setRequesterId(10L);
+        com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+        com.fasterxml.jackson.databind.node.ObjectNode employeeNode = mapper.createObjectNode();
+        com.fasterxml.jackson.databind.node.ObjectNode posNode = mapper.createObjectNode();
+        posNode.put("name", "Team Lead"); // Fallback field
+        employeeNode.set("position", posNode);
+
+        when(offerRepository.findById(1L)).thenReturn(Optional.of(draftOffer));
+        lenient().when(userService.getEmployeeById(10L, "token")).thenReturn(org.springframework.http.ResponseEntity.ok(employeeNode));
+
+        // Thực thi
+        com.example.job_service.dto.offer.OfferDetailDTO result = offerService.getByIdDetail(1L, "token");
+
+        // Kiểm tra: Phải lấy từ position.name
+        assertThat(result.getLevelName()).isEqualTo("Team Lead");
     }
 
     // Test Case ID: OFF-TC26

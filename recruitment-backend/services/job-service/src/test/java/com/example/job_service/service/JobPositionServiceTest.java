@@ -21,6 +21,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import java.time.LocalDate;
 
 import java.math.BigDecimal;
 import java.util.Arrays;
@@ -460,15 +461,25 @@ class JobPositionServiceTest {
     // =======================================================================
 
     // Test Case ID: JOB-TC18
-    // Mục tiêu: Tất cả trường được cập nhật khi DTO đầy đủ
+    // Mục tiêu: Tất cả trường được cập nhật khi DTO đầy đủ 
     @Test
     @DisplayName("JOB-TC18: update - DTO đầy đủ, phải cập nhật tất cả trường")
     void update_AllFieldsProvided_ShouldUpdateAllFields() throws IdInvalidException {
-        // Chuẩn bị: DTO có tất cả trường
+        // Chuẩn bị: DTO có tất cả trường để phủ hết các nhánh if (dto.getXXX() != null)
         UpdateJobPositionDTO dto = new UpdateJobPositionDTO();
         dto.setTitle("Senior Developer");
         dto.setDescription("New description");
+        dto.setRequirements("Skills: Java, Spring");
+        dto.setBenefits("Insurance, Bonus");
         dto.setSalaryMin(new BigDecimal("30000000"));
+        dto.setSalaryMax(new BigDecimal("50000000"));
+        dto.setEmploymentType("FULL_TIME");
+        dto.setExperienceLevel("SENIOR");
+        dto.setLocation("Hanoi");
+        dto.setIsRemote(true);
+        dto.setQuantity(5);
+        dto.setDeadline(LocalDate.of(2026, 12, 31));
+        dto.setYearsOfExperience("3-5 years");
 
         when(jobPositionRepository.findById(1L)).thenReturn(Optional.of(samplePosition));
         when(jobPositionRepository.save(any(JobPosition.class))).thenAnswer(inv -> inv.getArgument(0));
@@ -476,10 +487,20 @@ class JobPositionServiceTest {
         // Thực thi
         JobPosition result = jobPositionService.update(1L, dto);
 
-        // Kiểm tra: Tất cả trường đã cập nhật
+        // Kiểm tra: Tất cả trường đã cập nhật chính xác
         assertThat(result.getTitle()).isEqualTo("Senior Developer");
         assertThat(result.getDescription()).isEqualTo("New description");
+        assertThat(result.getRequirements()).isEqualTo("Skills: Java, Spring");
+        assertThat(result.getBenefits()).isEqualTo("Insurance, Bonus");
         assertThat(result.getSalaryMin()).isEqualByComparingTo(new BigDecimal("30000000"));
+        assertThat(result.getSalaryMax()).isEqualByComparingTo(new BigDecimal("50000000"));
+        assertThat(result.getEmploymentType()).isEqualTo("FULL_TIME");
+        assertThat(result.getExperienceLevel()).isEqualTo("SENIOR");
+        assertThat(result.getLocation()).isEqualTo("Hanoi");
+        assertThat(result.isRemote()).isTrue();
+        assertThat(result.getQuantity()).isEqualTo(5);
+        assertThat(result.getDeadline()).isEqualTo(LocalDate.of(2026, 12, 31));
+        assertThat(result.getYearsOfExperience()).isEqualTo("3-5 years");
 
         // Minh chứng (CheckDB): save() được gọi 1 lần
         verify(jobPositionRepository, times(1)).save(any(JobPosition.class));
