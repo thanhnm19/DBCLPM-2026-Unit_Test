@@ -38,8 +38,8 @@
             <plugin>
                 <groupId>org.jacoco</groupId>
                 <artifactId>jacoco-maven-plugin</artifactId>
-                <!-- Dùng chung phiên bản 0.8.13 như candidate-service (hoặc 0.8.12 như job-service) -->
-                <version>0.8.13</version>
+                <!-- Đồng bộ phiên bản với user-service -->
+                <version>0.8.12</version>
                 <executions>
                     <execution>
                         <id>report-aggregate</id>
@@ -50,17 +50,34 @@
                         <configuration>
                             <outputDirectory>${project.build.directory}/site/jacoco-aggregate</outputDirectory>
                             
-                            <!-- 1. Cấu hình bao gồm (Inclusions) -->
+                            <!--
+                            Scope cho report aggregate:
+                            1) Mặc định lấy toàn bộ service layer của các module.
+                            2) Riêng user-service, đồng bộ đúng phạm vi unit test trong services/user-service/pom.xml:
+                               - service: UserService, UserDetailCustom, DepartmentService,
+                                 EmployeeService, PositionService, RoleService, PermissionService
+                               - config: PermissionInterceptor
+                               - utils: JwtUtil
+                            -->
                             <includes>
-                                <!-- Mặc định với các service ta lấy service logic -->
                                 <include>com/example/*/service/**</include>
-                                
-                                <!-- Đặc thù User-service: Giữ lại interceptor và JwtUtil -->
+
+                                <!-- User-service (giữ đúng phạm vi test đã chốt) -->
+                                <include>com/example/user_service/service/UserService*</include>
+                                <include>com/example/user_service/service/UserDetailCustom*</include>
+                                <include>com/example/user_service/service/DepartmentService*</include>
+                                <include>com/example/user_service/service/EmployeeService*</include>
+                                <include>com/example/user_service/service/PositionService*</include>
+                                <include>com/example/user_service/service/RoleService*</include>
+                                <include>com/example/user_service/service/PermissionService*</include>
                                 <include>com/example/user_service/config/PermissionInterceptor.class</include>
                                 <include>com/example/user_service/utils/JwtUtil*</include>
                             </includes>
 
-                            <!-- 2. Cấu hình loại trừ (Exclusions) - Khớp chính xác 100% với POM từng service -->
+                            <!--
+                            Exclusions dùng wildcard hợp lệ của JaCoCo.
+                            Lưu ý: JaCoCo không hỗ trợ pattern phủ định kiểu !(...).
+                            -->
                             <excludes>
                                 <!-- Boilerplate chung -->
                                 <exclude>**/*Application.*</exclude>
@@ -106,13 +123,13 @@
                                 <!-- Đặc thù Upload-service (Chỉ loại trừ controller và config như POM gốc) -->
                                 <exclude>com/example/upload_service/config/**</exclude>
 
-                                <!-- Đặc thù User-service (Bỏ config/utils khác, giữ lại JwtUtil/Interceptor đã include ở trên) -->
-                                <exclude>com/example/user_service/config/!(PermissionInterceptor)*</exclude>
-                                <exclude>com/example/user_service/utils/!(JwtUtil)*</exclude>
+                                <!-- User-service: loại toàn bộ config/utils, sau đó include lại class cần giữ ở trên -->
+                                <exclude>com/example/user_service/config/**</exclude>
+                                <exclude>com/example/user_service/utils/**</exclude>
 
-                                <!-- Các service mặc định khác (communications, email, schedule, etc.) loại bỏ config/utils -->
-                                <exclude>com/example/!(user_service|upload_service|notification_service|job_service|statistics_service)/config/**</exclude>
-                                <exclude>com/example/!(user_service|upload_service|notification_service|job_service|statistics_service)/utils/**</exclude>
+                                <!-- Các module còn lại: loại toàn bộ config/utils để tránh làm nhiễu số liệu unit test service -->
+                                <exclude>com/example/*/config/**</exclude>
+                                <exclude>com/example/*/utils/**</exclude>
                             </excludes>
                         </configuration>
                     </execution>
