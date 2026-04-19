@@ -80,7 +80,15 @@
                                 <exclude>com/example/notification_service/utils/**</exclude>
                                 <exclude>com/example/notification_service/config/**</exclude>
 
-                                <!-- Đặc thù Job-service -->
+                                <!-- Job-Service===================================================== -->
+                                <exclude>com/example/workflow_service/service/CandidateService.class</exclude>
+                                <exclude>com/example/workflow_service/service/CandidateService$*.class</exclude>
+                                <exclude>com/example/workflow_service/service/UserService.class</exclude>
+                                <exclude>com/example/workflow_service/service/UserService$*.class</exclude>
+                                <exclude>com/example/workflow_service/utils/**</exclude>
+                                <exclude>com/example/workflow_service/config/**</exclude>
+
+                                <!-- ===================================================== -->
                                 <exclude>com/example/job_service/service/UserClient.class</exclude>
                                 <exclude>com/example/job_service/service/CandidateClient.class</exclude>
                                 <exclude>com/example/job_service/service/WorkflowClient.class</exclude>
