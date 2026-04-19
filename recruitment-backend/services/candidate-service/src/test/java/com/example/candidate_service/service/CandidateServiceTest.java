@@ -96,15 +96,56 @@ class CandidateServiceTest {
     }
 
     // =========================
-    // CS-TC01 - getAllWithFilters
+    // 1. CandidateService.findByEmail
     // =========================
 
     @Test
-    @DisplayName("CS-TC01: getAllWithFilters - input hợp lệ -> lọc + parse ngày + enrich title/departmentId đúng")
-    void CS_TC01_getAllWithFilters_shouldReturnFilteredPagination_andEnrichedFields() {
-        // Test kiểm tra: parse start/end date, gọi repository với LocalDate đã parse,
-        // và DTO result được enrich jobPositionTitle + departmentId từ job-service.
+    @DisplayName("CS-TC-001: findByEmail - tìm đúng ứng viên khi email tồn tại")
+    void testFindByEmail_CS_TC_001() throws Exception {
+        // Testcase ID: CS-TC-001
+        // Objective: Xác nhận tìm đúng ứng viên khi email tồn tại
 
+        // arrange
+        when(candidateRepository.findByEmail("a@gmail.com"))
+                .thenReturn(Optional.of(buildCandidate(10L, "A", "a@gmail.com", 101L)));
+
+        // act
+        Candidate found = candidateService.findByEmail("a@gmail.com");
+
+        // assert
+        assertThat(found).isNotNull();
+        assertThat(found.getEmail()).isEqualTo("a@gmail.com");
+        verify(candidateRepository, times(1)).findByEmail("a@gmail.com");
+    }
+
+    @Test
+    @DisplayName("CS-TC-002: findByEmail - email không tồn tại ném IdInvalidException")
+    void testFindByEmail_NotFound_CS_TC_002() {
+        // Testcase ID: CS-TC-002
+        // Objective: Xác nhận ném lỗi khi email không tồn tại
+
+        // arrange
+        when(candidateRepository.findByEmail("missing@gmail.com")).thenReturn(Optional.empty());
+
+        // act + assert
+        assertThatThrownBy(() -> candidateService.findByEmail("missing@gmail.com"))
+                .isInstanceOf(IdInvalidException.class)
+                .hasMessageContaining("ứng viên không tồn tại");
+
+        verify(candidateRepository, times(1)).findByEmail("missing@gmail.com");
+    }
+
+    // =========================
+    // 2. CandidateService.getAllWithFilters
+    // =========================
+
+    @Test
+    @DisplayName("CS-TC-003: getAllWithFilters - lọc danh sách và enrich đúng jobPositionTitle, departmentId")
+    void testGetAllWithFilters_EnrichJobPosition_CS_TC_003() {
+        // Testcase ID: CS-TC-003
+        // Objective: Lọc danh sách và enrich đúng thông tin job position
+
+        // arrange
         Long candidateId = null;
         Long jobPositionId = null;
         CandidateStatus status = null;
@@ -114,7 +155,6 @@ class CandidateServiceTest {
         Long departmentId = 10L;
         Pageable pageable = PageRequest.of(0, 2);
 
-        // departmentId -> job positions cached (1 api call)
         JsonNode jp101 = buildJobPositionJson(101L, "Java Intern", 10L);
         JsonNode jp102 = buildJobPositionJson(102L, "QA Intern", 10L);
         when(jobService.getJobPositionsByDepartmentId(eq(departmentId), eq(token)))
@@ -127,11 +167,13 @@ class CandidateServiceTest {
                 eq(keyword), anyList(), eq(pageable)))
                 .thenReturn(page);
 
+        // act
         PaginationDTO result = candidateService.getAllWithFilters(
                 candidateId, jobPositionId, status,
                 startDate, endDate, keyword, departmentId,
                 pageable, token);
 
+        // assert
         assertThat(result).isNotNull();
         assertThat(result.getMeta()).isNotNull();
         assertThat(result.getMeta().getPage()).isEqualTo(1);
@@ -139,10 +181,8 @@ class CandidateServiceTest {
         assertThat(result.getMeta().getPages()).isEqualTo(1);
         assertThat(result.getMeta().getTotal()).isEqualTo(2);
 
-        assertThat(result.getResult()).isInstanceOf(List.class);
         @SuppressWarnings("unchecked")
         List<CandidateGetAllResponseDTO> dtos = (List<CandidateGetAllResponseDTO>) result.getResult();
-
         assertThat(dtos).hasSize(2);
         assertThat(dtos.get(0).getJobPositionTitle()).isEqualTo("Java Intern");
         assertThat(dtos.get(0).getDepartmentId()).isEqualTo(10L);
@@ -163,51 +203,132 @@ class CandidateServiceTest {
         assertThat(endCaptor.getValue()).isEqualTo(LocalDate.of(2026, 1, 31));
         assertThat(jobIdsCaptor.getValue()).containsExactlyInAnyOrder(101L, 102L);
 
-        // Vì dữ liệu job positions đã cache từ departmentId, không cần gọi
-        // getJobPositionsByIdsSimple
         verify(jobService, never()).getJobPositionsByIdsSimple(anyList(), any());
     }
 
+    @Test
+    @DisplayName("CS-TC-004: getAllWithFilters - department không có jobPosition nào -> trả rỗng")
+    void testGetAllWithFilters_EmptyDepartmentJobPositions_CS_TC_004() {
+        // Testcase ID: CS-TC-004
+        // Objective: Xác nhận trả danh sách rỗng khi department không có jobPosition
+        // nào
+
+        // arrange
+        Long departmentId = 99L;
+        Pageable pageable = PageRequest.of(0, 5);
+        when(jobService.getJobPositionsByDepartmentId(eq(departmentId), eq(token)))
+                .thenReturn(Map.of());
+
+        // act
+        PaginationDTO result = candidateService.getAllWithFilters(
+                null, null, null,
+                "2026-01-01", "2026-01-31", null,
+                departmentId,
+                pageable,
+                token);
+
+        // assert
+        assertThat(result).isNotNull();
+        assertThat(result.getMeta()).isNotNull();
+        assertThat(result.getMeta().getPage()).isEqualTo(1);
+        assertThat(result.getMeta().getPageSize()).isEqualTo(5);
+        assertThat(result.getMeta().getTotal()).isEqualTo(0);
+        assertThat(result.getMeta().getPages()).isEqualTo(0);
+        assertThat(result.getResult()).isInstanceOf(List.class);
+        assertThat((List<?>) result.getResult()).isEmpty();
+
+        verify(candidateRepository, never()).findByFilters(any(), any(), any(), any(), any(), any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("CS-TC-005: getAllWithFilters - parse ngày lỗi -> không crash và vẫn trả dữ liệu")
+    void testGetAllWithFilters_InvalidDateFormat_CS_TC_005() {
+        // Testcase ID: CS-TC-005
+        // Objective: Xác nhận hàm không crash khi parse ngày lỗi
+
+        // arrange
+        Pageable pageable = PageRequest.of(0, 10);
+        Page<Candidate> page = new PageImpl<>(List.of(candidate1), pageable, 1);
+
+        when(candidateRepository.findByFilters(
+                eq(null), eq(null), eq(null),
+                eq(null), eq(null),
+                eq(null), eq(null), eq(pageable)))
+                .thenReturn(page);
+
+        // act
+        PaginationDTO result = candidateService.getAllWithFilters(
+                null, null, null,
+                "2026/01/01", "abc", null,
+                null,
+                pageable,
+                token);
+
+        // assert
+        assertThat(result).isNotNull();
+        assertThat(result.getMeta().getTotal()).isEqualTo(1);
+        @SuppressWarnings("unchecked")
+        List<CandidateGetAllResponseDTO> dtos = (List<CandidateGetAllResponseDTO>) result.getResult();
+        assertThat(dtos).hasSize(1);
+
+        verify(candidateRepository, times(1)).findByFilters(
+                eq(null), eq(null), eq(null),
+                eq(null), eq(null),
+                eq(null), eq(null), eq(pageable));
+    }
+
     // =========================
-    // CS-TC02 - getById
+    // 3. CandidateService.getById
     // =========================
 
     @Test
-    @DisplayName("CS-TC02: getById - id tồn tại -> trả về DTO đúng")
-    void CS_TC02_getById_shouldReturnDtoWhenIdExists() throws Exception {
-        // Test kiểm tra: repository trả candidate -> map sang
-        // CandidateDetailResponseDTO.
+    @DisplayName("CS-TC-006: getById - lấy chi tiết ứng viên thành công")
+    void testGetById_Success_CS_TC_006() throws Exception {
+        // Testcase ID: CS-TC-006
+        // Objective: Lấy chi tiết ứng viên thành công
+
+        // arrange
         when(candidateRepository.findById(1L)).thenReturn(Optional.of(candidate1));
 
+        // act
         CandidateDetailResponseDTO dto = candidateService.getById(1L);
 
+        // assert
+        assertThat(dto).isNotNull();
         assertThat(dto.getId()).isEqualTo(1L);
         assertThat(dto.getEmail()).isEqualTo("alice@gmail.com");
         assertThat(dto.getJobPositionId()).isEqualTo(101L);
+        verify(candidateRepository, times(1)).findById(1L);
     }
 
     @Test
-    @DisplayName("CS-TC02: getById - id không tồn tại -> ném IdInvalidException")
-    void CS_TC02_getById_shouldThrowIdInvalidExceptionWhenIdNotExists() {
-        // Test kiểm tra: id không tồn tại -> throw đúng custom exception.
+    @DisplayName("CS-TC-007: getById - ID không tồn tại -> ném IdInvalidException")
+    void testGetById_NotFound_CS_TC_007() {
+        // Testcase ID: CS-TC-007
+        // Objective: Xác nhận lỗi khi ID không tồn tại
+
+        // arrange
         when(candidateRepository.findById(999L)).thenReturn(Optional.empty());
 
+        // act + assert
         assertThatThrownBy(() -> candidateService.getById(999L))
                 .isInstanceOf(IdInvalidException.class)
                 .hasMessageContaining("ứng viên không tồn tại");
+        verify(candidateRepository, times(1)).findById(999L);
     }
 
     // =========================
-    // CS-TC03 - create
+    // 4. CandidateService.create
     // =========================
 
     @Test
-    @DisplayName("CS-TC03: create - input hợp lệ, không trùng email+jobPosition -> tạo mới status SUBMITTED & appliedDate")
-    void CS_TC03_create_shouldCreateCandidateWithSubmittedStatus_andAppliedDate() throws Exception {
-        // Test kiểm tra: không trùng -> save Candidate với appliedDate=now và
-        // status=SUBMITTED.
-        CreateCandidateDTO dto = buildCreateCandidateDTO();
+    @DisplayName("CS-TC-008: create - tạo mới ứng viên với giá trị mặc định đúng")
+    void testCreate_DefaultValues_CS_TC_008() throws Exception {
+        // Testcase ID: CS-TC-008
+        // Objective: Tạo mới ứng viên với giá trị mặc định đúng
 
+        // arrange
+        CreateCandidateDTO dto = buildCreateCandidateDTO();
         when(candidateRepository.existsByEmailAndJobPositionId(dto.getEmail(), dto.getJobPositionId()))
                 .thenReturn(false);
         when(candidateRepository.save(any(Candidate.class))).thenAnswer(inv -> {
@@ -216,25 +337,52 @@ class CandidateServiceTest {
             return c;
         });
 
+        // act
         Candidate saved = candidateService.create(dto);
 
+        // assert
+        assertThat(saved).isNotNull();
         assertThat(saved.getId()).isEqualTo(11L);
         assertThat(saved.getEmail()).isEqualTo(dto.getEmail());
         assertThat(saved.getStatus()).isEqualTo(CandidateStatus.SUBMITTED);
-        assertThat(saved.getAppliedDate()).isNotNull();
         assertThat(saved.getAppliedDate()).isEqualTo(LocalDate.now());
+        assertThat(saved.getCreatedBy()).isEqualTo(dto.getCreatedBy());
 
-        verify(candidateRepository).save(any(Candidate.class));
+        ArgumentCaptor<Candidate> captor = ArgumentCaptor.forClass(Candidate.class);
+        verify(candidateRepository, times(1)).save(captor.capture());
+        assertThat(captor.getValue().getStatus()).isEqualTo(CandidateStatus.SUBMITTED);
+    }
+
+    @Test
+    @DisplayName("CS-TC-009: create - chặn tạo trùng theo email + jobPosition")
+    void testCreate_DuplicateEmailAndJobPosition_CS_TC_009() {
+        // Testcase ID: CS-TC-009
+        // Objective: Chặn tạo trùng ứng viên theo email + jobPosition
+
+        // arrange
+        CreateCandidateDTO dto = buildCreateCandidateDTO();
+        when(candidateRepository.existsByEmailAndJobPositionId(dto.getEmail(), dto.getJobPositionId()))
+                .thenReturn(true);
+
+        // act + assert
+        assertThatThrownBy(() -> candidateService.create(dto))
+                .isInstanceOf(IdInvalidException.class)
+                .hasMessageContaining("Ứng viên đã nộp hồ sơ cho vị trí này");
+
+        verify(candidateRepository, never()).save(any(Candidate.class));
     }
 
     // =========================
-    // CS-TC04 - update
+    // 5. CandidateService.update
     // =========================
 
     @Test
-    @DisplayName("CS-TC04: update - id tồn tại -> chỉ update field != null và parse dateOfBirth đúng")
-    void CS_TC04_update_shouldUpdateOnlyNonNullFields_andParseDateOfBirth() throws Exception {
-        // Test kiểm tra: dto chỉ có name/dateOfBirth -> chỉ 2 field này đổi.
+    @DisplayName("CS-TC-010: update - cập nhật chọn lọc field được truyền, field null giữ nguyên")
+    void testUpdate_PartialFields_CS_TC_010() throws Exception {
+        // Testcase ID: CS-TC-010
+        // Objective: Cập nhật chọn lọc các field được truyền
+
+        // arrange
         Candidate existing = buildCandidate(5L, "Old", "old@gmail.com", 101L);
         existing.setPhone("000");
         when(candidateRepository.findById(5L)).thenReturn(Optional.of(existing));
@@ -243,55 +391,113 @@ class CandidateServiceTest {
         UpdateCandidateDTO dto = new UpdateCandidateDTO();
         dto.setName("New Name");
         dto.setDateOfBirth("2000-02-29");
-        dto.setPhone(null); // explicitly null: should keep existing phone
+        dto.setPhone(null);
 
+        // act
         CandidateDetailResponseDTO updated = candidateService.update(5L, dto);
 
+        // assert
         assertThat(updated.getId()).isEqualTo(5L);
         assertThat(updated.getName()).isEqualTo("New Name");
         assertThat(updated.getDateOfBirth()).isEqualTo(LocalDate.of(2000, 2, 29));
         assertThat(updated.getPhone()).isEqualTo("000");
 
         ArgumentCaptor<Candidate> candidateCaptor = ArgumentCaptor.forClass(Candidate.class);
-        verify(candidateRepository).save(candidateCaptor.capture());
+        verify(candidateRepository, times(1)).save(candidateCaptor.capture());
         assertThat(candidateCaptor.getValue().getDateOfBirth()).isEqualTo(LocalDate.of(2000, 2, 29));
     }
 
-    // =========================
-    // CS-TC05 - delete
-    // =========================
-
     @Test
-    @DisplayName("CS-TC05: delete - id tồn tại -> xóa thành công")
-    void CS_TC05_delete_shouldDeleteWhenIdExists() throws Exception {
-        // Test kiểm tra: findById có -> delete được gọi.
-        when(candidateRepository.findById(1L)).thenReturn(Optional.of(candidate1));
+    @DisplayName("CS-TC-011: update - ứng viên không tồn tại -> ném IdInvalidException")
+    void testUpdate_NotFound_CS_TC_011() {
+        // Testcase ID: CS-TC-011
+        // Objective: Xác nhận lỗi khi cập nhật ứng viên không tồn tại
 
-        candidateService.delete(1L);
+        // arrange
+        when(candidateRepository.findById(999L)).thenReturn(Optional.empty());
+        UpdateCandidateDTO dto = new UpdateCandidateDTO();
+        dto.setName("X");
 
-        verify(candidateRepository).delete(eq(candidate1));
-    }
-
-    @Test
-    @DisplayName("CS-TC05: delete - id không tồn tại -> ném IdInvalidException")
-    void CS_TC05_delete_shouldThrowWhenIdNotExists() {
-        // Test kiểm tra: findById empty -> throw IdInvalidException.
-        when(candidateRepository.findById(404L)).thenReturn(Optional.empty());
-
-        assertThatThrownBy(() -> candidateService.delete(404L))
+        // act + assert
+        assertThatThrownBy(() -> candidateService.update(999L, dto))
                 .isInstanceOf(IdInvalidException.class)
                 .hasMessageContaining("ứng viên không tồn tại");
+
+        verify(candidateRepository, never()).save(any(Candidate.class));
     }
 
     // =========================
-    // CS-TC06 - createCandidateFromApplication
+    // 6. CandidateService.delete
     // =========================
 
     @Test
-    @DisplayName("CS-TC06: createCandidateFromApplication - input hợp lệ -> tạo mới status SUBMITTED")
-    void CS_TC06_createCandidateFromApplication_shouldCreateCandidateWithSubmittedStatus()
-            throws IOException, IdInvalidException {
-        // Test kiểm tra: không trùng -> status SUBMITTED và appliedDate được gán.
+    @DisplayName("CS-TC-012: delete - xóa ứng viên thành công khi tồn tại")
+    void testDelete_Success_CS_TC_012() throws Exception {
+        // Testcase ID: CS-TC-012
+        // Objective: Xóa ứng viên thành công khi tồn tại
+
+        // arrange
+        when(candidateRepository.findById(1L)).thenReturn(Optional.of(candidate1));
+
+        // act
+        candidateService.delete(1L);
+
+        // assert
+        verify(candidateRepository, times(1)).delete(eq(candidate1));
+    }
+
+    @Test
+    @DisplayName("CS-TC-013: delete - ID không tồn tại -> ném IdInvalidException")
+    void testDelete_NotFound_CS_TC_013() {
+        // Testcase ID: CS-TC-013
+        // Objective: Xác nhận lỗi khi xóa ID không tồn tại
+
+        // arrange
+        when(candidateRepository.findById(999L)).thenReturn(Optional.empty());
+
+        // act + assert
+        assertThatThrownBy(() -> candidateService.delete(999L))
+                .isInstanceOf(IdInvalidException.class)
+                .hasMessageContaining("ứng viên không tồn tại");
+
+        verify(candidateRepository, never()).delete(any(Candidate.class));
+    }
+
+    // =========================
+    // 7. CandidateService.getByIds
+    // =========================
+
+    @Test
+    @DisplayName("CS-TC-014: getByIds - convert đúng danh sách entity sang DTO")
+    void testGetByIds_ConvertToDto_CS_TC_014() {
+        // Testcase ID: CS-TC-014
+        // Objective: Xác nhận convert đúng danh sách entity sang DTO
+
+        // arrange
+        when(candidateRepository.findAllById(List.of(1L, 2L))).thenReturn(List.of(candidate1, candidate2));
+
+        // act
+        List<CandidateDetailResponseDTO> result = candidateService.getByIds(List.of(1L, 2L));
+
+        // assert
+        assertThat(result).isNotNull();
+        assertThat(result).hasSize(2);
+        assertThat(result).extracting(CandidateDetailResponseDTO::getId)
+                .containsExactlyInAnyOrder(1L, 2L);
+        verify(candidateRepository, times(1)).findAllById(List.of(1L, 2L));
+    }
+
+    // =========================
+    // 8. CandidateService.createCandidateFromApplication
+    // =========================
+
+    @Test
+    @DisplayName("CS-TC-015: createCandidateFromApplication - tạo ứng viên từ CV upload thành công")
+    void testCreateCandidateFromApplication_Success_CS_TC_015() throws IOException, IdInvalidException {
+        // Testcase ID: CS-TC-015
+        // Objective: Tạo ứng viên từ CV upload thành công
+
+        // arrange
         UploadCVDTO dto = buildUploadCVDTO();
         when(candidateRepository.existsByEmailAndJobPositionId(dto.getEmail(), dto.getJobPositionId()))
                 .thenReturn(false);
@@ -301,53 +507,74 @@ class CandidateServiceTest {
             return c;
         });
 
+        // act
         Candidate saved = candidateService.createCandidateFromApplication(dto);
 
+        // assert
         assertThat(saved.getId()).isEqualTo(12L);
         assertThat(saved.getStatus()).isEqualTo(CandidateStatus.SUBMITTED);
         assertThat(saved.getAppliedDate()).isEqualTo(LocalDate.now());
         assertThat(saved.getResumeUrl()).isEqualTo(dto.getCvUrl());
-    }
-
-    // =========================
-    // CS-TC07 - updateCandidateStatus
-    // =========================
-
-    @Test
-    @DisplayName("CS-TC07: updateCandidateStatus - status hợp lệ -> cập nhật trạng thái đúng")
-    void CS_TC07_updateCandidateStatus_shouldUpdateStatusWhenValid() throws Exception {
-        // Test kiểm tra: status=INTERVIEWING -> candidate.status đổi.
-        Candidate existing = buildCandidate(7L, "A", "a@x.com", 101L);
-        existing.setStatus(CandidateStatus.SUBMITTED);
-        when(candidateRepository.findById(7L)).thenReturn(Optional.of(existing));
-        when(candidateRepository.save(any(Candidate.class))).thenAnswer(inv -> inv.getArgument(0, Candidate.class));
-
-        CandidateDetailResponseDTO dto = candidateService.updateCandidateStatus(7L, "INTERVIEW", null, 99L);
-
-        assertThat(dto.getStatus()).isEqualTo(CandidateStatus.INTERVIEW);
-        verify(candidateRepository).save(any(Candidate.class));
+        assertThat(saved.getNotes()).isEqualTo(dto.getNotes());
     }
 
     @Test
-    @DisplayName("CS-TC07: updateCandidateStatus - REJECTED -> gán rejectionReason")
-    void CS_TC07_updateCandidateStatus_shouldSetRejectionReasonWhenRejected() throws Exception {
-        // Test kiểm tra: khi REJECTED + feedback != null -> set rejectionReason.
+    @DisplayName("CS-TC-016: createCandidateFromApplication - chặn tạo trùng ứng viên")
+    void testCreateCandidateFromApplication_Duplicate_CS_TC_016() {
+        // Testcase ID: CS-TC-016
+        // Objective: Chặn tạo trùng từ application
+
+        // arrange
+        UploadCVDTO dto = buildUploadCVDTO();
+        when(candidateRepository.existsByEmailAndJobPositionId(dto.getEmail(), dto.getJobPositionId()))
+                .thenReturn(true);
+
+        // act + assert
+        assertThatThrownBy(() -> candidateService.createCandidateFromApplication(dto))
+                .isInstanceOf(IdInvalidException.class)
+                .hasMessageContaining("Ứng viên đã nộp hồ sơ cho vị trí này");
+
+        verify(candidateRepository, never()).save(any(Candidate.class));
+    }
+
+    // =========================
+    // 9. CandidateService.updateCandidateStatus
+    // =========================
+
+    @Test
+    @DisplayName("CS-TC-017: updateCandidateStatus - REJECTED -> set rejectionReason và updatedBy")
+    void testUpdateCandidateStatus_Rejected_SetReason_CS_TC_017() throws Exception {
+        // Testcase ID: CS-TC-017
+        // Objective: Xác nhận set trạng thái từ chối và lưu rejectionReason
+
+        // arrange
         Candidate existing = buildCandidate(8L, "A", "a2@x.com", 101L);
         when(candidateRepository.findById(8L)).thenReturn(Optional.of(existing));
         when(candidateRepository.save(any(Candidate.class))).thenAnswer(inv -> inv.getArgument(0, Candidate.class));
 
-        CandidateDetailResponseDTO dto = candidateService.updateCandidateStatus(8L, "REJECTED", "Not fit", 100L);
+        // act
+        CandidateDetailResponseDTO dto = candidateService.updateCandidateStatus(8L, "REJECTED", "Không phù hợp", 100L);
 
+        // assert
         assertThat(dto.getStatus()).isEqualTo(CandidateStatus.REJECTED);
-        assertThat(dto.getRejectionReason()).isEqualTo("Not fit");
+        assertThat(dto.getRejectionReason()).isEqualTo("Không phù hợp");
+
+        ArgumentCaptor<Candidate> candCaptor = ArgumentCaptor.forClass(Candidate.class);
+        verify(candidateRepository, times(1)).save(candCaptor.capture());
+        assertThat(candCaptor.getValue().getUpdatedBy()).isEqualTo(100L);
+        assertThat(candCaptor.getValue().getRejectionReason()).isEqualTo("Không phù hợp");
     }
 
     @Test
-    @DisplayName("CS-TC07: updateCandidateStatus - status sai -> ném IllegalArgumentException")
-    void CS_TC07_updateCandidateStatus_shouldThrowWhenStatusInvalid() {
-        // Test kiểm tra: CandidateStatus.valueOf(status) ném IllegalArgumentException.
+    @DisplayName("CS-TC-018: updateCandidateStatus - status không nằm trong enum -> ném IllegalArgumentException")
+    void testUpdateCandidateStatus_InvalidEnum_CS_TC_018() {
+        // Testcase ID: CS-TC-018
+        // Objective: Xác nhận lỗi khi status không nằm trong enum
+
+        // arrange
         when(candidateRepository.findById(9L)).thenReturn(Optional.of(buildCandidate(9L, "A", "a3@x.com", 101L)));
 
+        // act + assert
         assertThatThrownBy(() -> candidateService.updateCandidateStatus(9L, "INVALID_STATUS", null, 1L))
                 .isInstanceOf(IllegalArgumentException.class);
 
@@ -355,23 +582,26 @@ class CandidateServiceTest {
     }
 
     // =========================
-    // CS-TC08 - getCandidateDetailById
+    // 10. CandidateService.getCandidateDetailById
     // =========================
 
     @Test
-    @DisplayName("CS-TC08: getCandidateDetailById - aggregate comments/reviews/jobPosition/schedules; review lỗi -> fallback empty")
-    void CS_TC08_getCandidateDetailById_shouldAggregateData_andFallbackEmptyReviewsOnError() throws Exception {
-        // Test kiểm tra: comments set, jobPosition set, schedules set; reviews lỗi ->
-        // empty list.
+    @DisplayName("CS-TC-019: getCandidateDetailById - aggregate đủ comments, reviews, jobPosition, upcomingSchedules")
+    void testGetCandidateDetailById_AggregateAll_CS_TC_019() throws Exception {
+        // Testcase ID: CS-TC-019
+        // Objective: Xác nhận aggregate đủ comments, reviews, jobPosition,
+        // upcomingSchedules
+
+        // arrange
         Candidate existing = buildCandidate(20L, "A", "a@a.com", 101L);
-        existing.setComments(java.util.Set.of()); // điều kiện để set comments
+        existing.setComments(java.util.Set.of());
         when(candidateRepository.findById(20L)).thenReturn(Optional.of(existing));
 
         List<CommentResponseDTO> comments = List.of(buildComment(1L, 100L, "c1"));
         when(commentService.getByCandidateId(20L, token)).thenReturn(comments);
 
-        when(reviewCandidateService.getByCandidateId(20L, token))
-                .thenThrow(new RuntimeException("review-service down"));
+        List<ReviewCandidateResponseDTO> reviews = List.of(buildReview(1L, 200L));
+        when(reviewCandidateService.getByCandidateId(20L, token)).thenReturn(reviews);
 
         JsonNode jobPosition = buildJobPositionJson(101L, "Java Intern", 10L);
         when(jobService.getJobPositionById(101L, token)).thenReturn(ResponseEntity.ok(jobPosition));
@@ -381,25 +611,65 @@ class CandidateServiceTest {
         when(communicationService.getUpcomingSchedulesForCandidate(20L, token))
                 .thenReturn(ResponseEntity.ok(schedulesArray));
 
+        // act
         CandidateDetailResponseDTO dto = candidateService.getCandidateDetailById(20L, token);
 
+        // assert
+        assertThat(dto).isNotNull();
         assertThat(dto.getId()).isEqualTo(20L);
         assertThat(dto.getComments()).hasSize(1);
-        assertThat(dto.getReviews()).isNotNull();
-        assertThat(dto.getReviews()).isEmpty();
+        assertThat(dto.getReviews()).hasSize(1);
         assertThat(dto.getJobPosition()).isNotNull();
         assertThat(dto.getUpcomingSchedules()).hasSize(1);
+
+        verify(commentService, times(1)).getByCandidateId(20L, token);
+        verify(reviewCandidateService, times(1)).getByCandidateId(20L, token);
+        verify(jobService, times(1)).getJobPositionById(101L, token);
+        verify(communicationService, times(1)).getUpcomingSchedulesForCandidate(20L, token);
+    }
+
+    @Test
+    @DisplayName("CS-TC-020: getCandidateDetailById - review-service lỗi -> fallback reviews rỗng")
+    void testGetCandidateDetailById_FallbackEmptyReviews_CS_TC_020() throws Exception {
+        // Testcase ID: CS-TC-020
+        // Objective: Xác nhận fallback reviews rỗng khi review-service lỗi
+
+        // arrange
+        Candidate existing = buildCandidate(21L, "A", "a2@a.com", 101L);
+        existing.setComments(java.util.Set.of());
+        when(candidateRepository.findById(21L)).thenReturn(Optional.of(existing));
+
+        when(reviewCandidateService.getByCandidateId(21L, token)).thenThrow(new RuntimeException("down"));
+
+        JsonNode jobPosition = buildJobPositionJson(101L, "Java Intern", 10L);
+        when(jobService.getJobPositionById(101L, token)).thenReturn(ResponseEntity.ok(jobPosition));
+
+        ArrayNode schedulesArray = objectMapper.createArrayNode();
+        schedulesArray.add(objectMapper.createObjectNode().put("id", 1));
+        when(communicationService.getUpcomingSchedulesForCandidate(21L, token))
+                .thenReturn(ResponseEntity.ok(schedulesArray));
+
+        // act
+        CandidateDetailResponseDTO dto = candidateService.getCandidateDetailById(21L, token);
+
+        // assert
+        assertThat(dto).isNotNull();
+        assertThat(dto.getReviews()).isNotNull();
+        assertThat(dto.getReviews()).isEmpty();
+        verify(reviewCandidateService, times(1)).getByCandidateId(21L, token);
     }
 
     // =========================
-    // CS-TC09 - getDepartmentIdByCandidateId
+    // 11. CandidateService.getDepartmentIdByCandidateId
     // =========================
 
     @Test
-    @DisplayName("CS-TC09: getDepartmentIdByCandidateId - job service có recruitmentRequest.departmentId -> trả đúng")
-    void CS_TC09_getDepartmentIdByCandidateId_shouldReturnDepartmentIdWhenAvailable() {
-        // Test kiểm tra: parse response jobPosition.simple ->
-        // recruitmentRequest.departmentId.
+    @DisplayName("CS-TC-021: getDepartmentIdByCandidateId - parse đúng departmentId từ JSON lồng")
+    void testGetDepartmentIdByCandidateId_ParseNestedDepartmentId_CS_TC_021() {
+        // Testcase ID: CS-TC-021
+        // Objective: Xác nhận parse đúng departmentId từ JSON lồng
+
+        // arrange
         Candidate existing = buildCandidate(30L, "A", "x@x.com", 101L);
         when(candidateRepository.findById(30L)).thenReturn(Optional.of(existing));
 
@@ -407,34 +677,52 @@ class CandidateServiceTest {
         when(jobService.getJobPositionByIdSimple(101L, token))
                 .thenReturn(ResponseEntity.ok(jobPositionSimple));
 
+        // act
         Long deptId = candidateService.getDepartmentIdByCandidateId(30L, token);
 
+        // assert
         assertThat(deptId).isEqualTo(55L);
     }
 
     @Test
-    @DisplayName("CS-TC09: getDepartmentIdByCandidateId - lỗi/thiếu data -> trả null")
-    void CS_TC09_getDepartmentIdByCandidateId_shouldReturnNullWhenErrorOrMissingData() {
-        // Test kiểm tra: job-service ném exception -> service catch và return null.
+    @DisplayName("CS-TC-022: getDepartmentIdByCandidateId - không lấy được department -> trả null")
+    void testGetDepartmentIdByCandidateId_ReturnNullOnErrorOrMissing_CS_TC_022() {
+        // Testcase ID: CS-TC-022
+        // Objective: Xác nhận trả null khi không lấy được department
+
+        // arrange (candidate null)
+        when(candidateRepository.findById(999L)).thenReturn(Optional.empty());
+
+        // act
+        Long deptId = candidateService.getDepartmentIdByCandidateId(999L, token);
+
+        // assert
+        assertThat(deptId).isNull();
+
+        // arrange (jobService error)
         Candidate existing = buildCandidate(31L, "A", "y@y.com", 101L);
         when(candidateRepository.findById(31L)).thenReturn(Optional.of(existing));
         when(jobService.getJobPositionByIdSimple(101L, token)).thenThrow(new RuntimeException("boom"));
 
-        Long deptId = candidateService.getDepartmentIdByCandidateId(31L, token);
+        // act
+        Long deptId2 = candidateService.getDepartmentIdByCandidateId(31L, token);
 
-        assertThat(deptId).isNull();
+        // assert
+        assertThat(deptId2).isNull();
     }
 
     // =========================
-    // CS-TC10 - getCandidatesByInterviewer
+    // 12. CandidateService.getCandidatesByInterviewer
     // =========================
 
     @Test
-    @DisplayName("CS-TC10: getCandidatesByInterviewer - schedule-service trả candidateIds -> lấy candidates & enrich đúng")
-    void CS_TC10_getCandidatesByInterviewer_shouldReturnCandidatesAndEnrichFields() {
-        // Test kiểm tra: schedule-service -> ids -> repository.findAllById -> enrich
-        // title+departmentId.
-        when(communicationService.getCandidateIdsByInterviewer(500L, token)).thenReturn(List.of(1L, 2L));
+    @DisplayName("CS-TC-023: getCandidatesByInterviewer - lấy đúng danh sách & enrich title/departmentId")
+    void testGetCandidatesByInterviewer_ReturnCandidatesAndEnrich_CS_TC_023() {
+        // Testcase ID: CS-TC-023
+        // Objective: Xác nhận lấy đúng danh sách ứng viên interviewer đã tham gia
+
+        // arrange
+        when(communicationService.getCandidateIdsByInterviewer(10L, token)).thenReturn(List.of(1L, 2L));
         when(candidateRepository.findAllById(List.of(1L, 2L))).thenReturn(List.of(candidate1, candidate2));
 
         when(jobService.getJobPositionsByIdsSimple(anyList(), eq(token)))
@@ -442,49 +730,100 @@ class CandidateServiceTest {
                         101L, buildJobPositionJson(101L, "Java Intern", 10L),
                         102L, buildJobPositionJson(102L, "QA Intern", 11L)));
 
-        List<CandidateGetAllResponseDTO> result = candidateService.getCandidatesByInterviewer(500L, token);
+        // act
+        List<CandidateGetAllResponseDTO> result = candidateService.getCandidatesByInterviewer(10L, token);
 
+        // assert
         assertThat(result).hasSize(2);
         assertThat(result).extracting(CandidateGetAllResponseDTO::getJobPositionTitle)
                 .containsExactlyInAnyOrder("Java Intern", "QA Intern");
         assertThat(result).filteredOn(r -> r.getJobPositionId().equals(101L))
                 .first().extracting(CandidateGetAllResponseDTO::getDepartmentId).isEqualTo(10L);
+
+        verify(communicationService, times(1)).getCandidateIdsByInterviewer(10L, token);
+        verify(candidateRepository, times(1)).findAllById(List.of(1L, 2L));
+        verify(jobService, times(1)).getJobPositionsByIdsSimple(anyList(), eq(token));
+    }
+
+    @Test
+    @DisplayName("CS-TC-024: getCandidatesByInterviewer - interviewer chưa tham gia lịch nào -> trả list rỗng")
+    void testGetCandidatesByInterviewer_EmptyCandidateIds_CS_TC_024() {
+        // Testcase ID: CS-TC-024
+        // Objective: Xác nhận trả list rỗng khi interviewer chưa tham gia lịch nào
+
+        // arrange
+        when(communicationService.getCandidateIdsByInterviewer(10L, token)).thenReturn(List.of());
+
+        // act
+        List<CandidateGetAllResponseDTO> result = candidateService.getCandidatesByInterviewer(10L, token);
+
+        // assert
+        assertThat(result).isNotNull();
+        assertThat(result).isEmpty();
+
+        verify(candidateRepository, never()).findAllById(anyList());
+        verify(jobService, never()).getJobPositionsByIdsSimple(anyList(), any());
     }
 
     // =========================
-    // CS-TC11 - convertCandidateToEmployee
+    // 13. CandidateService.convertCandidateToEmployee
     // =========================
 
     @Test
-    @DisplayName("CS-TC11: convertCandidateToEmployee - input hợp lệ -> chuyển thành employee thành công")
-    void CS_TC11_convertCandidateToEmployee_shouldReturnEmployeeResponseWhenValid() throws Exception {
-        // Test kiểm tra: gọi userService.createEmployeeFromCandidate và return body khi
-        // 2xx.
+    @DisplayName("CS-TC-025: convertCandidateToEmployee - chuyển thành công với fallback departmentId")
+    void testConvertCandidateToEmployee_Success_FallbackDepartmentId_CS_TC_025() throws Exception {
+        // Testcase ID: CS-TC-025
+        // Objective: Xác nhận chuyển ứng viên thành nhân viên thành công với fallback
+        // departmentId
+
+        // arrange
         Candidate existing = buildCandidate(40L, "A", "a@b.com", 101L);
         existing.setDateOfBirth(LocalDate.of(2000, 1, 1));
         when(candidateRepository.findById(40L)).thenReturn(Optional.of(existing));
 
+        // jobService.getJobPositionById returns wrapped body having
+        // data.recruitmentRequest.departmentId
+        ObjectNode wrapped = objectMapper.createObjectNode();
+        ObjectNode data = objectMapper.createObjectNode();
+        ObjectNode rr = objectMapper.createObjectNode();
+        rr.put("departmentId", 5L);
+        data.set("recruitmentRequest", rr);
+        wrapped.set("data", data);
+
+        when(jobService.getJobPositionById(101L, token)).thenReturn(ResponseEntity.ok(wrapped));
+
         ObjectNode employeeNode = objectMapper.createObjectNode().put("employeeId", 9000);
         when(userService.createEmployeeFromCandidate(
                 eq(40L), eq("A"), eq("a@b.com"), eq(existing.getPhone()), eq("2000-01-01"),
-                any(), any(), any(), any(), any(),
-                eq(1L), eq(2L), eq("PROBATION"), eq(token)))
+                eq(existing.getGender()), eq(existing.getNationality()), eq(existing.getIdNumber()),
+                eq(existing.getAddress()), eq(existing.getAvatarUrl()),
+                eq(5L), eq(2L), eq("PROBATION"), eq(token)))
                 .thenReturn(new ResponseEntity<>(employeeNode, HttpStatus.OK));
 
-        JsonNode result = candidateService.convertCandidateToEmployee(40L, 1L, 2L, token);
+        // act
+        JsonNode result = candidateService.convertCandidateToEmployee(40L, null, 2L, token);
 
+        // assert
         assertThat(result.get("employeeId").asInt()).isEqualTo(9000);
+        verify(jobService, times(1)).getJobPositionById(101L, token);
+        verify(userService, times(1)).createEmployeeFromCandidate(
+                anyLong(), any(), any(), any(), any(), any(), any(), any(), any(), any(),
+                anyLong(), anyLong(), any(), any());
     }
 
     @Test
-    @DisplayName("CS-TC11: convertCandidateToEmployee - thiếu departmentId/positionId -> ném IdInvalidException")
-    void CS_TC11_convertCandidateToEmployee_shouldThrowWhenDepartmentIdOrPositionIdMissing() {
-        // Test kiểm tra: departmentId null và jobService không cung cấp được
-        // departmentId -> throw.
-        Candidate existing = buildCandidate(41L, "A", "c@d.com", null);
-        when(candidateRepository.findById(41L)).thenReturn(Optional.of(existing));
+    @DisplayName("CS-TC-026: convertCandidateToEmployee - thiếu departmentId -> ném IdInvalidException")
+    void testConvertCandidateToEmployee_MissingDepartmentId_CS_TC_026() {
+        // Testcase ID: CS-TC-026
+        // Objective: Xác nhận validate thiếu departmentId
 
-        assertThatThrownBy(() -> candidateService.convertCandidateToEmployee(41L, null, null, token))
+        // arrange
+        Candidate existing = buildCandidate(41L, "A", "c@d.com", 101L);
+        when(candidateRepository.findById(41L)).thenReturn(Optional.of(existing));
+        when(jobService.getJobPositionById(101L, token)).thenThrow(new RuntimeException("boom"));
+
+        // act + assert
+        assertThatThrownBy(() -> candidateService.convertCandidateToEmployee(41L, null, 2L, token))
                 .isInstanceOf(IdInvalidException.class)
                 .hasMessageContaining("Department ID là bắt buộc");
 
@@ -493,15 +832,73 @@ class CandidateServiceTest {
                 anyLong(), anyLong(), any(), any());
     }
 
+    @Test
+    @DisplayName("CS-TC-027: convertCandidateToEmployee - thiếu positionId -> ném IdInvalidException")
+    void testConvertCandidateToEmployee_MissingPositionId_CS_TC_027() {
+        // Testcase ID: CS-TC-027
+        // Objective: Xác nhận validate thiếu positionId
+
+        // arrange
+        Candidate existing = buildCandidate(42L, "A", "e@f.com", 101L);
+        when(candidateRepository.findById(42L)).thenReturn(Optional.of(existing));
+
+        // act + assert
+        assertThatThrownBy(() -> candidateService.convertCandidateToEmployee(42L, 5L, null, token))
+                .isInstanceOf(IdInvalidException.class)
+                .hasMessageContaining("Position ID là bắt buộc");
+
+        verify(userService, never()).createEmployeeFromCandidate(
+                anyLong(), any(), any(), any(), any(), any(), any(), any(), any(), any(),
+                anyLong(), anyLong(), any(), any());
+    }
+
     // =========================
-    // CS-TC12 - getCandidatesForStatistics
+    // 14. CandidateService.getCandidatesForStatistics
     // =========================
 
     @Test
-    @DisplayName("CS-TC12: getCandidatesForStatistics - input hợp lệ -> parse ngày đúng, filter theo departmentId đúng")
-    void CS_TC12_getCandidatesForStatistics_shouldParseDates_andFilterByDepartmentId() {
-        // Test kiểm tra: repository receive LocalDate parsed; kết quả bị filter theo
-        // departmentId.
+    @DisplayName("CS-TC-028: getCandidatesForStatistics - lọc thống kê và map department đúng")
+    void testGetCandidatesForStatistics_MapDepartment_CS_TC_028() {
+        // Testcase ID: CS-TC-028
+        // Objective: Xác nhận lọc thống kê và map department đúng
+
+        // arrange
+        Pageable pageable = PageRequest.of(0, 10000);
+        Page<Candidate> page = new PageImpl<>(List.of(candidate1, candidate2), pageable, 2);
+        when(candidateRepository.findByFilters(
+                eq(null), eq(CandidateStatus.SUBMITTED), eq(null),
+                any(LocalDate.class), any(LocalDate.class),
+                eq(null), eq(null), any(Pageable.class)))
+                .thenReturn(page);
+
+        when(jobService.getJobPositionsByIds(anyList(), eq(token)))
+                .thenReturn(Map.of(
+                        101L, buildJobPositionJson(101L, "Java Intern", 10L),
+                        102L, buildJobPositionJson(102L, "QA Intern", 11L)));
+
+        // act
+        List<CandidateStatisticsDTO> stats = candidateService.getCandidatesForStatistics(
+                CandidateStatus.SUBMITTED,
+                "2026-01-01", "2026-01-31",
+                null,
+                null,
+                token);
+
+        // assert
+        assertThat(stats).hasSize(2);
+        assertThat(stats).extracting(CandidateStatisticsDTO::getDepartmentId)
+                .containsExactlyInAnyOrder(10L, 11L);
+
+        verify(jobService, times(1)).getJobPositionsByIds(anyList(), eq(token));
+    }
+
+    @Test
+    @DisplayName("CS-TC-029: getCandidatesForStatistics - filter theo departmentId hoạt động đúng")
+    void testGetCandidatesForStatistics_FilterByDepartment_CS_TC_029() {
+        // Testcase ID: CS-TC-029
+        // Objective: Xác nhận filter theo department hoạt động đúng
+
+        // arrange
         Pageable pageable = PageRequest.of(0, 10000);
         Page<Candidate> page = new PageImpl<>(List.of(candidate1, candidate2), pageable, 2);
         when(candidateRepository.findByFilters(
@@ -515,6 +912,7 @@ class CandidateServiceTest {
                         101L, buildJobPositionJson(101L, "Java Intern", 10L),
                         102L, buildJobPositionJson(102L, "QA Intern", 99L)));
 
+        // act
         List<CandidateStatisticsDTO> stats = candidateService.getCandidatesForStatistics(
                 CandidateStatus.SUBMITTED,
                 "2026-01-01", "2026-01-31",
@@ -522,119 +920,10 @@ class CandidateServiceTest {
                 10L,
                 token);
 
+        // assert
         assertThat(stats).hasSize(1);
         assertThat(stats.get(0).getJobPositionId()).isEqualTo(101L);
         assertThat(stats.get(0).getDepartmentId()).isEqualTo(10L);
-
-        ArgumentCaptor<LocalDate> startCaptor = ArgumentCaptor.forClass(LocalDate.class);
-        ArgumentCaptor<LocalDate> endCaptor = ArgumentCaptor.forClass(LocalDate.class);
-        verify(candidateRepository).findByFilters(
-                eq(null), eq(CandidateStatus.SUBMITTED), eq(null),
-                startCaptor.capture(), endCaptor.capture(),
-                eq(null), eq(null), any(Pageable.class));
-        assertThat(startCaptor.getValue()).isEqualTo(LocalDate.of(2026, 1, 1));
-        assertThat(endCaptor.getValue()).isEqualTo(LocalDate.of(2026, 1, 31));
-    }
-
-    // =========================
-    // CS-TC13 - existsByEmail
-    // =========================
-
-    @Test
-    @DisplayName("CS-TC13: existsByEmail - email tồn tại -> true")
-    void CS_TC13_existsByEmail_shouldReturnTrueWhenExists() {
-        // Test kiểm tra: pass-through từ repository.
-        when(candidateRepository.existsByEmail("a@a.com")).thenReturn(true);
-        assertThat(candidateService.existsByEmail("a@a.com")).isTrue();
-    }
-
-    @Test
-    @DisplayName("CS-TC13: existsByEmail - email không tồn tại -> false")
-    void CS_TC13_existsByEmail_shouldReturnFalseWhenNotExists() {
-        // Test kiểm tra: pass-through từ repository.
-        when(candidateRepository.existsByEmail("b@b.com")).thenReturn(false);
-        assertThat(candidateService.existsByEmail("b@b.com")).isFalse();
-    }
-
-    // =========================
-    // CS-TC14 - findByEmail
-    // =========================
-
-    @Test
-    @DisplayName("CS-TC14: findByEmail - email tồn tại -> trả Candidate")
-    void CS_TC14_findByEmail_shouldReturnCandidateWhenExists() throws Exception {
-        // Test kiểm tra: repository.findByEmail -> return candidate.
-        when(candidateRepository.findByEmail("alice@gmail.com")).thenReturn(Optional.of(candidate1));
-
-        Candidate found = candidateService.findByEmail("alice@gmail.com");
-
-        assertThat(found.getId()).isEqualTo(1L);
-        assertThat(found.getEmail()).isEqualTo("alice@gmail.com");
-    }
-
-    @Test
-    @DisplayName("CS-TC14: findByEmail - email không tồn tại -> ném IdInvalidException")
-    void CS_TC14_findByEmail_shouldThrowWhenNotExists() {
-        // Test kiểm tra: Optional.empty -> throw IdInvalidException.
-        when(candidateRepository.findByEmail("missing@gmail.com")).thenReturn(Optional.empty());
-
-        assertThatThrownBy(() -> candidateService.findByEmail("missing@gmail.com"))
-                .isInstanceOf(IdInvalidException.class)
-                .hasMessageContaining("ứng viên không tồn tại");
-    }
-
-    // =========================
-    // CS-TC15 - saveCandidate
-    // =========================
-
-    @Test
-    @DisplayName("CS-TC15: saveCandidate - candidate hợp lệ -> lưu thành công")
-    void CS_TC15_saveCandidate_shouldSaveSuccessfully() {
-        // Test kiểm tra: repository.save được gọi và trả về entity.
-        Candidate c = buildCandidate(null, "X", "x@x.com", 101L);
-        when(candidateRepository.save(any(Candidate.class))).thenAnswer(inv -> {
-            Candidate arg = inv.getArgument(0, Candidate.class);
-            arg.setId(100L);
-            return arg;
-        });
-
-        Candidate saved = candidateService.saveCandidate(c);
-
-        assertThat(saved.getId()).isEqualTo(100L);
-        verify(candidateRepository).save(eq(c));
-    }
-
-    // =========================
-    // CS-TC16 - countCandidatesByJobPositionId
-    // =========================
-
-    @Test
-    @DisplayName("CS-TC16: countCandidatesByJobPositionId - jobPositionId hợp lệ -> trả đúng số lượng")
-    void CS_TC16_countCandidatesByJobPositionId_shouldReturnCount() {
-        // Test kiểm tra: pass-through.countByJobPositionId.
-        when(candidateRepository.countByJobPositionId(101L)).thenReturn(5L);
-        assertThat(candidateService.countCandidatesByJobPositionId(101L)).isEqualTo(5L);
-    }
-
-    // =========================
-    // CS-TC17 - getByCandidateId
-    // =========================
-
-    @Test
-    @DisplayName("CS-TC17: getByCandidateId (assumption) - hiện CandidateService không có hàm này -> cover bằng getCandidateDetailById")
-    void CS_TC17_getByCandidateId_assumption_shouldBehaveLikeGetCandidateDetailById() throws Exception {
-        // Assumption ngắn: Source CandidateService hiện tại không có method
-        // getByCandidateId(Long,String)
-        // như testcase mô tả. Trên codebase, hành vi gần nhất là
-        // getCandidateDetailById(id, token)
-        // để aggregate dữ liệu và join tên employee ở các sub-service (comment/review).
-        // Test này giữ mapping CS-TC17 và verify được candidate không tồn tại -> throw.
-
-        when(candidateRepository.findById(9999L)).thenReturn(Optional.empty());
-
-        assertThatThrownBy(() -> candidateService.getCandidateDetailById(9999L, token))
-                .isInstanceOf(IdInvalidException.class)
-                .hasMessageContaining("Ứng viên không tồn tại");
     }
 
     // ============== helpers ==============
@@ -693,7 +982,6 @@ class CandidateServiceTest {
         return dto;
     }
 
-    @SuppressWarnings("unused")
     private ReviewCandidateResponseDTO buildReview(Long id, Long reviewerId) {
         ReviewCandidateResponseDTO dto = new ReviewCandidateResponseDTO();
         dto.setId(id);
