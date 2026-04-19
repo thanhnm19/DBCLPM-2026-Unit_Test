@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" 
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>com.example</groupId>
+    <artifactId>recruitment-backend-aggregator</artifactId>
+    <version>0.0.1-SNAPSHOT</version>
+    <packaging>pom</packaging>
+
+    <name>Recruitment Backend Aggregator</name>
+    <description>Root POM to aggregate all microservices and generate combined Jacoco coverage reports</description>
+
+    <!-- Khai báo các modules (folders) con của dự án -->
+    <modules>
+        <module>gateway</module>
+        <module>services/candidate-service</module>
+        <module>services/communications-service</module>
+        <module>services/email-service</module>
+        <module>services/job-service</module>
+        <module>services/notification-service</module>
+        <module>services/schedule-service</module>
+        <module>services/statistics-service</module>
+        <module>services/upload-service</module>
+        <module>services/user-service</module>
+        <module>services/workflow-service</module>
+        
+        <!-- Module chuyên dùng tạo báo cáo coverage tổng hợp -->
+        <module>coverage-report</module>
+    </modules>
+
+</project>

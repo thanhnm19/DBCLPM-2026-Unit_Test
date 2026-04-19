@@ -274,7 +274,7 @@ class ReviewCandidateServiceTest {
         assertThat(result.getAverageScore()).isEqualTo((4.0 + 3.0 + 5.0) / 3.0);
         assertThat(result.getStrengths()).isEqualTo("S");
         assertThat(result.getWeaknesses()).isEqualTo("W");
-        assertThat(result.getConclusion()).isEqualTo("OK");
+        assertThat(result.getConclusion()).isTrue();
 
         // Verify save payload
         ArgumentCaptor<ReviewCandidate> captor = ArgumentCaptor.forClass(ReviewCandidate.class);
@@ -316,12 +316,12 @@ class ReviewCandidateServiceTest {
         // Assert
         assertThat(result.getId()).isEqualTo(id);
         assertThat(result.getReviewerId()).isEqualTo(reviewerId);
-        assertThat(result.getProfessionalSkillScore()).isEqualTo(4.0);
-        assertThat(result.getCommunicationSkillScore()).isEqualTo(1.0);
-        assertThat(result.getWorkExperienceScore()).isEqualTo(3.0);
+        assertThat(result.getProfessionalSkillScore()).isEqualTo(4);
+        assertThat(result.getCommunicationSkillScore()).isEqualTo(1);
+        assertThat(result.getWorkExperienceScore()).isEqualTo(3);
         assertThat(result.getStrengths()).isEqualTo("newS");
         assertThat(result.getWeaknesses()).isEqualTo("oldW");
-        assertThat(result.getConclusion()).isEqualTo("newC");
+        assertThat(result.getConclusion()).isFalse();
 
         // AverageScore only set when all 3 scores non-null (existing comm=1.0)
         assertThat(result.getAverageScore()).isEqualTo((4.0 + 1.0 + 3.0) / 3.0);

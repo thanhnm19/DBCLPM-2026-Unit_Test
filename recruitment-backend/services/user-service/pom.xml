@@ -137,6 +137,44 @@
 					</excludes>
 				</configuration>
 			</plugin>
+			<plugin>
+				<groupId>org.jacoco</groupId>
+				<artifactId>jacoco-maven-plugin</artifactId>
+				<version>0.8.12</version>
+				<executions>
+					<execution>
+						<id>prepare-agent</id>
+						<goals>
+							<goal>prepare-agent</goal>
+						</goals>
+					</execution>
+					<execution>
+						<id>report</id>
+						<phase>verify</phase>
+						<goals>
+							<goal>report</goal>
+						</goals>
+						<configuration>
+							<!--
+							Coverage scope cho unit test user-service:
+							- Giữ lại service logic, PermissionInterceptor và JwtUtil
+							- Bỏ qua DTO/entity/repository/controller/... để số liệu phản ánh đúng mục tiêu test
+							-->
+							<includes>
+								<include>com/example/user_service/service/UserService*</include>
+								<include>com/example/user_service/service/UserDetailCustom*</include>
+								<include>com/example/user_service/service/DepartmentService*</include>
+								<include>com/example/user_service/service/EmployeeService*</include>
+								<include>com/example/user_service/service/PositionService*</include>
+								<include>com/example/user_service/service/RoleService*</include>
+								<include>com/example/user_service/service/PermissionService*</include>
+								<include>com/example/user_service/config/PermissionInterceptor.class</include>
+								<include>com/example/user_service/utils/JwtUtil*</include>
+							</includes>
+						</configuration>
+					</execution>
+				</executions>
+			</plugin>
 		</plugins>
 	</build>
 
