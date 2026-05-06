@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
@@ -162,4 +163,32 @@ class CloudinaryServiceTest {
         verify(uploader, times(1)).upload(eq(bytes), eq(ObjectUtils.asMap("resource_type", "auto", "type", "upload")));
         verifyNoMoreInteractions(cloudinary, uploader, file);
     }
-}
+
+    // ================================================================
+    // NHÓM 2: Nhánh còn thiếu — file = null
+    // ================================================================
+
+    /**
+     * Test Case ID: CLD-TC-005
+     * Nhánh TRUE của `if (file == null)` trong uploadFile():
+     * file = null → ném NullPointerException("File cannot be null").
+     *
+     * Bug bị bắt: Không kiểm tra null → gọi file.getBytes() → NPE không có thông báo rõ ràng,
+     * hoặc không ném exception → cloudinary.uploader() được gọi với null.
+     */
+    @Test
+    @DisplayName("CLD-TC-005: uploadFile - file=null → ném NullPointerException với message 'File cannot be null'")
+    void testUploadFile_NullFile_CLD_TC_005() {
+        // Act + Assert: file = null → nhánh TRUE của if (file == null)
+        NullPointerException ex = assertThrows(NullPointerException.class,
+                () -> cloudinaryService.uploadFile(null),
+                "BUG: Không ném NullPointerException khi file=null");
+
+        // Assert: message phải rõ ràng
+        assertEquals("File cannot be null", ex.getMessage(),
+                "BUG: Message không phải 'File cannot be null' - khó debug khi exception xảy ra");
+
+        // Assert: cloudinary.uploader() không được gọi (guard clause phải return sớm)
+        verify(cloudinary, never()).uploader();
+    }
+}

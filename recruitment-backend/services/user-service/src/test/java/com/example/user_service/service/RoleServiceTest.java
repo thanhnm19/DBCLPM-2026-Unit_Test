@@ -46,6 +46,7 @@ class RoleServiceTest {
     @MockitoBean
     private DataInitializer dataInitializer;
 
+    // ==================== create() ====================
     @Test
     @DisplayName("[RLB-TC01] - create() tạo role mới và gán permission đúng")
     void tc01_create_persistsRoleWithPermissions() {
@@ -104,6 +105,7 @@ class RoleServiceTest {
         assertThat(savedRole.is_active()).isFalse();
     }
 
+    // ==================== update() ====================
     @Test
     @DisplayName("[RLB-TC03] - update() cập nhật thông tin role và permission")
     void tc03_update_updatesRoleAndPermissions() {
@@ -161,9 +163,68 @@ class RoleServiceTest {
     }
 
     @Test
-    @DisplayName("[RLB-TC05] - delete() xóa role khỏi DB")
-    void tc05_delete_removesRoleFromDatabase() {
+    @DisplayName("[RLB-TC05] - update() giữ nguyên isActive khi isActive trong DTO là null")
+    void tc05_update_withNullIsActive_keepsExistingIsActive() {
         // Test Case ID: RLB-TC05
+        // Mục tiêu: xác minh nhánh FALSE của D2 — if (createRoleDTO.getIsActive() != null)
+        //           Khi isActive=null, giá trị is_active hiện tại của role phải được giữ nguyên.
+
+        // Arrange
+        Role existingRole = createRole("ACTIVE_ROLE", "Role đang active", true, List.of());
+        // DTO không truyền isActive (null) và không truyền permissionIds (null)
+        CreateRoleDTO dto = new CreateRoleDTO("ACTIVE_ROLE_RENAMED", "Role đã đổi tên", null, null);
+
+        // Act
+        Role result = roleService.update(existingRole.getId(), dto);
+        forceSyncPersistenceContext();
+
+        // Assert
+        Role updatedRole = roleRepository.findById(result.getId()).orElseThrow();
+        assertThat(updatedRole.getName()).isEqualTo("ACTIVE_ROLE_RENAMED");
+        // Nhánh FALSE D2: isActive không bị thay đổi, vẫn giữ nguyên true
+        assertThat(updatedRole.is_active()).isTrue();
+    }
+
+    @Test
+    @DisplayName("[RLB-TC06] - update() cập nhật permission khi isActive null nhưng permissionIds != null")
+    void tc06_update_withNullIsActive_butPermissionIdsNotNull_updatesPermissions() {
+        // Test Case ID: RLB-TC06
+        // Mục tiêu: xác minh nhánh còn thiếu — D1=FALSE && D2=TRUE
+        //           Khi isActive=null nhưng permissionIds != null,
+        //           role phải cập nhật permission nhưng giữ nguyên is_active hiện tại.
+
+        // Arrange
+        Permission oldPermission = createPermission("user-service:reports:read", true);
+        Permission newPermission = createPermission("user-service:reports:write", true);
+        Role existingRole = createRole("REPORT_VIEWER", "Xem báo cáo", true, List.of(oldPermission));
+
+        CreateRoleDTO dto = new CreateRoleDTO(
+                "REPORT_VIEWER",  // Keep same name
+                "Xem báo cáo",    // Keep same description
+                null,             // D1=FALSE: isActive is null
+                List.of(newPermission.getId()));  // D2=TRUE: permissionIds is not null
+
+        when(permissionService.findByIds(dto.getPermissionIds())).thenReturn(List.of(newPermission));
+
+        // Act
+        Role result = roleService.update(existingRole.getId(), dto);
+        forceSyncPersistenceContext();
+
+        // Assert
+        Role updatedRole = roleRepository.findById(result.getId()).orElseThrow();
+        // isActive phải giữ nguyên = true (không bị thay đổi vì D1=FALSE)
+        assertThat(updatedRole.is_active()).isTrue();
+        // Nhưng permission phải được cập nhật (D2=TRUE)
+        assertThat(updatedRole.getPermissions()).hasSize(1);
+        assertThat(updatedRole.getPermissions().iterator().next().getName())
+                .isEqualTo("user-service:reports:write");
+    }
+
+    // ==================== delete() ====================
+    @Test
+    @DisplayName("[RLB-TC07] - delete() xóa role khỏi DB")
+    void tc07_delete_removesRoleFromDatabase() {
+        // Test Case ID: RLB-TC07
         // Mục tiêu: xác minh delete() xóa record role theo id.
 
         // Arrange
@@ -179,10 +240,11 @@ class RoleServiceTest {
         assertThat(roleRepository.count()).isEqualTo(countBeforeDelete - 1);
     }
 
+    // ==================== getById() ====================
     @Test
-    @DisplayName("[RLB-TC06] - getById() trả về role khi id tồn tại và null khi id không tồn tại")
-    void tc06_getById_returnsRoleOrNull() {
-        // Test Case ID: RLB-TC06
+    @DisplayName("[RLB-TC08] - getById() trả về role khi id tồn tại và null khi id không tồn tại")
+    void tc08_getById_returnsRoleOrNull() {
+        // Test Case ID: RLB-TC08
         // Mục tiêu: xác minh hành vi hiện tại của getById().
 
         // Arrange
@@ -198,44 +260,7 @@ class RoleServiceTest {
         assertThat(missing).isNull();
     }
 
-    @Test
-    @DisplayName("[RLB-TC07] - getAllWithFilters() trả về metadata và danh sách role")
-    void tc07_getAllWithFilters_returnsPaginationData() {
-        // Test Case ID: RLB-TC07
-        // Mục tiêu: xác minh query filter + metadata phân trang đúng.
-
-        // Arrange
-        createRole("FILTER_ACTIVE_ROLE", "Role active", true, List.of());
-        createRole("FILTER_INACTIVE_ROLE", "Role inactive", false, List.of());
-
-        // Act
-        PaginationDTO result = roleService.getAllWithFilters(true, "filter_active", PageRequest.of(0, 10));
-
-        // Assert
-        assertThat(result.getMeta().getPage()).isEqualTo(1);
-        assertThat(result.getMeta().getPageSize()).isEqualTo(10);
-        assertThat(result.getMeta().getTotal()).isEqualTo(1L);
-        assertThat(((List<Role>) result.getResult())).hasSize(1);
-    }
-
-    @Test
-    @DisplayName("[RLB-TC08] - existsByName() phản hồi đúng với tên role tồn tại/không tồn tại")
-    void tc08_existsByName_returnsExpectedValue() {
-        // Test Case ID: RLB-TC08
-        // Mục tiêu: xác minh hàm tồn tại theo tên role.
-
-        // Arrange
-        createRole("EXISTING_NAME_ROLE", "Role tồn tại", true, List.of());
-
-        // Act
-        boolean existed = roleService.existsByName("EXISTING_NAME_ROLE");
-        boolean missing = roleService.existsByName("MISSING_NAME_ROLE");
-
-        // Assert
-        assertThat(existed).isTrue();
-        assertThat(missing).isFalse();
-    }
-
+    // ==================== getByIds() ====================
     @Test
     @DisplayName("[RLB-TC09] - getByIds() trả về đúng tập role theo danh sách id")
     void tc09_getByIds_returnsMatchedRoles() {
@@ -256,6 +281,47 @@ class RoleServiceTest {
         assertThat(result).extracting(Role::getId).doesNotContain(role2.getId());
     }
 
+    // ==================== getAllWithFilters() ====================
+    @Test
+    @DisplayName("[RLB-TC10] - getAllWithFilters() trả về metadata và danh sách role")
+    void tc10_getAllWithFilters_returnsPaginationData() {
+        // Test Case ID: RLB-TC10
+        // Mục tiêu: xác minh query filter + metadata phân trang đúng.
+
+        // Arrange
+        createRole("FILTER_ACTIVE_ROLE", "Role active", true, List.of());
+        createRole("FILTER_INACTIVE_ROLE", "Role inactive", false, List.of());
+
+        // Act
+        PaginationDTO result = roleService.getAllWithFilters(true, "filter_active", PageRequest.of(0, 10));
+
+        // Assert
+        assertThat(result.getMeta().getPage()).isEqualTo(1);
+        assertThat(result.getMeta().getPageSize()).isEqualTo(10);
+        assertThat(result.getMeta().getTotal()).isEqualTo(1L);
+        assertThat(((List<Role>) result.getResult())).hasSize(1);
+    }
+
+    // ==================== existsByName() ====================
+    @Test
+    @DisplayName("[RLB-TC11] - existsByName() phản hồi đúng với tên role tồn tại/không tồn tại")
+    void tc11_existsByName_returnsExpectedValue() {
+        // Test Case ID: RLB-TC11
+        // Mục tiêu: xác minh hàm tồn tại theo tên role.
+
+        // Arrange
+        createRole("EXISTING_NAME_ROLE", "Role tồn tại", true, List.of());
+
+        // Act
+        boolean existed = roleService.existsByName("EXISTING_NAME_ROLE");
+        boolean missing = roleService.existsByName("MISSING_NAME_ROLE");
+
+        // Assert
+        assertThat(existed).isTrue();
+        assertThat(missing).isFalse();
+    }
+
+    // ==================== Helper Methods ====================
     private Permission createPermission(String name, boolean active) {
         Permission permission = new Permission();
         permission.setName(name);

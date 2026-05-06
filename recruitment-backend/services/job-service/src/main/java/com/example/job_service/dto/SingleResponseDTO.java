@@ -20,6 +20,11 @@ public class SingleResponseDTO<T> {
         this.data = data;
         this.characterLimits = characterLimits;
     }
+
+    public Object getMeta() {
+        // TODO Auto-generated method stub
+        throw new UnsupportedOperationException("Unimplemented method 'getMeta'");
+    }
 }
 
 
