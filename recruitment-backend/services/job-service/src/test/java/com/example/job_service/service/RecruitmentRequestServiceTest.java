@@ -1377,7 +1377,7 @@ class RecruitmentRequestServiceTest {
      * getByIdWithUserAndMetadata(): trả về SingleResponseDTO chứa dto và metadata
      */
     @Test
-    @DisplayName("[RR-TC53] getByIdWithUserAndMetadata() - trả về dto và metadata")
+    @DisplayName("[RR-TC53] getByIdWithUserAndMetadata() - trả về dto và characterLimits metadata")
     void tc53_getByIdWithUserAndMetadata_returnsDtoWithMetadata() {
         // Arrange: reuse RR-TC47 mocks for employee and department
         com.fasterxml.jackson.databind.node.ObjectNode fakeEmployee =
@@ -1396,7 +1396,8 @@ class RecruitmentRequestServiceTest {
 
         assertNotNull(result);
         assertNotNull(result.getData(), "BUG: DTO data null");
-        assertNotNull(result.getMeta(), "BUG: Meta null");
+        // SingleResponseDTO wraps data + characterLimits (không có getMeta())
+        assertNotNull(result.getCharacterLimits(), "BUG: characterLimits null - metadata không được set");
     }
 
     /**
@@ -1466,6 +1467,172 @@ class RecruitmentRequestServiceTest {
         // At least one dto should have department set (converted from employee)
         assertTrue(list.stream().anyMatch(d -> d.getDepartment() != null),
                 "BUG: dto.department không được set từ employee.department");
+    }
+
+    // ================================================================
+    // NHÓM 17: getById() — method chưa được test (miss 100%)
+    // ================================================================
+
+    /**
+     * Test Case ID: RR-TC55
+     * getById(): ID tồn tại → trả về đúng entity.
+     *
+     * Bug bị bắt: Method getById() không được test → không phát hiện nếu
+     * implementation sai (ví dụ gọi sai repository method, mapping sai).
+     */
+    @Test
+    @DisplayName("[RR-TC55] getById() - ID tồn tại → trả về đúng entity")
+    void tc55_getById_existingId_returnsCorrectEntity() throws IdInvalidException {
+        RecruitmentRequest result = recruitmentRequestService.getById(draftRequest.getId());
+
+        assertAll("BUG: getById() trả về entity không đúng",
+                () -> assertEquals(draftRequest.getId(), result.getId(),
+                        "BUG: id sai"),
+                () -> assertEquals("Tuyển Kỹ Sư Java", result.getTitle(),
+                        "BUG: title sai"),
+                () -> assertEquals(RecruitmentRequestStatus.DRAFT, result.getStatus(),
+                        "BUG: status sai"),
+                () -> assertEquals(REQUESTER_ID, result.getRequesterId(),
+                        "BUG: requesterId sai")
+        );
+    }
+
+    /**
+     * Test Case ID: RR-TC56
+     * getById(): ID không tồn tại → IdInvalidException.
+     *
+     * Bug bị bắt: Trả về null thay vì ném exception → NullPointerException ở caller.
+     * lambda$1 (dòng 127) chưa được kích hoạt bởi bất kỳ test nào.
+     */
+    @Test
+    @DisplayName("[RR-TC56] getById() - ID không tồn tại → IdInvalidException")
+    void tc56_getById_nonExistentId_throwsIdInvalidException() {
+        assertThrows(IdInvalidException.class,
+                () -> recruitmentRequestService.getById(99999L),
+                "BUG: getById() không ném IdInvalidException khi ID không tồn tại");
+    }
+
+    // ================================================================
+    // NHÓM 18: findAllWithFilters() — nhánh status rỗng/khoảng trắng
+    // ================================================================
+
+    /**
+     * Test Case ID: RR-TC57
+     * findAllWithFilters(): status là chuỗi rỗng "" → bỏ qua filter, trả về tất cả.
+     *
+     * Nhánh: dòng 139 — `!status.trim().isEmpty()` = FALSE khi status = ""
+     * Bug bị bắt: Ném exception hoặc parse "" thành status → filter bị sai.
+     */
+    @Test
+    @DisplayName("[RR-TC57] findAllWithFilters() - status=\"\" (rỗng) → bỏ qua filter, không exception")
+    void tc57_findAllWithFilters_emptyStatus_ignoresFilterNoException() {
+        List<RecruitmentRequest> result = assertDoesNotThrow(
+                () -> recruitmentRequestService.findAllWithFilters(null, "", null, null),
+                "BUG: Ném exception khi status là chuỗi rỗng");
+
+        assertNotNull(result, "BUG: Kết quả null");
+        assertTrue(result.size() >= 2,
+                "BUG: status rỗng làm mất kết quả - phải bỏ qua filter");
+    }
+
+    /**
+     * Test Case ID: RR-TC58
+     * getAllWithFilters(): status là chuỗi khoảng trắng "   " → bỏ qua filter.
+     *
+     * Nhánh: dòng 169 — `!status.trim().isEmpty()` = FALSE khi status = "   "
+     * Bug bị bắt: Ném exception hoặc parse khoảng trắng thành status không hợp lệ.
+     */
+    @Test
+    @DisplayName("[RR-TC58] getAllWithFilters() - status=\"   \" (khoảng trắng) → bỏ qua filter, không exception")
+    void tc58_getAllWithFilters_whitespaceStatus_ignoresFilterNoException() {
+        assertDoesNotThrow(() -> {
+            var result = recruitmentRequestService.getAllWithFilters(
+                    null, "   ", null, null, TOKEN,
+                    org.springframework.data.domain.PageRequest.of(0, 50));
+
+            assertNotNull(result, "BUG: Kết quả null");
+            assertTrue(result.getMeta().getTotal() >= 2,
+                    "BUG: status khoảng trắng làm mất kết quả - phải bỏ qua filter");
+        }, "BUG: Ném exception khi status là chuỗi khoảng trắng");
+    }
+
+    // ================================================================
+    // NHÓM 19: convertToWithUserDTO — nhánh getDepartmentById 4xx
+    // ================================================================
+
+    /**
+     * Test Case ID: RR-TC59
+     * convertToWithUserDTO(): getDepartmentById() trả 4xx → ném UserClientException.
+     *
+     * Nhánh: dòng 216 FALSE — `departmentResponse.getStatusCode().is2xxSuccessful()` = FALSE
+     * Bug bị bắt: Nuốt lỗi từ getDepartmentById() → dto.department = null mà không báo lỗi.
+     *
+     * Lưu ý: Test RR-TC45 đã test lỗi cho requester (getEmployeeById 4xx).
+     * Test này bổ sung lỗi cho department (getDepartmentById 4xx).
+     */
+    @Test
+    @DisplayName("[RR-TC59] getByIdWithUser() - getDepartmentById() 4xx → ném UserClientException")
+    void tc59_getByIdWithUser_departmentResponseError_throwsUserClientException() {
+        // Arrange: requester trả 200, nhưng department trả 403
+        com.fasterxml.jackson.databind.node.ObjectNode fakeEmployee =
+                new com.fasterxml.jackson.databind.ObjectMapper().createObjectNode();
+        fakeEmployee.put("id", REQUESTER_ID);
+
+        when(userClient.getEmployeeById(eq(REQUESTER_ID), eq(TOKEN)))
+                .thenReturn(org.springframework.http.ResponseEntity.ok(fakeEmployee));
+        when(userClient.getDepartmentById(eq(5L), eq(TOKEN)))
+                .thenReturn(org.springframework.http.ResponseEntity
+                        .status(org.springframework.http.HttpStatus.FORBIDDEN)
+                        .body(null));
+
+        // Act + Assert: phải ném UserClientException do lỗi department
+        assertThrows(com.example.job_service.exception.UserClientException.class,
+                () -> recruitmentRequestService.getByIdWithUser(draftRequest.getId(), TOKEN),
+                "BUG: Nuốt lỗi getDepartmentById 4xx thay vì ném UserClientException");
+    }
+
+    // ================================================================
+    // NHÓM 20: convertToWithUserDTOList — nhánh requesterId=null trong stream
+    // ================================================================
+
+    /**
+     * Test Case ID: RR-TC60
+     * convertToWithUserDTOList(): Danh sách có request với requesterId=null
+     * → lambda$3 nhánh FALSE (trả List.of() thay vì List.of(requesterId))
+     * → lambda$4 nhánh requesterId=null → không set requester/department.
+     *
+     * Bug bị bắt: NPE khi requesterId=null mà code vẫn gọi
+     * employeeMap.get(null) hoặc request.getRequesterId() mà không kiểm tra null.
+     */
+    @Test
+    @DisplayName("[RR-TC60] getAllWithFilters() - request có requesterId=null → không NPE, dto.requester=null")
+    void tc60_getAllWithFilters_requestWithNullRequesterId_noNpeRequesterIsNull() {
+        // Arrange: tạo request không có requesterId
+        recruitmentRequestRepository.save(buildRequest(
+                "Request No Requester", RecruitmentRequestStatus.DRAFT, null, OWNER_ID, 5L, null));
+
+        // Mock userService trả về map rỗng (requesterId=null không có trong map)
+        when(userClient.getEmployeesByIds(any(), any()))
+                .thenReturn(Map.of());
+
+        // Act: phải không NPE
+        assertDoesNotThrow(() -> {
+            var result = recruitmentRequestService.getAllWithFilters(
+                    null, null, null, null, TOKEN,
+                    org.springframework.data.domain.PageRequest.of(0, 50));
+
+            assertNotNull(result, "BUG: Kết quả null");
+            assertNotNull(result.getResult(), "BUG: Result list null");
+
+            // Request với requesterId=null: dto.requester phải null (không crash)
+            @SuppressWarnings("unchecked")
+            java.util.List<com.example.job_service.dto.recruitment.RecruitmentRequestAllWithUserDTO> list =
+                    (java.util.List<com.example.job_service.dto.recruitment.RecruitmentRequestAllWithUserDTO>)
+                    result.getResult();
+
+            assertTrue(list.stream().anyMatch(d -> d.getRequester() == null),
+                    "BUG: Không có dto nào có requester=null dù request có requesterId=null");
+        }, "BUG: NPE khi requesterId=null trong convertToWithUserDTOList()");
     }
 
     // ================================================================
