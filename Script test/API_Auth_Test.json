@@ -1,0 +1,252 @@
+{
+  "info": {
+    "name": "Recruitment System API Tests - Auth",
+    "_postman_id": "recruit-api-auth",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "base_url", "value": "http://localhost:8081" },
+    { "key": "access_token", "value": "" },
+    { "key": "refresh_token", "value": "" },
+    { "key": "workflowId", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "AUTH-TC01 - Login thanh cong",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[AUTH-TC01] Status 200', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('[AUTH-TC01] Co accessToken', () => pm.expect(body.data.accessToken).to.be.a('string').and.not.empty);",
+                  "pm.test('[AUTH-TC01] Co user.email', () => pm.expect(body.data.user.email).to.be.a('string'));",
+                  "pm.test('[AUTH-TC01] Co user.role', () => pm.expect(body.data.user.role).to.exist);",
+                  "pm.collectionVariables.set('access_token', body.data.accessToken);",
+                  "const cookie = pm.cookies.get('refresh_token');",
+                  "pm.test('[AUTH-TC01] Cookie refresh_token duoc set', () => pm.expect(cookie).to.exist);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/user-service/auth/login",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"username\": \"admin@gmail.com\", \"password\": \"123456\"}"
+            }
+          }
+        },
+        {
+          "name": "AUTH-TC02 - Login sai mat khau",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[AUTH-TC02] Status 400 hoac 401', () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([400, 401]);",
+                  "});",
+                  "pm.test('[AUTH-TC02] Khong co accessToken', () => {",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(body.data?.accessToken).to.not.exist;",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/user-service/auth/login",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"username\": \"admin@gmail.com\", \"password\": \"wrong_pass\"}"
+            }
+          }
+        },
+        {
+          "name": "AUTH-TC03 - Login username khong ton tai",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[AUTH-TC03] Status 400 hoac 401', () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([400, 401]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/user-service/auth/login",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"username\": \"notexist@x.com\", \"password\": \"any\"}"
+            }
+          }
+        },
+        {
+          "name": "AUTH-TC04 - Get account voi token hop le",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[AUTH-TC04] Status 200', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('[AUTH-TC04] Co user.email', () => pm.expect(body.data.user.email).to.be.a('string'));",
+                  "pm.test('[AUTH-TC04] Co user.role', () => pm.expect(body.data.user.role).to.exist);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/v1/user-service/auth/account",
+            "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }]
+          }
+        },
+        {
+          "name": "AUTH-TC05 - Get account khong co token",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[AUTH-TC05] Status 401', () => pm.response.to.have.status(401));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/v1/user-service/auth/account"
+          }
+        },
+        {
+          "name": "AUTH-TC06 - Refresh token",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[AUTH-TC06] Status 200', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('[AUTH-TC06] Co accessToken moi', () => pm.expect(body.data.accessToken).to.be.a('string').and.not.empty);",
+                  "pm.collectionVariables.set('access_token', body.data.accessToken);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/v1/user-service/auth/refresh",
+            "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }]
+          }
+        },
+        {
+          "name": "AUTH-TC07 - Refresh token khong hop le",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[AUTH-TC07] Status 400 hoac 401', () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([400, 401]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/v1/user-service/auth/refresh",
+            "header": [{ "key": "Cookie", "value": "refresh_token=invalid_token_xyz" }]
+          }
+        },
+        {
+          "name": "AUTH-TC08 - Logout",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[AUTH-TC08] Status 200', () => pm.response.to.have.status(200));",
+                  "const setCookie = pm.response.headers.get('Set-Cookie') || '';",
+                  "pm.test('[AUTH-TC08] Cookie refresh_token bi xoa (maxAge=0)', () => {",
+                  "  pm.expect(setCookie).to.include('Max-Age=0');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/user-service/auth/logout",
+            "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }]
+          }
+        },
+        {
+          "name": "AUTH-TC09 - Check quyen - co quyen",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[AUTH-TC09] Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('[AUTH-TC09] Body la boolean', () => {",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(typeof body.data).to.equal('boolean');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/api/v1/user-service/auth/check?name=CREATE_RECRUITMENT_REQUEST",
+              "query": [{ "key": "name", "value": "CREATE_RECRUITMENT_REQUEST" }]
+            },
+            "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }]
+          }
+        },
+        {
+          "name": "AUTH-TC10 - Check quyen - khong co quyen",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[AUTH-TC10] Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('[AUTH-TC10] Body la boolean', () => {",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(typeof body.data).to.equal('boolean');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/api/v1/user-service/auth/check?name=ADMIN_ONLY_PERMISSION",
+              "query": [{ "key": "name", "value": "ADMIN_ONLY_PERMISSION" }]
+            },
+            "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }]
+          }
+        }
+      ]
+    }
+  ]
+}

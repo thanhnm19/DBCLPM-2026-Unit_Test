@@ -1,0 +1,233 @@
+{
+  "info": {
+    "name": "Recruitment System API Tests - Workflow",
+    "_postman_id": "recruit-api-wf",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "base_url", "value": "http://localhost:8081" },
+    { "key": "access_token", "value": "" },
+    { "key": "refresh_token", "value": "" },
+    { "key": "workflowId", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "Workflow",
+      "item": [
+        {
+          "name": "WF-TC01 - Tao workflow moi",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[WF-TC01] Status 201', () => pm.response.to.have.status(201));",
+                  "const body = pm.response.json();",
+                  "pm.test('[WF-TC01] Co id', () => pm.expect(body.data.id).to.be.a('number'));",
+                  "pm.test('[WF-TC01] Name dung', () => pm.expect(body.data.name).to.equal('QT Tuyen Dung Test'));",
+                  "pm.collectionVariables.set('workflowId', body.data.id);",
+                  "console.log('[DB CHECK] Verify: SELECT * FROM workflows WHERE id=' + body.data.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/workflow-service/workflows",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{access_token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"name\": \"QT Tuyen Dung Test\", \"type\": \"RECRUITMENT\", \"isActive\": true}"
+            }
+          }
+        },
+        {
+          "name": "WF-TC02 - Tao workflow thieu name",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[WF-TC02] Status 400', () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/workflow-service/workflows",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{access_token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"type\": \"RECRUITMENT\"}"
+            }
+          }
+        },
+        {
+          "name": "WF-TC03 - Get all workflows",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[WF-TC03] Status 200', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('[WF-TC03] Co meta', () => pm.expect(body.data.meta).to.exist);",
+                  "pm.test('[WF-TC03] Co result array', () => pm.expect(body.data.result).to.be.an('array'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/v1/workflow-service/workflows",
+            "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }]
+          }
+        },
+        {
+          "name": "WF-TC04 - Filter theo type=RECRUITMENT",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[WF-TC04] Status 200', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('[WF-TC04] Tat ca type=RECRUITMENT', () => {",
+                  "  body.data.result.forEach(w => pm.expect(w.type).to.equal('RECRUITMENT'));",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/api/v1/workflow-service/workflows?type=RECRUITMENT",
+              "query": [{ "key": "type", "value": "RECRUITMENT" }]
+            },
+            "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }]
+          }
+        },
+        {
+          "name": "WF-TC05 - Filter isActive=true",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[WF-TC05] Status 200', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('[WF-TC05] Tat ca isActive=true', () => {",
+                  "  body.data.result.forEach(w => pm.expect(w.isActive).to.be.true);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/api/v1/workflow-service/workflows?isActive=true",
+              "query": [{ "key": "isActive", "value": "true" }]
+            },
+            "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }]
+          }
+        },
+        {
+          "name": "WF-TC06 - Get workflow by ID",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[WF-TC06] Status 200', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('[WF-TC06] ID dung', () => pm.expect(body.data.id).to.equal(parseInt(pm.collectionVariables.get('workflowId'))));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/v1/workflow-service/workflows/{{workflowId}}",
+            "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }]
+          }
+        },
+        {
+          "name": "WF-TC07 - Get workflow ID khong ton tai",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[WF-TC07] Status 400 hoac 404', () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([400, 404]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/v1/workflow-service/workflows/999999",
+            "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }]
+          }
+        },
+        {
+          "name": "WF-TC08 - Update workflow",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[WF-TC08] Status 200', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('[WF-TC08] Name da cap nhat', () => pm.expect(body.data.name).to.equal('QT Tuyen Dung Updated'));",
+                  "console.log('[DB CHECK] SELECT name FROM workflows WHERE id=' + pm.collectionVariables.get('workflowId'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PUT",
+            "url": "{{base_url}}/api/v1/workflow-service/workflows/{{workflowId}}",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{access_token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"name\": \"QT Tuyen Dung Updated\", \"isActive\": true}"
+            }
+          }
+        },
+        {
+          "name": "WF-TC09 - Delete workflow (ROLLBACK note)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[WF-TC09] Status 204', () => pm.response.to.have.status(204));",
+                  "console.log('[ROLLBACK] Neu can: INSERT workflow lai hoac dung workflow_id khac cho cac test sau');"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "url": "{{base_url}}/api/v1/workflow-service/workflows/{{workflowId}}",
+            "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }]
+          }
+        }
+      ]
+    }
+  ]
+}
