@@ -447,4 +447,175 @@ class EmployeeServiceTest {
         entityManager.flush();
         entityManager.clear();
     }
+
+    @Test
+    @DisplayName("[EMP-TC14] - getById() return null khi không tìm thấy nhân viên")
+    void tc14_getById_notFound_returnsNull() {
+        // Test Case ID: EMP-TC14
+        // Mục tiêu: xác minh getById return null thay vì throw
+
+        // Act
+        Employee result = employeeService.getById(999999L);
+
+        // Assert
+        assertThat(result).isNull();
+    }
+
+    @Test
+    @DisplayName("[EMP-TC15] - delete() xóa nhân viên thành công")
+    void tc15_delete_removesEmployee() {
+        // Test Case ID: EMP-TC15
+        // Mục tiêu: xác minh delete() ghi lên DB
+
+        // Arrange
+        Department department = createDepartment("EMP_TC15", "Test");
+        Position position = createPosition("Tester", "L1", 1);
+        Employee employee = createEmployee("Employee TC15", "tc15@company.com", department, position, "ACTIVE");
+        forceSyncPersistenceContext();
+
+        long countBefore = employeeRepository.count();
+
+        // Act
+        employeeService.delete(employee.getId());
+        forceSyncPersistenceContext();
+
+        // Assert
+        assertThat(employeeRepository.count()).isEqualTo(countBefore - 1);
+        assertThat(employeeRepository.findById(employee.getId())).isEmpty();
+    }
+
+    @Test
+    @DisplayName("[EMP-TC16] - update() cập nhật tất cả field khi != null")
+    void tc16_update_updatesAllFields() {
+        // Test Case ID: EMP-TC16
+        // Mục tiêu: cover các branches khi updateEmployeeDTO có các field != null
+
+        // Arrange
+        Department department1 = createDepartment("D1_TC16", "Dept1");
+        Department department2 = createDepartment("D2_TC16", "Dept2");
+        Position position1 = createPosition("P1", "L1", 1);
+        Position position2 = createPosition("P2", "L2", 2);
+        Employee employee = createEmployee("Employee TC16", "tc16@company.com", department1, position1, "ACTIVE");
+        forceSyncPersistenceContext();
+
+        // Mock departmentService và positionService
+        when(departmentService.getById(department2.getId())).thenReturn(department2);
+        when(positionService.getById(position2.getId())).thenReturn(position2);
+
+        UpdateEmployeeDTO dto = new UpdateEmployeeDTO();
+        dto.setName("Updated Name");
+        dto.setPhone("0901234567");
+        dto.setEmail("tc16-updated@company.com");
+        dto.setGender("FEMALE");
+        dto.setAddress("Updated Address");
+        dto.setNationality("Updated Nationality");
+        dto.setDateOfBirth(LocalDate.of(2000, 1, 1));
+        dto.setIdNumber("999999999");
+        dto.setStatus("PROBATION");
+        dto.setDepartmentId(department2.getId());
+        dto.setPositionId(position2.getId());
+
+        // Act
+        Employee result = employeeService.update(employee.getId(), dto);
+        forceSyncPersistenceContext();
+
+        // Assert
+        assertThat(result.getName()).isEqualTo("Updated Name");
+        assertThat(result.getEmail()).isEqualTo("tc16-updated@company.com");
+        assertThat(result.getStatus()).isEqualTo("PROBATION");
+        assertThat(result.getDepartment()).isNotNull();
+        assertThat(result.getDepartment().getId()).isEqualTo(department2.getId());
+        assertThat(result.getPosition()).isNotNull();
+        assertThat(result.getPosition().getId()).isEqualTo(position2.getId());
+    }
+
+    @Test
+    @DisplayName("[EMP-TC17] - getById() return null khi không tìm thấy nhân viên")
+    void tc17_getById_notFound_returnsNull() {
+        // Test Case ID: EMP-TC17
+        // Mục tiêu: xác minh getById return null thay vì throw
+
+        // Act
+        Employee result = employeeService.getById(999999L);
+
+        // Assert
+        assertThat(result).isNull();
+    }
+
+    @Test
+    @DisplayName("[EMP-TC18] - getAllWithFilters() filter by department and status")
+    void tc18_getAllWithFilters_filtersByDepartmentAndStatus() {
+        // Test Case ID: EMP-TC18
+        // Mục tiêu: cover branch khi lọc theo department, status
+
+        // Arrange
+        Department department = createDepartment("POS_TC18", "Test");
+        Position position = createPosition("Tester", "L1", 1);
+        Employee employee = createEmployee("Tester Employee", "tester@company.com", department, position, "ACTIVE");
+        forceSyncPersistenceContext();
+
+        // Act
+        PaginationDTO result = employeeService.getAllWithFilters(
+                department.getId(),
+                null, // no positionId filter
+                "ACTIVE",
+                "Tester",
+                PageRequest.of(0, 10));
+
+        // Assert
+        assertThat(result.getMeta().getTotal()).isGreaterThanOrEqualTo(1L);
+        List<Employee> employees = (List<Employee>) result.getResult();
+        assertThat(employees).isNotEmpty();
+    }
+
+    @Test
+    @DisplayName("[EMP-TC19] - create() khi departmentId == null")
+    void tc19_create_noDepartment_success() {
+        // Test Case ID: EMP-TC19
+        // Mục tiêu: cover branch khi departmentId == null
+
+        // Arrange
+        CreateEmployeeDTO dto = new CreateEmployeeDTO(
+                "Employee TC19",
+                "0901234567",
+                "tc19@company.com",
+                "MALE",
+                "Ha Noi",
+                "Viet Nam",
+                LocalDate.of(1995, 5, 15),
+                "0123456789",
+                null, // departmentId = null
+                null, // positionId = null
+                "ACTIVE");
+
+        // Act
+        Employee result = employeeService.create(dto);
+        forceSyncPersistenceContext();
+
+        // Assert
+        assertThat(result.getName()).isEqualTo("Employee TC19");
+        assertThat(result.getDepartment()).isNull();
+        assertThat(result.getPosition()).isNull();
+    }
+
+    @Test
+    @DisplayName("[EMP-TC20] - getByIds() trả về danh sách nhân viên theo ids")
+    void tc20_getByIds_returnsMatchedEmployees() {
+        // Test Case ID: EMP-TC20
+        // Mục tiêu: xác minh getByIds hoạt động đúng
+
+        // Arrange
+        Department department = createDepartment("EMP_TC20", "Test");
+        Position position = createPosition("Tester", "L1", 1);
+        Employee e1 = createEmployee("Emp1", "e1@company.com", department, position, "ACTIVE");
+        Employee e2 = createEmployee("Emp2", "e2@company.com", department, position, "ACTIVE");
+        Employee e3 = createEmployee("Emp3", "e3@company.com", department, position, "ACTIVE");
+
+        // Act
+        List<Employee> result = employeeService.getByIds(List.of(e1.getId(), e3.getId()));
+
+        // Assert
+        assertThat(result).hasSize(2);
+        assertThat(result).extracting(Employee::getEmail).containsExactlyInAnyOrder("e1@company.com", "e3@company.com");
+    }
 }

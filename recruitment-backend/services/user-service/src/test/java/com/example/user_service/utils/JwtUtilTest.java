@@ -120,4 +120,24 @@ class JwtUtilTest {
 
         // CheckDB: test JWT không tác động DB.
     }
+
+    @Test
+    @DisplayName("[JWT-TC05] - createAccessToken() và createRefreshToken() có expiration claim")
+    void tc05_createdTokens_haveExpirationClaim() {
+        // Test Case ID: JWT-TC05
+        // Mục tiêu: xác minh tokens có chứa exp claim
+
+        // Arrange
+        ResponseLoginDTO.UserToken userToken = new ResponseLoginDTO.UserToken(
+                5L, 505L, "exp-test@company.com", "ExpTest", "STAFF", 10L, "TECH");
+
+        // Act
+        String accessToken = jwtUtil.createAccessToken("exp-test@company.com", userToken);
+        Jwt decoded = jwtDecoder.decode(accessToken);
+
+        // Assert
+        assertThat(decoded.getExpiresAt()).isNotNull();
+        assertThat(decoded.getIssuedAt()).isNotNull();
+        assertThat(decoded.getExpiresAt()).isAfter(decoded.getIssuedAt());
+    }
 }

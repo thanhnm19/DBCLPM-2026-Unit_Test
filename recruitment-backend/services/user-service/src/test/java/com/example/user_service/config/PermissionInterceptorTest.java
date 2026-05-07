@@ -47,6 +47,7 @@ class PermissionInterceptorTest {
     void clearSecurityContext() {
         SecurityContextHolder.clearContext();
     }
+
     @Test
     @DisplayName("[PIC-TC01] - preHandle() bỏ qua OPTIONS request")
     void tc01_preHandle_optionsRequest_returnsTrueWithoutPermissionCheck() throws Exception {
@@ -64,6 +65,7 @@ class PermissionInterceptorTest {
         assertThat(allowed).isTrue();
         verify(permissionService, never()).check(eq("user-service:roles:read"), anyLong());
     }
+
     @Test
     @DisplayName("[PIC-TC02] - preHandle() map GET thành action read")
     void tc02_preHandle_getRequest_mapsToReadPermission() throws Exception {
@@ -84,6 +86,7 @@ class PermissionInterceptorTest {
         assertThat(allowed).isTrue();
         verify(permissionService, times(1)).check("user-service:roles:read", 1001L);
     }
+
     @Test
     @DisplayName("[PIC-TC03] - preHandle() map POST thành action manage")
     void tc03_preHandle_postRequest_mapsToManagePermission() throws Exception {
@@ -104,6 +107,7 @@ class PermissionInterceptorTest {
         assertThat(allowed).isTrue();
         verify(permissionService, times(1)).check("user-service:permissions:manage", 1002L);
     }
+
     @Test
     @DisplayName("[PIC-TC04] - preHandle() map endpoint đặc biệt thành manage")
     void tc04_preHandle_specialAction_mapsToManagePermission() throws Exception {
@@ -126,6 +130,7 @@ class PermissionInterceptorTest {
         assertThat(allowed).isTrue();
         verify(permissionService, times(1)).check("workflow-service:approval-trackings:manage", 1003L);
     }
+
     @Test
     @DisplayName("[PIC-TC05] - preHandle() ném AccessDeniedException khi không có quyền")
     void tc05_preHandle_permissionDenied_throwsAccessDeniedException() {
@@ -143,6 +148,7 @@ class PermissionInterceptorTest {
         assertThrows(org.springframework.security.access.AccessDeniedException.class,
                 () -> permissionInterceptor.preHandle(request, response, new Object()));
     }
+
     @Test
     @DisplayName("[PIC-TC06] - preHandle() dùng memo request-scope để tránh check lặp")
     void tc06_preHandle_requestMemoization_avoidsDuplicatePermissionCheck() throws Exception {
@@ -165,19 +171,21 @@ class PermissionInterceptorTest {
         assertThat(second).isTrue();
         verify(permissionService, times(1)).check("user-service:users:read", 1005L);
     }
+
     @Test
     @DisplayName("[PIC-TC07] - preHandle() dùng requestURI khi BEST_MATCHING_PATTERN_ATTRIBUTE là null")
     void tc07_preHandle_nullPathAttribute_fallsBackToRequestUri() throws Exception {
         // Test Case ID: PIC-TC07
         // Mục tiêu: xác minh nhánh TRUE của D2 — if (path == null)
-        //           Khi HandlerMapping attribute không được set, dùng request.getRequestURI().
+        // Khi HandlerMapping attribute không được set, dùng request.getRequestURI().
         // Basis Path: D2=True (path == null → path = requestURI)
 
         // Arrange
         setAuthenticatedUser(1006L);
         // Không set HandlerMapping.BEST_MATCHING_PATTERN_ATTRIBUTE → path sẽ null
         MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/v1/user-service/departments");
-        // (không gọi request.setAttribute(HandlerMapping.BEST_MATCHING_PATTERN_ATTRIBUTE, ...))
+        // (không gọi
+        // request.setAttribute(HandlerMapping.BEST_MATCHING_PATTERN_ATTRIBUTE, ...))
         MockHttpServletResponse response = new MockHttpServletResponse();
         when(permissionService.check("user-service:departments:read", 1006L)).thenReturn(true);
 
@@ -189,11 +197,13 @@ class PermissionInterceptorTest {
         // Xác minh permission name được build từ requestURI thay vì pattern
         verify(permissionService, times(1)).check("user-service:departments:read", 1006L);
     }
+
     @Test
     @DisplayName("[PIC-TC08] - preHandle() fallback when path is malformed returns unknown permission name")
     void tc08_preHandle_malformedPath_returnsUnknownPermissionName() throws Exception {
         // Test Case ID: PIC-TC08
-        // Mục tiêu: test nhánh catch trong extractPermissionName() -> "unknown:unknown:unknown"
+        // Mục tiêu: test nhánh catch trong extractPermissionName() ->
+        // "unknown:unknown:unknown"
 
         // Arrange
         setAuthenticatedUser(1007L);
@@ -235,9 +245,9 @@ class PermissionInterceptorTest {
     void tc10_hasSpecialAction_pendingSegment_returnsFalse() throws Exception {
         // Test Case ID: PIC-TC10
         // Mục tiêu: xác minh nhánh FALSE của D7 — "pending"/"by-request" → return false
-        //           Segment "pending" không phải manage action → dùng HTTP method để map.
+        // Segment "pending" không phải manage action → dùng HTTP method để map.
         // Basis Path: D6=False (segment "pending" không phải {}/digit → xét switch),
-        //             D7=False (switch case "pending" → return false → dùng GET→read)
+        // D7=False (switch case "pending" → return false → dùng GET→read)
 
         // Arrange
         setAuthenticatedUser(1009L);
@@ -260,8 +270,9 @@ class PermissionInterceptorTest {
     @DisplayName("[PIC-TC11] - hasSpecialAction() xử lý đúng segment /actions/withdraw là manage (trả true)")
     void tc11_hasSpecialAction_actionsWithdraw_returnsTrue() throws Exception {
         // Test Case ID: PIC-TC11
-        // Mục tiêu: xác minh nhánh TRUE của D8 — segment "actions" + next="withdraw" → true
-        //           /actions/withdraw là manage operation dù method có thể là POST.
+        // Mục tiêu: xác minh nhánh TRUE của D8 — segment "actions" + next="withdraw" →
+        // true
+        // /actions/withdraw là manage operation dù method có thể là POST.
         // Basis Path: D8=True (i+1 < len && segments[i+1]=="withdraw" → return true)
 
         // Arrange
@@ -285,9 +296,11 @@ class PermissionInterceptorTest {
     @DisplayName("[PIC-TC12] - hasSpecialAction() bỏ qua segment {id} và digit, xử lý segment tiếp theo")
     void tc12_hasSpecialAction_pathVariableAndDigit_skipsAndContinues() throws Exception {
         // Test Case ID: PIC-TC12
-        // Mục tiêu: xác minh nhánh TRUE của D6 — segment bắt đầu bằng "{" hoặc là số → continue
-        //           Sau khi skip {id} và "123", segment "approve" được xét → manage.
-        // Basis Path: D6=True (segment là {id}/digit → continue), sau đó D7=True (approve→true)
+        // Mục tiêu: xác minh nhánh TRUE của D6 — segment bắt đầu bằng "{" hoặc là số →
+        // continue
+        // Sau khi skip {id} và "123", segment "approve" được xét → manage.
+        // Basis Path: D6=True (segment là {id}/digit → continue), sau đó D7=True
+        // (approve→true)
 
         // Arrange
         setAuthenticatedUser(1011L);
@@ -331,5 +344,34 @@ class PermissionInterceptorTest {
 
         // Dòng assert nhỏ để đảm bảo helper set context đúng trước khi chạy test.
         assertThat(SecurityUtil.extractUserId()).isEqualTo(userId);
+    }
+
+    @Test
+    @DisplayName("[PIC-TC13] - hasSpecialAction() xử lý 'actions' không kèm 'withdraw' - fallthrough")
+    void tc13_hasSpecialAction_actionsWithoutWithdraw_fallthrough() throws Exception {
+        // Test Case ID: PIC-TC13
+        // Mục tiêu: cover branch FALSE của D9 — segment "actions" nhưng i+1 không tìm
+        // thấy "withdraw"
+        // Khi đó continue loop, không return true, cuối cùng return false → GET→read
+        // Basis Path: D9=False (i+1 >= len || !segments[i+1].equals("withdraw") →
+        // break, fallthrough → return false)
+
+        // Arrange
+        setAuthenticatedUser(1012L);
+        // /api/v1/offer-service/offers/actions (không có /withdraw hoặc action khác
+        // theo sau)
+        MockHttpServletRequest request = buildRequest(
+                "GET",
+                "/api/v1/offer-service/offers/actions",
+                "/api/v1/offer-service/offers/actions");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        when(permissionService.check("offer-service:offers:read", 1012L)).thenReturn(true);
+
+        // Act
+        boolean allowed = permissionInterceptor.preHandle(request, response, new Object());
+
+        // Assert: "actions" không kèm "withdraw" → hasSpecialAction=false → GET→read
+        assertThat(allowed).isTrue();
+        verify(permissionService, times(1)).check("offer-service:offers:read", 1012L);
     }
 }
