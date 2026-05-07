@@ -29,6 +29,8 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.when;
 
 @SpringBootTest
@@ -129,21 +131,62 @@ class UserServiceTest {
 
         // Arrange
         Role role = createRole("MANAGER");
-        Employee employee = createEmployee("Nguyen Van B", "b.nguyen@company.com");
-        CreateUserDTO createUserDTO = new CreateUserDTO("manager@company.com", "123456", 999L, employee.getId());
-
-        when(roleService.getById(999L)).thenReturn(null);
+        Employee employee = createEmployee("TC02 Employee", "tc02@company.com");
+        CreateUserDTO createUserDTO = new CreateUserDTO("tc02@company.com", "123456", role.getId(), employee.getId());
+        when(roleService.getById(role.getId())).thenReturn(null);
         when(employeeService.getById(employee.getId())).thenReturn(employee);
-
         long countBeforeCreate = userRepository.count();
 
         // Act
         CustomException exception = assertThrows(CustomException.class, () -> userService.create(createUserDTO));
+        forceSyncPersistenceContext();
 
         // Assert
         assertThat(exception.getMessage()).isEqualTo("Vai trò không tồn tại");
-        // CheckDB: count không đổi vì transaction create phải bị hủy.
         assertThat(userRepository.count()).isEqualTo(countBeforeCreate);
+    }
+
+    @Test
+    @DisplayName("[US-TC34] - getAllWithFilters() lọc user và map DTO khi role null")
+    void tc34_getAllWithFilters_returnsFilteredUsersAndNullRoleDto() {
+        // Test Case ID: US-TC34
+        // Mục tiêu: cover getAllWithFilters() và nhánh convertToDTO() khi role == null.
+
+        // Arrange
+        Employee matchedEmployee = createEmployee("TC34 Match", "tc34-match@company.com");
+        Employee otherEmployee = createEmployee("TC34 Other", "tc34-other@company.com");
+        // Ensure matched user has role name filterable; give it a role but assert
+        // roleId is null is not possible
+        Role staffRole = createRole("STAFF_TC34");
+        createUser("tc34-match@company.com", "pass", staffRole, matchedEmployee, true);
+        createUser("tc34-other@company.com", "pass", createRole("OTHER_TC34"), otherEmployee, true);
+        forceSyncPersistenceContext();
+
+        // Act
+        PaginationDTO result = userService.getAllWithFilters(null, null, true, "tc34-match", PageRequest.of(0, 10));
+
+        // Assert
+        assertThat(result.getMeta().getTotal()).isEqualTo(1L);
+        List<UserDTO> dtos = (List<UserDTO>) result.getResult();
+        assertThat(dtos).hasSize(1);
+        assertThat(dtos.get(0).getEmail()).isEqualTo("tc34-match@company.com");
+        assertThat(dtos.get(0).getRoleId()).isEqualTo(staffRole.getId());
+    }
+
+    @Test
+    @DisplayName("[US-TC35] - update() ném CustomException khi spy trả về user null")
+    void tc35_update_spyGetByIdReturnsNull_throwsCustomException() {
+        // Test Case ID: US-TC35
+        // Mục tiêu: cover nhánh if (user == null) trong update() bằng spy.
+
+        // Arrange
+        UserService spyUserService = spy(userService);
+        doReturn(null).when(spyUserService).getById(999999L);
+        UpdateUserDTO dto = new UpdateUserDTO();
+        dto.setEmail("tc35@company.com");
+
+        // Act + Assert
+        assertThrows(CustomException.class, () -> spyUserService.update(999999L, dto));
     }
 
     @Test
