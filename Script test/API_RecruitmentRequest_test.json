@@ -1,0 +1,423 @@
+{
+  "info": {
+    "name": "Recruitment System API Tests - RecruitmentRequest ",
+    "_postman_id": "recruit-api-RR",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "base_url", "value": "http://localhost:8080" },
+    { "key": "access_token", "value": "" },
+    { "key": "workflowId", "value": "" },
+    { "key": "trackingId", "value": "" },
+    { "key": "rrId", "value": "" },
+    { "key": "pendingRrId", "value": "" }
+  ],
+  "item": 
+[
+    {
+      "name": " RecruitmentRequest",
+      "item": [
+        {
+          "name": "RR-TC01 - Tao yeu cau tuyen dung",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[RR-TC01] Status 200', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('[RR-TC01] Co id', () => pm.expect(body.data.id).to.be.a('number'));",
+                  "pm.test('[RR-TC01] Status DRAFT', () => pm.expect(body.data.status).to.equal('DRAFT'));",
+                  "pm.test('[RR-TC01] isActive = true', () => pm.expect(body.data.active).to.be.true);",
+                  "pm.collectionVariables.set('rrId', body.data.id);",
+                  "console.log('[DB CHECK] SELECT status, is_active FROM recruitment_requests WHERE id=' + body.data.id);",
+                  "console.log('[ROLLBACK] DELETE FROM recruitment_requests WHERE id=' + body.data.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/job-service/recruitment-requests",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{access_token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"title\": \"Tuyen Java Dev\", \"quantity\": 2, \"reason\": \"Mo rong team\", \"salaryMin\": 10000000, \"salaryMax\": 20000000, \"workflowId\": {{workflowId}}, \"departmentId\": 5}"
+            }
+          }
+        },
+        {
+          "name": "RR-TC02 - Tao yeu cau thieu title",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[RR-TC02] Status 400', () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/job-service/recruitment-requests",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{access_token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"quantity\": 2, \"reason\": \"Test\"}"
+            }
+          }
+        },
+        {
+          "name": "RR-TC03 - Submit DRAFT to PENDING",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[RR-TC03] Status 200', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('[RR-TC03] Status PENDING', () => pm.expect(body.data.status).to.equal('PENDING'));",
+                  "pm.test('[RR-TC03] submittedAt khong null', () => pm.expect(body.data.submittedAt).to.not.be.null);",
+                  "console.log('[DB CHECK] SELECT status, submitted_at FROM recruitment_requests WHERE id=' + pm.collectionVariables.get('rrId'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/job-service/recruitment-requests/submit/{{rrId}}",
+            "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }]
+          }
+        },
+        {
+          "name": "RR-TC04 - Submit da PENDING - phai loi",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[RR-AP  I-TC04] Status 400 hoac 500', () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([400, 500]);",
+                  "});",
+                  "console.log('[DB CHECK] Verify status van la PENDING: SELECT status FROM recruitment_requests WHERE id=' + pm.collectionVariables.get('rrId'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/job-service/recruitment-requests/submit/{{rrId}}",
+            "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }]
+          }
+        },
+        {
+          "name": "RR-TC05 - Approve step",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[RR-TC05] Status 200', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('[RR-TC05] Status PENDING (workflow xu ly async)', () => pm.expect(body.data.status).to.equal('PENDING'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/job-service/recruitment-requests/approve/{{rrId}}",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{access_token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"approvalNotes\": \"Dong y\"}"
+            }
+          }
+        },
+        {
+          "name": "RR-TC06 - Reject step",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[RR-TC06] Status 200', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('[RR-TC06] Status REJECTED', () => pm.expect(body.data.status).to.equal('REJECTED'));",
+                  "console.log('[DB CHECK] SELECT status FROM recruitment_requests WHERE id=' + pm.collectionVariables.get('rrId'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/job-service/recruitment-requests/reject/{{rrId}}",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{access_token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"reason\": \"Khong du ngan sach\"}"
+            }
+          }
+        },
+        {
+          "name": "RR-TC07 - Return request",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[RR-TC07] Status 200', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('[RR-TC07] Status RETURNED', () => pm.expect(body.data.status).to.equal('RETURNED'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/job-service/recruitment-requests/return/{{rrId}}",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{access_token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"reason\": \"Bo sung thong tin\", \"returnedToStepId\": 1}"
+            }
+          }
+        },
+        {
+          "name": "RR-TC08 - Cancel DRAFT",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[RR-TC08] Status 200', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('[RR-TC08] Status CANCELLED', () => pm.expect(body.data.status).to.equal('CANCELLED'));",
+                  "console.log('[DB CHECK] SELECT status FROM recruitment_requests WHERE id=' + pm.collectionVariables.get('rrId'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/job-service/recruitment-requests/cancel/{{rrId}}",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{access_token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"reason\": \"Khong con nhu cau\"}"
+            }
+          }
+        },
+        {
+          "name": "RR-TC09 - Cancel APPROVED - phai loi",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[RR-TC09] Status 400 hoac 500', () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([400, 500]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/job-service/recruitment-requests/cancel/{{rrId}}",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{access_token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"reason\": \"Thu cancel APPROVED\"}"
+            }
+          }
+        },
+        {
+          "name": "RR-TC10 - Withdraw PENDING",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[RR-TC10] Status 200', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('[RR-TC10] Status WITHDRAWN', () => pm.expect(body.data.status).to.equal('WITHDRAWN'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/job-service/recruitment-requests/withdraw/{{rrId}}",
+            "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }]
+          }
+        },
+        {
+          "name": "RR-TC11 - Get by ID",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[RR-TC11] Status 200', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('[RR-TC11] Co id va title', () => {",
+                  "  pm.expect(body.data.id).to.be.a('number');",
+                  "  pm.expect(body.data.title).to.be.a('string');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/v1/job-service/recruitment-requests/{{rrId}}",
+            "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }]
+          }
+        },
+        {
+          "name": "RR-TC12 - Get by ID khong ton tai",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[RR-TC12] Status 400 hoac 404', () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([400, 404]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/v1/job-service/recruitment-requests/999999",
+            "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }]
+          }
+        },
+        {
+          "name": "RR-TC13 - Get list co phan trang",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[RR-TC13] Status 200', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('[RR-TC13] Meta pageSize=5', () => pm.expect(body.data.meta.pageSize).to.equal(5));",
+                  "pm.test('[RR-TC13] Result la array', () => pm.expect(body.data.result).to.be.an('array'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/api/v1/job-service/recruitment-requests?page=1&limit=5",
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "limit", "value": "5" }
+              ]
+            },
+            "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }]
+          }
+        },
+        {
+          "name": "RR-TC14 - Filter theo status=PENDING",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[RR-TC14] Status 200', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('[RR-TC14] Tat ca status PENDING', () => {",
+                  "  body.data.result.forEach(r => pm.expect(r.status).to.equal('PENDING'));",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/api/v1/job-service/recruitment-requests?status=PENDING",
+              "query": [{ "key": "status", "value": "PENDING" }]
+            },
+            "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }]
+          }
+        },
+        {
+          "name": "RR-TC15 - Update",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[RR-TC15] Status 200', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('[RR-TC15] Title da cap nhat', () => pm.expect(body.data.title).to.equal('Updated Title'));",
+                  "console.log('[DB CHECK] SELECT title FROM recruitment_requests WHERE id=' + pm.collectionVariables.get('rrId'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PUT",
+            "url": "{{base_url}}/api/v1/job-service/recruitment-requests/{{rrId}}",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{access_token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"title\": \"Updated Title\", \"quantity\": 3, \"reason\": \"Sua\", \"salaryMin\": 10000000, \"salaryMax\": 20000000}"
+            }
+          }
+        },
+        {
+          "name": "RR-TC16 - Soft delete",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[RR-TC16] Status 204', () => pm.response.to.have.status(204));",
+                  "console.log('[DB CHECK] SELECT is_active FROM recruitment_requests WHERE id=' + pm.collectionVariables.get('rrId') + ' -- phai la false');",
+                  "console.log('[DB CHECK] Record van con trong DB (soft delete).');"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "url": "{{base_url}}/api/v1/job-service/recruitment-requests/{{rrId}}",
+            "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }]
+          }
+        }
+      ]
+    }
+  ]
+}
