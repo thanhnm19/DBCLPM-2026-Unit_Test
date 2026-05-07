@@ -568,18 +568,23 @@ class UserServiceTest {
     }
 
     @Test
-    @DisplayName("[US-TC20] - delete() không ném khi id không tồn tại")
-    void tc20_delete_nonExistingId_doesNothing() {
+    @DisplayName("[US-TC20] - delete() ném exception khi id không tồn tại (invalid operation)")
+    void tc20_delete_nonExistingId_throwsException() {
         // Test Case ID: US-TC20
-        // Mục tiêu: đảm bảo delete() không làm vỡ luồng khi xóa id không tồn tại.
+        // Mục tiêu: đảm bảo delete() ném exception khi cố xóa ID không tồn tại.
+        // Lý do: DELETE non-existent resource là lỗi logic - phải báo lỗi cho client.
+        // Standard practice: DELETE /users/999999 → 404 Not Found (throw exception)
 
         // Arrange
         long countBefore = userRepository.count();
 
-        // Act + Assert: delete non-existing id should not throw
-        assertDoesNotThrow(() -> userService.delete(999999L));
+        // Act + Assert: delete non-existing id SHOULD throw
+        // Tùy theo design, có thể ném: RuntimeException, CustomException,
+        // EmptyResultDataAccessException
+        // Hiện tại test kỳ vọng: throw exception (không assertDoesNotThrow)
+        assertThrows(Exception.class, () -> userService.delete(999999L));
 
-        // DB không đổi
+        // DB không đổi vì delete failed
         assertThat(userRepository.count()).isEqualTo(countBefore);
     }
 
