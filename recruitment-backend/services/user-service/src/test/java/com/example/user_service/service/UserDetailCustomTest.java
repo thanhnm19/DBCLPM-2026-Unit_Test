@@ -79,4 +79,23 @@ class UserDetailCustomTest {
 
         // CheckDB: test này không truy cập DB thật vì UserService đã được @MockitoBean.
     }
+
+    @Test
+    @DisplayName("[UDC-TC03] - loadUserByUsername() kiểm tra authorities là ROLE_USER")
+    void tc03_loadUserByUsername_authorityIsRoleUser() {
+        // Test Case ID: UDC-TC03
+        // Mục tiêu: xác minh authority được map thành ROLE_USER
+
+        // Arrange
+        User user = new User();
+        user.setEmail("staff@company.com");
+        user.setPassword("password123");
+        when(userService.handleGetUserByUsername("staff@company.com")).thenReturn(user);
+
+        // Act
+        UserDetails result = userDetailCustom.loadUserByUsername("staff@company.com");
+
+        // Assert
+        assertThat(result.getAuthorities()).extracting("authority").containsExactly("ROLE_USER");
+    }
 }

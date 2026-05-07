@@ -281,4 +281,88 @@ class DepartmentServiceTest {
         entityManager.flush();
         entityManager.clear();
     }
+
+    @Test
+    @DisplayName("[DEP-TC12] - update() ném khi code mới đã tồn tại")
+    void tc12_update_duplicateCode_throwsCustomException() {
+        // Test Case ID: DEP-TC12
+        // Mục tiêu: cover branch khi code mới trùng với department khác
+
+        // Arrange
+        Department dept1 = createDepartment("HR", "Human Resources", "Phòng HR", true);
+        Department dept2 = createDepartment("IT", "Information Tech", "Phòng IT", true);
+
+        UpdateDepartmentDTO dto = new UpdateDepartmentDTO("hr", "New Name", "New Description", true);
+
+        // Act
+        CustomException exception = assertThrows(CustomException.class,
+                () -> departmentService.update(dept2.getId(), dto));
+
+        // Assert
+        assertThat(exception.getMessage()).contains("đã tồn tại");
+    }
+
+    @Test
+    @DisplayName("[DEP-TC13] - delete() ném khi phòng ban còn nhân viên")
+    void tc13_delete_departmentHasEmployees_throwsCustomException() {
+        // Test Case ID: DEP-TC13
+        // Mục tiêu: cover branch khi phòng ban có nhân viên không thể xóa
+
+        // Arrange
+        Department department = createDepartment("DEL", "Delete Test", "Test", true);
+        Employee employee = new Employee();
+        employee.setName("Test Employee");
+        employee.setEmail("emp@company.com");
+        employee.setDepartment(department);
+        employee.setStatus("ACTIVE");
+        employeeRepository.save(employee);
+        forceSyncPersistenceContext();
+
+        // Act
+        CustomException exception = assertThrows(CustomException.class,
+                () -> departmentService.delete(department.getId()));
+
+        // Assert
+        assertThat(exception.getMessage()).contains("Không th");
+    }
+
+    @Test
+    @DisplayName("[DEP-TC14] - delete() xóa phòng ban khi không có nhân viên")
+    void tc14_delete_noEmployees_removeDepartment() {
+        // Test Case ID: DEP-TC14
+        // Mục tiêu: xác minh delete() thành công khi không có nhân viên
+
+        // Arrange
+        Department department = createDepartment("DEL2", "Delete Test 2", "Test", true);
+        forceSyncPersistenceContext();
+
+        long countBefore = departmentRepository.count();
+
+        // Act
+        departmentService.delete(department.getId());
+        forceSyncPersistenceContext();
+
+        // Assert
+        assertThat(departmentRepository.count()).isEqualTo(countBefore - 1);
+        assertThat(departmentRepository.findById(department.getId())).isEmpty();
+    }
+
+    @Test
+    @DisplayName("[DEP-TC15] - update() khi updateDepartmentDTO toàn null")
+    void tc15_update_withNullFields_staysUnchanged() {
+        // Test Case ID: DEP-TC15
+        // Mục tiêu: cover branch khi update với tất cả fields null
+
+        // Arrange
+        Department department = createDepartment("ORIG", "Original", "Original Desc", true);
+        UpdateDepartmentDTO dto = new UpdateDepartmentDTO(null, null, null, null);
+
+        // Act
+        Department result = departmentService.update(department.getId(), dto);
+        forceSyncPersistenceContext();
+
+        // Assert: không đổi
+        assertThat(result.getCode()).isEqualTo("ORIG");
+        assertThat(result.getName()).isEqualTo("Original");
+    }
 }

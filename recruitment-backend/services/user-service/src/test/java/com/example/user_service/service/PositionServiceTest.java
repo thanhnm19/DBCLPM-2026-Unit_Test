@@ -205,4 +205,23 @@ class PositionServiceTest {
         entityManager.flush();
         entityManager.clear();
     }
+
+    @Test
+    @DisplayName("[POS-TC09] - update() khi updatePositionDTO toàn null")
+    void tc09_update_withNullFields_staysUnchanged() {
+        // Test Case ID: POS-TC09
+        // Mục tiêu: cover branch khi update với tất cả fields null
+
+        // Arrange
+        Position position = createPosition("Original", "L5", 5, true);
+        UpdatePositionDTO dto = new UpdatePositionDTO(null, null, null, null);
+
+        // Act
+        Position result = positionService.update(position.getId(), dto);
+        forceSyncPersistenceContext();
+
+        // Assert
+        assertThat(result.getName()).isEqualTo("Original");
+        assertThat(result.getLevel()).isEqualTo("L5");
+    }
 }
