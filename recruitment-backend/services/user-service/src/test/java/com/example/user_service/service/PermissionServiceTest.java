@@ -299,24 +299,24 @@ class PermissionServiceTest {
                 .noneMatch(p -> p.getName().equals("notification-service:notifications:manage"));
     }
 
-    // @Test
-    // @DisplayName("[PER-TC14] - delete() không ném exception khi id không tồn tại (permission == null)")
-    // void tc14_delete_nonExistentId_doesNothing() {
-    //     // Test Case ID: PER-TC14
-    //     // Mục tiêu: xác minh nhánh FALSE của D6 — if (permission != null)
-    //     //           Khi permission không tìm thấy → skip forEach, gọi delete(null).
-    //     // Basis Path: D6=False (permission == null)
+    @Test
+    @DisplayName("[PER-TC14] - delete() không ném exception khi id không tồn tại (permission == null)")
+    void tc14_delete_nonExistentId_doesNothing() {
+        // Test Case ID: PER-TC14
+        // Mục tiêu: xác minh nhánh FALSE của D6 — if (permission != null)
+        //           Khi permission không tìm thấy → skip forEach, gọi delete(null).
+        // Basis Path: D6=False (permission == null)
 
-    //     // Arrange
-    //     long countBefore = permissionRepository.count();
+        // Arrange
+        long countBefore = permissionRepository.count();
 
-    //     // Act + Assert: không ném exception
-    //     permissionService.delete(999999L);
-    //     forceSyncPersistenceContext();
+        // Act + Assert: không ném exception
+        permissionService.delete(999999L);
+        forceSyncPersistenceContext();
 
-    //     // Số lượng bản ghi không đổi
-    //     assertThat(permissionRepository.count()).isEqualTo(countBefore);
-    // }
+        // Số lượng bản ghi không đổi
+        assertThat(permissionRepository.count()).isEqualTo(countBefore);
+    }
 
     @Test
     @DisplayName("[PER-TC15] - evictCacheForRole() xóa cache permCheck")

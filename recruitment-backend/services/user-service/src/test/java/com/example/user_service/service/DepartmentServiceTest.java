@@ -361,8 +361,35 @@ class DepartmentServiceTest {
         Department result = departmentService.update(department.getId(), dto);
         forceSyncPersistenceContext();
 
-        // Assert: không đổi
-        assertThat(result.getCode()).isEqualTo("ORIG");
-        assertThat(result.getName()).isEqualTo("Original");
+        // Assert
+        Department updatedDepartment = departmentRepository.findById(result.getId()).orElseThrow();
+        assertThat(updatedDepartment.getCode()).isEqualTo("ORIG");
+        assertThat(updatedDepartment.getName()).isEqualTo("Original");
+        assertThat(updatedDepartment.getDescription()).isEqualTo("Original Desc");
+        assertThat(updatedDepartment.is_active()).isTrue();
     }
+
+    @Test
+    @DisplayName("[DEP-TC15] - update() giữ nguyên khi code mới trùng chính nó")
+    void tc15_update_sameCode_keepsDepartmentAndExecutesLambdaExit() {
+        // Test Case ID: DEP-TC15
+        // Mục tiêu: cover nhánh ifPresent nhưng không throw khi code mới thuộc chính
+        // department hiện tại.
+
+        // Arrange
+        Department existingDepartment = createDepartment("OPS_SELF", "Operations Self", "Phòng vận hành", true);
+        UpdateDepartmentDTO dto = new UpdateDepartmentDTO("ops_self", "Operations Self Updated", "Mô tả mới", false);
+
+        // Act
+        Department result = departmentService.update(existingDepartment.getId(), dto);
+        forceSyncPersistenceContext();
+
+        // Assert
+        Department updatedDepartment = departmentRepository.findById(result.getId()).orElseThrow();
+        assertThat(updatedDepartment.getCode()).isEqualTo("OPS_SELF");
+        assertThat(updatedDepartment.getName()).isEqualTo("Operations Self Updated");
+        assertThat(updatedDepartment.getDescription()).isEqualTo("Mô tả mới");
+        assertThat(updatedDepartment.is_active()).isFalse();
+    }
+
 }
