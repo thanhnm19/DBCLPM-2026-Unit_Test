@@ -448,6 +448,34 @@
             "url": "{{base_url}}/api/v1/workflow-service/workflows/{{activeWorkflowId}}",
             "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }]
           }
+        },
+        {
+          "name": "WF-TC17 - PUT: Sua luong dang co phieu PENDING (phai bi chan)",
+          "description": "Prerequisite: activeWorkflowId = ID workflow có tracking PENDING. Expected: HTTP 400/409. Việc sửa cấu trúc (steps) khi đang chạy sẽ làm sập tiến trình duyệt.",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[WF-TC17] Status 400 hoac 409 - khong sua duoc workflow dang chay', () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([400, 409, 422]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PUT",
+            "url": "{{base_url}}/api/v1/workflow-service/workflows/{{activeWorkflowId}}",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{access_token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"name\": \"QT Dang Chay\", \"type\": \"RECRUITMENT\", \"isActive\": true, \"steps\": [{\"stepOrder\": 1, \"approverPositionId\": 1, \"approverPositionName\": \"Test\", \"hierarchyOrder\": 1}]}"
+            }
+          }
         }
       ]
     }

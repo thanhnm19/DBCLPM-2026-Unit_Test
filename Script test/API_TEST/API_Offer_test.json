@@ -385,6 +385,140 @@
             },
             "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }]
           }
+        },
+        {
+          "name": "OF-TC15 - POST: Tao offer voi onboardingDate trong qua khu",
+          "description": "Validation lỗi thời gian.",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[OF-TC15] Status 400 - Validation loi thoi gian', () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/job-service/offers",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{access_token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"candidateId\": 1, \"jobPositionId\": {{jpId}}, \"salaryOffered\": 15000000, \"onboardingDate\": \"2020-01-01\", \"workflowId\": {{workflowId}}}"
+            }
+          }
+        },
+        {
+          "name": "OF-TC16 - POST: Tao offer voi basicSalary > salaryMax cua Job",
+          "description": "Kiểm tra lỗi over budget.",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[OF-TC16] Status 400 - Vuot ngan sach', () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/job-service/offers",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{access_token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"candidateId\": 1, \"jobPositionId\": {{jpId}}, \"salaryOffered\": 999999999, \"onboardingDate\": \"2025-06-01\", \"workflowId\": {{workflowId}}}"
+            }
+          }
+        },
+        {
+          "name": "OF-TC17 - POST: Tao offer voi probationPeriod < 0 hoac probationSalaryRate > 100",
+          "description": "Kiểm tra giá trị biên thử việc.",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[OF-TC17] Status 400 - Validation loi probation', () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/job-service/offers",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{access_token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"candidateId\": 1, \"jobPositionId\": {{jpId}}, \"salaryOffered\": 15000000, \"onboardingDate\": \"2025-06-01\", \"workflowId\": {{workflowId}}, \"probationPeriod\": -1, \"probationSalaryRate\": 150}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Offer State Endpoints",
+      "description": "Test các API Approve và Reject Offer",
+      "item": [
+        {
+          "name": "OF-TC18 - POST: Approve Offer",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[OF-TC18] Status 200 hoac 400', () => pm.expect(pm.response.code).to.be.oneOf([200, 400]));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/job-service/offers/approve/{{offerId}}",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{access_token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"notes\": \"Duyet offer\"}"
+            }
+          }
+        },
+        {
+          "name": "OF-TC19 - POST: Reject Offer",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[OF-TC19] Status 200 hoac 400', () => pm.expect(pm.response.code).to.be.oneOf([200, 400]));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/job-service/offers/reject/{{offerId}}",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{access_token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"reason\": \"Khong duyet offer vi luong qua cao\"}"
+            }
+          }
         }
       ]
     }

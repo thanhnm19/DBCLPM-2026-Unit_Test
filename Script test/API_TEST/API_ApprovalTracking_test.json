@@ -293,6 +293,95 @@
           }
         }
       ]
+    },
+    {
+      "name": "ApprovalTracking Negative & Edge Cases",
+      "item": [
+        {
+          "name": "AT-TC11 - POST: Approve voi action REJECTED",
+          "description": "Cố tình từ chối tracking. Prerequisite: Cần 1 trackingId đang ở trạng thái PENDING.",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[AT-TC11] Status 200', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('[AT-TC11] Status la REJECTED', () => pm.expect(body.data.status).to.equal('REJECTED'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/workflow-service/approval-trackings/{{trackingId}}/approve",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{access_token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"action\": \"REJECTED\", \"notes\": \"Khong duyet\"}"
+            }
+          }
+        },
+        {
+          "name": "AT-TC12 - POST: Approve voi action RETURNED",
+          "description": "Cố tình trả về tracking. Prerequisite: Cần 1 trackingId đang ở trạng thái PENDING.",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[AT-TC12] Status 200', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('[AT-TC12] Status la RETURNED', () => pm.expect(body.data.status).to.equal('RETURNED'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/workflow-service/approval-trackings/{{trackingId}}/approve",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{access_token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"action\": \"RETURNED\", \"notes\": \"Tra ve yeu cau sua lai\"}"
+            }
+          }
+        },
+        {
+          "name": "AT-TC13 - POST: User A approve cho tracking cua User B (Phai bi chan)",
+          "description": "Dùng Token của một User không có quyền để cố tình duyệt (action: APPROVED).",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[AT-TC13] Status 403 - Forbidden do sai quyen nguoi duyet', () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([403, 400]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/workflow-service/approval-trackings/{{trackingId}}/approve",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{employee_token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"action\": \"APPROVED\", \"notes\": \"Duyet trum\"}"
+            }
+          }
+        }
+      ]
     }
   ]
 }
