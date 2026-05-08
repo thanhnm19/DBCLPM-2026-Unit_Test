@@ -566,6 +566,77 @@
               "raw": "{\"title\": \"Sua JP Closed\", \"description\": \"Test\"}"
             }
           }
+        },
+        {
+          "name": "JP-TC23 - POST: Tao Job voi deadline trong qua khu",
+          "description": "Lỗi System Test TC_JOB_01_005. Không được tạo job đã hết hạn.",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[JP-TC23] Status 400 - Validation loi thoi gian', () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/job-service/job-positions",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{access_token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"title\": \"Job Qua Khu\", \"recruitmentRequestId\": {{rrId}}, \"departmentId\": 5, \"deadline\": \"2020-01-01\", \"description\": \"Test\"}"
+            }
+          }
+        },
+        {
+          "name": "JP-TC24 - POST: Tao Job voi title qua dai (>255 ky tu)",
+          "description": "Kiểm tra giới hạn ký tự thay vì văng exception SQL.",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[JP-TC24] Status 400 - Validation loi do dai', () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/job-service/job-positions",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{access_token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"title\": \"TieudeTieuDeTieuDeTieuDeTieuDeTieuDeTieuDeTieuDeTieuDeTieuDeTieuDeTieuDeTieuDeTieuDeTieuDeTieuDeTieuDeTieuDeTieuDeTieuDeTieuDeTieuDeTieuDeTieuDeTieuDeTieuDeTieuDeTieuDeTieuDeTieuDeTieuDeTieuDeTieuDeTieuDeTieuDeTieuDeTieuDeTieuDeTieuDeTieuDeTieuDeTieuDeTieuDeTieuDe\", \"recruitmentRequestId\": {{rrId}}, \"departmentId\": 5, \"description\": \"Test\"}"
+            }
+          }
+        },
+        {
+          "name": "JP-TC25 - POST: Publish Job da CLOSED (State Machine Violation)",
+          "description": "Cố tình nhảy cóc trạng thái từ CLOSED sang PUBLISHED.",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[JP-TC25] Status 400 - State machine conflict', () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/job-service/job-positions/{{closedJpId}}/publish",
+            "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }]
+          }
         }
       ]
     }

@@ -425,6 +425,105 @@
             "url": "{{base_url}}/api/v1/job-service/recruitment-requests/{{approvedRrId}}",
             "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }]
           }
+        },
+        {
+          "name": "RR-TC15a - POST: Tao RR voi departmentId khong ton tai (Fake ID - DB vulnerability)",
+          "description": "Lỗi System Test TC_REQ_03_038. Truyền departmentId=9999. Expected: 400 Bad Request, DB không lưu rác.",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[RR-TC15a] Status 400 - Validation loi khoa ngoai', () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/job-service/recruitment-requests",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{access_token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"title\": \"Fake Dept RR\", \"quantity\": 1, \"reason\": \"Test fake ID\", \"salaryMin\": 10000000, \"salaryMax\": 20000000, \"departmentId\": 9999}"
+            }
+          }
+        },
+        {
+          "name": "RR-TC15b - POST: Submit RR cua nguoi khac tao (Bypass Broken Access Control)",
+          "description": "Lỗi System Test TC_REQ_04_023. Nhan vien B submit phieu cua Nhan vien A. Expected: 403 Forbidden.",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[RR-TC15b] Status 403 hoac 400 - khong duoc submit phieu nguoi khac', () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([400, 403]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/job-service/recruitment-requests/submit/{{rrId}}",
+            "header": [{ "key": "Authorization", "value": "Bearer {{employee_token_B}}" }]
+          }
+        },
+        {
+          "name": "RR-TC15c - POST: Tao RR voi quantity bang 0 hoac am",
+          "description": "Kiểm tra giá trị biên cho Số lượng. Expected: 400 Bad Request.",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[RR-TC15c] Status 400 - Validation loi quantity', () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/job-service/recruitment-requests",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{access_token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"title\": \"Zero Quantity RR\", \"quantity\": 0, \"reason\": \"Test zero quantity\", \"salaryMin\": 10000000, \"salaryMax\": 20000000, \"departmentId\": 1}"
+            }
+          }
+        },
+        {
+          "name": "RR-TC15d - POST: Tao RR voi salaryMin > salaryMax",
+          "description": "Kiểm tra giá trị biên cho Lương. Expected: 400 Bad Request.",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[RR-TC15d] Status 400 - Validation loi range luong', () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/job-service/recruitment-requests",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{access_token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"title\": \"Invalid Salary Range RR\", \"quantity\": 1, \"reason\": \"Test invalid salary\", \"salaryMin\": 20000000, \"salaryMax\": 10000000, \"departmentId\": 1}"
+            }
+          }
         }
       ]
     },
@@ -651,6 +750,98 @@
             "method": "DELETE",
             "url": "{{base_url}}/api/v1/job-service/recruitment-requests/{{rrId}}",
             "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }]
+          }
+        }
+      ]
+    },
+    {
+      "name": "RecruitmentRequest Other State Endpoints",
+      "description": "Test các API chuyển đổi trạng thái khác ngoài submit: cancel, withdraw, reject, return",
+      "item": [
+        {
+          "name": "RR-TC25 - POST: Cancel RR (DRAFT -> CANCELLED)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[RR-TC25] Status 200 hoac 400', () => pm.expect(pm.response.code).to.be.oneOf([200, 400]));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/job-service/recruitment-requests/cancel/{{rrId}}",
+            "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }]
+          }
+        },
+        {
+          "name": "RR-TC26 - POST: Withdraw RR (PENDING -> WITHDRAWN)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[RR-TC26] Status 200 hoac 400', () => pm.expect(pm.response.code).to.be.oneOf([200, 400]));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/job-service/recruitment-requests/withdraw/{{pendingRrId}}",
+            "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }]
+          }
+        },
+        {
+          "name": "RR-TC27 - POST: Reject RR",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[RR-TC27] Status 200 hoac 400', () => pm.expect(pm.response.code).to.be.oneOf([200, 400]));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/job-service/recruitment-requests/reject/{{pendingRrId}}",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{access_token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"reason\": \"Khong hop le\"}"
+            }
+          }
+        },
+        {
+          "name": "RR-TC28 - POST: Return RR",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[RR-TC28] Status 200 hoac 400', () => pm.expect(pm.response.code).to.be.oneOf([200, 400]));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/job-service/recruitment-requests/return/{{pendingRrId}}",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{access_token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"reason\": \"Can bo sung thong tin\"}"
+            }
           }
         }
       ]
