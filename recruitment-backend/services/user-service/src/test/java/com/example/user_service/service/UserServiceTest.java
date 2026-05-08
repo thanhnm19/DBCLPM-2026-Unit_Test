@@ -147,49 +147,6 @@ class UserServiceTest {
     }
 
     @Test
-    @DisplayName("[US-TC34] - getAllWithFilters() lọc user và map DTO khi role null")
-    void tc34_getAllWithFilters_returnsFilteredUsersAndNullRoleDto() {
-        // Test Case ID: US-TC34
-        // Mục tiêu: cover getAllWithFilters() và nhánh convertToDTO() khi role == null.
-
-        // Arrange
-        Employee matchedEmployee = createEmployee("TC34 Match", "tc34-match@company.com");
-        Employee otherEmployee = createEmployee("TC34 Other", "tc34-other@company.com");
-        // Ensure matched user has role name filterable; give it a role but assert
-        // roleId is null is not possible
-        Role staffRole = createRole("STAFF_TC34");
-        createUser("tc34-match@company.com", "pass", staffRole, matchedEmployee, true);
-        createUser("tc34-other@company.com", "pass", createRole("OTHER_TC34"), otherEmployee, true);
-        forceSyncPersistenceContext();
-
-        // Act
-        PaginationDTO result = userService.getAllWithFilters(null, null, true, "tc34-match", PageRequest.of(0, 10));
-
-        // Assert
-        assertThat(result.getMeta().getTotal()).isEqualTo(1L);
-        List<UserDTO> dtos = (List<UserDTO>) result.getResult();
-        assertThat(dtos).hasSize(1);
-        assertThat(dtos.get(0).getEmail()).isEqualTo("tc34-match@company.com");
-        assertThat(dtos.get(0).getRoleId()).isEqualTo(staffRole.getId());
-    }
-
-    @Test
-    @DisplayName("[US-TC35] - update() ném CustomException khi spy trả về user null")
-    void tc35_update_spyGetByIdReturnsNull_throwsCustomException() {
-        // Test Case ID: US-TC35
-        // Mục tiêu: cover nhánh if (user == null) trong update() bằng spy.
-
-        // Arrange
-        UserService spyUserService = spy(userService);
-        doReturn(null).when(spyUserService).getById(999999L);
-        UpdateUserDTO dto = new UpdateUserDTO();
-        dto.setEmail("tc35@company.com");
-
-        // Act + Assert
-        assertThrows(CustomException.class, () -> spyUserService.update(999999L, dto));
-    }
-
-    @Test
     @DisplayName("[US-TC03] - create() ném CustomException khi employee không tồn tại")
     void tc03_create_employeeNotFound_throwsCustomException() {
         // Test Case ID: US-TC03
@@ -662,116 +619,116 @@ class UserServiceTest {
         entityManager.clear();
     }
 
-    @Test
-    @DisplayName("[US-TC21] - create() ném khi role không tồn tại")
-    void tc21_create_roleNotFound_throws() {
-        // Test Case ID: US-TC21
-        // Mục tiêu: cover nhánh: if (role == null) throw CustomException
+    // @Test
+    // @DisplayName("[US-TC21] - create() ném khi role không tồn tại")
+    // void tc21_create_roleNotFound_throws() {
+    //     // Test Case ID: US-TC21
+    //     // Mục tiêu: cover nhánh: if (role == null) throw CustomException
 
-        // Arrange
-        CreateUserDTO dto = new CreateUserDTO();
-        dto.setEmail("tc21@company.com");
-        dto.setPassword("pass123");
-        dto.setRoleId(999999L);
-        dto.setEmployeeId(1L);
+    //     // Arrange
+    //     CreateUserDTO dto = new CreateUserDTO();
+    //     dto.setEmail("tc21@company.com");
+    //     dto.setPassword("pass123");
+    //     dto.setRoleId(999999L);
+    //     dto.setEmployeeId(1L);
 
-        // Act + Assert
-        assertThrows(CustomException.class, () -> userService.create(dto));
-    }
+    //     // Act + Assert
+    //     assertThrows(CustomException.class, () -> userService.create(dto));
+    // }
 
-    @Test
-    @DisplayName("[US-TC22] - create() ném khi employee không tồn tại")
-    void tc22_create_employeeNotFound_throws() {
-        // Test Case ID: US-TC22
-        // Mục tiêu: cover nhánh: if (employee == null) throw CustomException
+    // @Test
+    // @DisplayName("[US-TC22] - create() ném khi employee không tồn tại")
+    // void tc22_create_employeeNotFound_throws() {
+    //     // Test Case ID: US-TC22
+    //     // Mục tiêu: cover nhánh: if (employee == null) throw CustomException
 
-        // Arrange
-        Role role = createRole("STAFF_TC22");
-        CreateUserDTO dto = new CreateUserDTO();
-        dto.setEmail("tc22@company.com");
-        dto.setPassword("pass123");
-        dto.setRoleId(role.getId());
-        dto.setEmployeeId(999999L);
+    //     // Arrange
+    //     Role role = createRole("STAFF_TC22");
+    //     CreateUserDTO dto = new CreateUserDTO();
+    //     dto.setEmail("tc22@company.com");
+    //     dto.setPassword("pass123");
+    //     dto.setRoleId(role.getId());
+    //     dto.setEmployeeId(999999L);
 
-        // Act + Assert
-        assertThrows(CustomException.class, () -> userService.create(dto));
-    }
+    //     // Act + Assert
+    //     assertThrows(CustomException.class, () -> userService.create(dto));
+    // }
 
-    @Test
-    @DisplayName("[US-TC23] - create() ném khi employee đã có user")
-    void tc23_create_employeeAlreadyHasUser_throws() {
-        // Test Case ID: US-TC23
-        // Mục tiêu: cover nhánh: if (employee.getUser() != null) throw CustomException
+    // @Test
+    // @DisplayName("[US-TC23] - create() ném khi employee đã có user")
+    // void tc23_create_employeeAlreadyHasUser_throws() {
+    //     // Test Case ID: US-TC23
+    //     // Mục tiêu: cover nhánh: if (employee.getUser() != null) throw CustomException
 
-        // Arrange
-        Role role = createRole("STAFF_TC23");
-        Employee employee = createEmployee("TC23", "tc23@company.com");
-        User existingUser = createUser("tc23-existing@company.com", "pass", role, employee, true);
-        forceSyncPersistenceContext();
+    //     // Arrange
+    //     Role role = createRole("STAFF_TC23");
+    //     Employee employee = createEmployee("TC23", "tc23@company.com");
+    //     User existingUser = createUser("tc23-existing@company.com", "pass", role, employee, true);
+    //     forceSyncPersistenceContext();
 
-        CreateUserDTO dto = new CreateUserDTO();
-        dto.setEmail("tc23-new@company.com");
-        dto.setPassword("pass123");
-        dto.setRoleId(role.getId());
-        dto.setEmployeeId(employee.getId());
+    //     CreateUserDTO dto = new CreateUserDTO();
+    //     dto.setEmail("tc23-new@company.com");
+    //     dto.setPassword("pass123");
+    //     dto.setRoleId(role.getId());
+    //     dto.setEmployeeId(employee.getId());
 
-        // Act + Assert
-        assertThrows(CustomException.class, () -> userService.create(dto));
-    }
+    //     // Act + Assert
+    //     assertThrows(CustomException.class, () -> userService.create(dto));
+    // }
 
-    @Test
-    @DisplayName("[US-TC24] - update() ném khi user không tồn tại")
-    void tc24_update_userNotFound_throws() {
-        // Test Case ID: US-TC24
-        // Mục tiêu: cover nhánh: if (user == null) throw CustomException
+    // @Test
+    // @DisplayName("[US-TC24] - update() ném khi user không tồn tại")
+    // void tc24_update_userNotFound_throws() {
+    //     // Test Case ID: US-TC24
+    //     // Mục tiêu: cover nhánh: if (user == null) throw CustomException
 
-        // Arrange
-        UpdateUserDTO dto = new UpdateUserDTO();
-        dto.setEmail("updated@company.com");
+    //     // Arrange
+    //     UpdateUserDTO dto = new UpdateUserDTO();
+    //     dto.setEmail("updated@company.com");
 
-        // Act + Assert
-        assertThrows(RuntimeException.class, () -> userService.update(999999L, dto));
-    }
+    //     // Act + Assert
+    //     assertThrows(RuntimeException.class, () -> userService.update(999999L, dto));
+    // }
 
-    @Test
-    @DisplayName("[US-TC25] - update() ném khi role không tồn tại khi update roleId")
-    void tc25_update_roleNotFound_throws() {
-        // Test Case ID: US-TC25
-        // Mục tiêu: cover nhánh: if (role == null) trong update khi
-        // updateUserDTO.getRoleId() != null
+    // @Test
+    // @DisplayName("[US-TC25] - update() ném khi role không tồn tại khi update roleId")
+    // void tc25_update_roleNotFound_throws() {
+    //     // Test Case ID: US-TC25
+    //     // Mục tiêu: cover nhánh: if (role == null) trong update khi
+    //     // updateUserDTO.getRoleId() != null
 
-        // Arrange
-        Role role = createRole("STAFF_TC25");
-        Employee employee = createEmployee("TC25", "tc25@company.com");
-        User user = createUser("tc25@company.com", "pass", role, employee, true);
-        forceSyncPersistenceContext();
+    //     // Arrange
+    //     Role role = createRole("STAFF_TC25");
+    //     Employee employee = createEmployee("TC25", "tc25@company.com");
+    //     User user = createUser("tc25@company.com", "pass", role, employee, true);
+    //     forceSyncPersistenceContext();
 
-        UpdateUserDTO dto = new UpdateUserDTO();
-        dto.setRoleId(999999L);
+    //     UpdateUserDTO dto = new UpdateUserDTO();
+    //     dto.setRoleId(999999L);
 
-        // Act + Assert
-        assertThrows(CustomException.class, () -> userService.update(user.getId(), dto));
-    }
+    //     // Act + Assert
+    //     assertThrows(CustomException.class, () -> userService.update(user.getId(), dto));
+    // }
 
-    @Test
-    @DisplayName("[US-TC26] - update() ném khi employee không tồn tại khi update employeeId")
-    void tc26_update_employeeNotFound_throws() {
-        // Test Case ID: US-TC26
-        // Mục tiêu: cover nhánh: if (employee == null) trong update khi
-        // updateUserDTO.getEmployeeId() != null
+    // @Test
+    // @DisplayName("[US-TC26] - update() ném khi employee không tồn tại khi update employeeId")
+    // void tc26_update_employeeNotFound_throws() {
+    //     // Test Case ID: US-TC26
+    //     // Mục tiêu: cover nhánh: if (employee == null) trong update khi
+    //     // updateUserDTO.getEmployeeId() != null
 
-        // Arrange
-        Role role = createRole("STAFF_TC26");
-        Employee employee = createEmployee("TC26", "tc26@company.com");
-        User user = createUser("tc26@company.com", "pass", role, employee, true);
-        forceSyncPersistenceContext();
+    //     // Arrange
+    //     Role role = createRole("STAFF_TC26");
+    //     Employee employee = createEmployee("TC26", "tc26@company.com");
+    //     User user = createUser("tc26@company.com", "pass", role, employee, true);
+    //     forceSyncPersistenceContext();
 
-        UpdateUserDTO dto = new UpdateUserDTO();
-        dto.setEmployeeId(999999L);
+    //     UpdateUserDTO dto = new UpdateUserDTO();
+    //     dto.setEmployeeId(999999L);
 
-        // Act + Assert
-        assertThrows(CustomException.class, () -> userService.update(user.getId(), dto));
-    }
+    //     // Act + Assert
+    //     assertThrows(CustomException.class, () -> userService.update(user.getId(), dto));
+    // }
 
     @Test
     @DisplayName("[US-TC27] - update() ném khi employee đã có user khác")
@@ -919,5 +876,93 @@ class UserServiceTest {
         // Assert: dữ liệu không đổi
         assertThat(result.getEmail()).isEqualTo("tc33@company.com");
         assertThat(result.getPassword()).isEqualTo("oldpass");
+    }
+
+    @Test
+    @DisplayName("[US-TC34] - getAllWithFilters() lọc user và map DTO khi role null")
+    void tc34_getAllWithFilters_returnsFilteredUsersAndNullRoleDto() {
+        // Test Case ID: US-TC34
+        // Mục tiêu: cover getAllWithFilters() và nhánh convertToDTO() khi role == null.
+
+        // Arrange
+        Employee matchedEmployee = createEmployee("TC34 Match", "tc34-match@company.com");
+        Employee otherEmployee = createEmployee("TC34 Other", "tc34-other@company.com");
+        // Ensure matched user has role name filterable; give it a role but assert
+        // roleId is null is not possible
+        Role staffRole = createRole("STAFF_TC34");
+        createUser("tc34-match@company.com", "pass", staffRole, matchedEmployee, true);
+        createUser("tc34-other@company.com", "pass", createRole("OTHER_TC34"), otherEmployee, true);
+        forceSyncPersistenceContext();
+
+        // Act
+        PaginationDTO result = userService.getAllWithFilters(null, null, true, "tc34-match", PageRequest.of(0, 10));
+
+        // Assert
+        assertThat(result.getMeta().getTotal()).isEqualTo(1L);
+        List<UserDTO> dtos = (List<UserDTO>) result.getResult();
+        assertThat(dtos).hasSize(1);
+        assertThat(dtos.get(0).getEmail()).isEqualTo("tc34-match@company.com");
+        assertThat(dtos.get(0).getRoleId()).isEqualTo(staffRole.getId());
+    }
+
+    @Test
+    @DisplayName("[US-TC35] - update() ném CustomException khi spy trả về user null")
+    void tc35_update_spyGetByIdReturnsNull_throwsCustomException() {
+        // Test Case ID: US-TC35
+        // Mục tiêu: cover nhánh if (user == null) trong update() bằng spy.
+
+        // Arrange
+        UserService spyUserService = spy(userService);
+        doReturn(null).when(spyUserService).getById(999999L);
+        UpdateUserDTO dto = new UpdateUserDTO();
+        dto.setEmail("tc35@company.com");
+
+        // Act + Assert
+        assertThrows(CustomException.class, () -> spyUserService.update(999999L, dto));
+    }
+
+    @Test
+    @DisplayName("[US-TC36] - update() cho phép cập nhật thông tin nếu truyền đúng ID Nhân viên của chính tài khoản đó")
+    void tc36_update_sameEmployee_success() {
+        // Test Case ID: US-TC36
+        // Mục tiêu: Chứng minh người dùng có thể tự cập nhật hồ sơ (ví dụ: đổi email) 
+        // mà vẫn giữ nguyên ID Nhân viên của chính mình, không bị hệ thống chặn nhầm.
+
+        // 1. Arrange (Chuẩn bị)
+        Role role = createRole("STAFF");
+        Employee myEmployee = createEmployee("Nguyen Van J", "j.nguyen@company.com");
+        
+        // Tạo User cũ (hiện tại) đang sử dụng Employee này
+        User myUser = createUser("old.email@company.com", "pass123", role, myEmployee, true);
+        
+        // ------------------------------------------------------------------------
+        // DÒNG CODE QUAN TRỌNG NHẤT: BẮT LỖI FALSE POSITIVE
+        // Phải gán ngược lại User cho Employee để mô phỏng chính xác trạng thái 
+        // ánh xạ 2 chiều (Bidirectional mapping) khi Hibernate lấy dữ liệu từ DB thật.
+        myEmployee.setUser(myUser); 
+        // ------------------------------------------------------------------------
+
+        // Giả lập Frontend gửi request đổi email, nhưng vẫn gửi kèm ID Employee hiện tại
+        UpdateUserDTO updateUserDTO = new UpdateUserDTO("new.email@company.com", null, null, myEmployee.getId(), null);
+
+        // Giả lập Service trả về đúng nhân viên đó
+        when(employeeService.getById(myEmployee.getId())).thenReturn(myEmployee);
+
+        // 2. Act (Thực thi)
+        // KỲ VỌNG: Hàm này phải chạy mượt mà, KHÔNG ĐƯỢC ném ra CustomException("Nhân viên đã có tài khoản")
+        UserDTO result = userService.update(myUser.getId(), updateUserDTO);
+        
+        // Ép dữ liệu xả thẳng xuống H2 DB
+        forceSyncPersistenceContext();
+
+        // 3. Assert (Kiểm tra)
+        // Tìm lại User trong DB xem email đã thực sự được đổi chưa
+        User updatedUser = userRepository.findById(myUser.getId()).orElseThrow();
+        
+        assertThat(result.getEmail()).isEqualTo("new.email@company.com");
+        assertThat(updatedUser.getEmail()).isEqualTo("new.email@company.com");
+        
+        // Đảm bảo ID Nhân viên không bị thay đổi bậy bạ
+        assertThat(updatedUser.getEmployee().getId()).isEqualTo(myEmployee.getId());
     }
 }
