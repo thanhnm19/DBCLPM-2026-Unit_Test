@@ -22,12 +22,47 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.when;
 
+/**
+ * ============================================================
+ * Unit Test: RoleService - Quản lý Vai Trò (RBAC Roles)
+ * ============================================================
+ *
+ * PHẠM VI TEST:
+ *   - create(): Tạo role mới, gán permission
+ *   - update(): Cập nhật role (name, description, isActive, permissions)
+ *   - delete(): Xóa role
+ *   - getById() / getByIds(): Tìm role theo id
+ *   - getAllWithFilters(): Lấy danh sách role + phân trang + filter
+ *   - existsByName(): Kiểm tra role tồn tại
+ *
+ * CHIẾN LƯỢC TEST:
+ *   - @SpringBootTest: Load full Spring context + H2 test DB
+ *   - @Transactional: Auto rollback → DB sạch sau mỗi test
+ *   - Kiểm tra tại DB layer (repository.findById) KHÔNG dùng cache
+ *   - Branch coverage: if (isActive != null), if (permissionIds != null), etc.
+ *
+ * MOCK STRATEGY:
+ *   - @MockitoBean PermissionService: Test RoleService độc lập
+ *     (không gọi logic thực của PermissionService)
+ *   - @MockitoBean DataInitializer: Bỏ qua script init data
+ *   - Mock when(permissionService.findByIds(...)).thenReturn(...)
+ *
+ * ĐẶC BIỆT:
+ *   - Test nhánh M-M relationship (Role ↔ Permission)
+ *   - Test nhánh NULL: isActive=null, permissionIds=null
+ *   - Test combination: isActive=null AND permissionIds!=null
+ * ============================================================
+ */
 @SpringBootTest
 @Transactional
 @ActiveProfiles("test")
 @DisplayName("RoleService Unit Test")
 class RoleServiceTest {
 
+    // ============================================================
+    // DEPENDENCIES INJECTION (từ Spring context)
+    // ============================================================
+    
     @Autowired
     private RoleService roleService;
 
@@ -40,6 +75,19 @@ class RoleServiceTest {
     @Autowired
     private EntityManager entityManager;
 
+    // ============================================================
+    // MOCK DEPENDENCIES (không thực thi logic thực)
+    // ============================================================
+    
+    /**
+     * Mock PermissionService.findByIds() → trả về mock list
+     * 
+     * Lý do mock:
+     *   - PermissionService.findByIds() có logic query database
+     *   - Test RoleService.create() CHỈ nên test role logic
+     *   - Không test PermissionService (đó là test riêng)
+     *   - Mock khi(permissionService.findByIds(...)).thenReturn(...)
+     */
     @MockitoBean
     private PermissionService permissionService;
 
@@ -323,6 +371,22 @@ class RoleServiceTest {
 
     // ==================== Helper Methods ====================
     private Permission createPermission(String name, boolean active) {
+        /**
+         * HELPER METHOD: Tạo Permission test fixture
+         * 
+         * Cách sử dụng:
+         *   Permission p = createPermission("svc:res:read", true);
+         * 
+         * Làm gì:
+         *   1. Tạo object Permission
+         *   2. Set name + active
+         *   3. Save vào DB
+         *   4. Trả về entity (có ID để dùng trong Role)
+         * 
+         * Tại sao:
+         *   - RoleService.create() cần Permission list
+         *   - Giảm code lặp trong @Arrange
+         */
         Permission permission = new Permission();
         permission.setName(name);
         permission.setActive(active);
@@ -330,6 +394,31 @@ class RoleServiceTest {
     }
 
     private Role createRole(String name, String description, boolean isActive, List<Permission> permissions) {
+        /**
+         * HELPER METHOD: Tạo Role test fixture với Permission M-M relationship
+         * 
+         * Cách sử dụng:
+         *   Permission p1 = createPermission("svc:res:read", true);
+         *   Permission p2 = createPermission("svc:res:write", true);
+         *   Role r = createRole("ADMIN", "Admin role", true, List.of(p1, p2));
+         * 
+         * Làm gì:
+         *   1. Tạo object Role
+         *   2. Set name, description, is_active
+         *   3. Set Permission list (M-M)
+         *   4. Save vào DB (cascade save permission associations)
+         *   5. Trả về role có ID
+         * 
+         * Tại sao:
+         *   - Role-Permission là Many-to-Many
+         *   - Giảm setup code khi test update(), getByIds(), etc.
+         *   - Dễ kiểm tra permission association không bị mất sau update
+         * 
+         * Lưu ý:
+         *   - permissions list phải được set TRƯỚC save
+         *   - Nếu pass empty list (List.of()) → Role sẽ có 0 permission
+         *   - Dùng HashSet để tránh duplicate
+         */
         Role role = new Role();
         role.setName(name);
         role.setDescription(description);
@@ -339,6 +428,35 @@ class RoleServiceTest {
     }
 
     private void forceSyncPersistenceContext() {
+        /**
+         * HELPER METHOD: Đồng bộ JPA persistence context với DB
+         * 
+         * Cách sử dụng:
+         *   roleService.update(123, dto);
+         *   forceSyncPersistenceContext();
+         *   Role saved = roleRepository.findById(123).orElseThrow();
+         *   assertThat(saved.getName()).isEqualTo(dto.getName());
+         * 
+         * Làm gì:
+         *   1. flush(): ghi tất cả pending changes xuống DB
+         *   2. clear(): xóa L1 cache (entity manager session cache)
+         *   → Repository query từ DB, không từ cache
+         * 
+         * Tại sao:
+         *   - @Transactional + JPA cho phép lazy loading + caching
+         *   - Nếu không flush/clear:
+         *     * repository.findById() trả về entity từ cache (cũ)
+         *     * Test KHÔNG thực sự verify DB được update
+         *   - flush + clear = mô phỏng transaction mới
+         *   - Chắc chắn rằng DB được update (không phải fake pass)
+         * 
+         * Khi nào dùng:
+         *   - TRƯỚC MỖI CheckDB assertion
+         *   - Ví dụ:
+         *       roleService.delete(roleId);
+         *       forceSyncPersistenceContext();
+         *       assertThat(roleRepository.existsById(roleId)).isFalse();  // checkDB
+         */
         entityManager.flush();
         entityManager.clear();
     }

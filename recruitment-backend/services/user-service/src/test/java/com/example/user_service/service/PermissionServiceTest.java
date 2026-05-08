@@ -25,12 +25,46 @@ import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+/**
+ * ============================================================
+ * Unit Test: PermissionService - Quản lý Quyền Hạn (Permission RBAC)
+ * ============================================================
+ *
+ * PHẠM VI TEST:
+ *   - create(): Tạo permission mới, normalize active=true
+ *   - update(): Cập nhật permission theo id
+ *   - check(): Kiểm tra user có quyền RBAC không (core logic RBAC)
+ *   - getAllWithFilters(): Lấy danh sách permission có lọc và phân trang
+ *   - delete(): Xóa permission và gỡ liên kết role
+ *   - findByIds(): Tìm permission theo danh sách id
+ *   - isPermissionExistsByName(): Kiểm tra permission tồn tại
+ *
+ * CHIẾN LƯỢC TEST:
+ *   - @SpringBootTest: Load full Spring context (DB, cache, repository)
+ *   - @Transactional: Auto rollback sau mỗi test → DB sạch
+ *   - @ActiveProfiles("test"): Dùng H2 in-memory DB thay vì production DB
+ *   - Kiểm tra tại cả DB layer và service layer
+ *
+ * MOCK STRATEGY:
+ *   - @MockitoBean DataInitializer: Bỏ qua script khởi tạo dữ liệu, test độc lập
+ *
+ * CHÚ Ý: Test RBAC core logic (check method) bằng cách:
+ *   1. Tạo Permission với active=true
+ *   2. Tạo Role chứa Permission
+ *   3. Tạo User gán Role
+ *   4. Gọi check() để xác minh logic RBAC
+ * ============================================================
+ */
 @SpringBootTest
 @Transactional
 @ActiveProfiles("test")
 @DisplayName("PermissionService Unit Test")
 class PermissionServiceTest {
 
+    // ============================================================
+    // DEPENDENCIES INJECTION (từ Spring context)
+    // ============================================================
+    
     @Autowired
     private PermissionService permissionService;
 
@@ -49,6 +83,14 @@ class PermissionServiceTest {
     @Autowired
     private EntityManager entityManager;
 
+    // ============================================================
+    // MOCK DEPENDENCIES (không được load từ Spring context)
+    // ============================================================
+    
+    /**
+     * Mock DataInitializer để không chạy initialization script thực
+     * → Test được độc lập, không bị ảnh hưởng bởi dữ liệu init
+     */
     @MockitoBean
     private DataInitializer dataInitializer;
 
@@ -304,17 +346,30 @@ class PermissionServiceTest {
     void tc14_delete_nonExistentId_doesNothing() {
         // Test Case ID: PER-TC14
         // Mục tiêu: xác minh nhánh FALSE của D6 — if (permission != null)
-        //           Khi permission không tìm thấy → skip forEach, gọi delete(null).
-        // Basis Path: D6=False (permission == null)
+        //           Source code: permissionRepository.findById(id).orElse(null)
+        //           → permission == null → skip forEach → gọi delete(null)
+        //           Spring Data JPA có thể ném IllegalArgumentException khi delete(null)
+        //           → cần assertDoesNotThrow để bắt bug này.
+        //
+        // Bug bị bắt:
+        //   - Code gọi permissionRepository.delete(null) thay vì guard null
+        //     → Spring Data JPA ném IllegalArgumentException → test FAIL rõ ràng
+        //   - Count DB tăng do side-effect không mong muốn
 
-        // Arrange
+        // Arrange: ghi lại số lượng ban đầu
         long countBefore = permissionRepository.count();
 
-        // Act + Assert: không ném exception
-        permissionService.delete(999999L);
+        // Act + Assert: không được ném bất kỳ exception nào
+        // Nếu thiếu null-check trước delete() → IllegalArgumentException → FAIL
+        org.junit.jupiter.api.Assertions.assertDoesNotThrow(
+                () -> permissionService.delete(999999L),
+                "BUG: Ném exception khi delete id không tồn tại — " +
+                "có thể do gọi permissionRepository.delete(null) thiếu null-check"
+        );
         forceSyncPersistenceContext();
 
-        // Số lượng bản ghi không đổi
+        // CheckDB: số lượng bản ghi phải không đổi
+        // Nếu delete(null) xóa nhầm record → count giảm → FAIL
         assertThat(permissionRepository.count()).isEqualTo(countBefore);
     }
 
@@ -340,34 +395,44 @@ class PermissionServiceTest {
 
 
     @Test
-    @DisplayName("[PER-TC16] - evictCacheForRole() không ném exception khi cache name không tồn tại")
-    void tc16_evictCacheForRole_nullCache_doesNothing() {
+    @DisplayName("[PER-TC16] - evictCacheForRole() xóa TOÀN BỘ cache, không phân biệt key")
+    void tc16_evictCacheForRole_clearsAllCacheEntries_notJustOneKey() {
         // Test Case ID: PER-TC16
-        // Mục tiêu: xác minh nhánh FALSE của D7 — if (cache != null)
-        //           Khi cacheManager.getCache("wrongName") trả null → không gọi cache.clear().
-        // Basis Path: D7=False (cache == null → skip)
+        // Mục tiêu: xác minh evictCacheForRole() gọi cache.clear() (xóa toàn bộ),
+        //           KHÔNG chỉ evict key của roleId được truyền vào.
+        //           Đặc tả: Caffeine không hỗ trợ pattern-match key → phải clear all.
+        //
+        // Bug bị bắt:
+        //   - Nếu code chỉ evict selective (key = "roleId:...") thay vì clear all
+        //     → key của user khác vẫn còn trong cache
+        //     → user thấy quyền cũ sau khi permission của role thay đổi
+        //   - Nếu method không gọi cache.clear() → tất cả assert.isNull() đều FAIL
+        //
+        // Lưu ý TC15 vs TC16:
+        //   TC15: xác minh 1 key bị xóa (basic test)
+        //   TC16: xác minh NHIỀU key khác nhau đều bị xóa (all-or-nothing clear)
 
-        // Arrange: verify cache "nonExistentCache" thực sự null
-        assertThat(cacheManager.getCache("nonExistentCache")).isNull();
+        // Arrange: đặt 3 key khác nhau vào cache — mô phỏng 3 user đã check quyền
+        Cache cache = cacheManager.getCache("permCheck");
+        assertThat(cache).isNotNull();
+        cache.put("100:user-service:roles:read", true);       // user 100
+        cache.put("200:user-service:permissions:manage", false); // user 200
+        cache.put("300:workflow-service:workflows:read", true);  // user 300
 
-        // Act + Assert: không ném exception (guard clause if(cache!=null) bảo vệ đúng)
-        org.junit.jupiter.api.Assertions.assertDoesNotThrow(
-                () -> {
-                    // Gọi trực tiếp logic bằng cách spy qua CacheManager giả
-                    // Trong trường hợp này, test xác minh CacheManager.getCache("permCheck")
-                    // luôn trả non-null trong môi trường test → nhánh null được bảo vệ
-                    Cache cache = cacheManager.getCache("permCheck");
-                    if (cache != null) {
-                        cache.clear(); // nhánh True đã test ở TC13
-                    }
-                    // Simulate nhánh False: cache == null → không crash
-                    Cache nullCache = cacheManager.getCache("nonExistentCache");
-                    if (nullCache != null) {
-                        nullCache.clear();
-                    }
-                    // nullCache == null → if không thực thi → không crash
-                }
-        );
+        // Tiền điều kiện: xác nhận cache thực sự có data trước khi evict
+        assertThat(cache.get("100:user-service:roles:read")).isNotNull();
+        assertThat(cache.get("200:user-service:permissions:manage")).isNotNull();
+        assertThat(cache.get("300:workflow-service:workflows:read")).isNotNull();
+
+        // Act: gọi evict với roleId=123 (bất kỳ)
+        // Spec: phải clear TOÀN BỘ cache vì không thể filter theo roleId
+        permissionService.evictCacheForRole(123L);
+
+        // Assert: TẤT CẢ key phải bị xóa, không chỉ key có "123" trong tên
+        // Nếu code chỉ xóa key của roleId=123 → key 100/200/300 vẫn còn → FAIL
+        assertThat(cache.get("100:user-service:roles:read")).isNull();
+        assertThat(cache.get("200:user-service:permissions:manage")).isNull();
+        assertThat(cache.get("300:workflow-service:workflows:read")).isNull();
     }
 
     @Test
@@ -400,6 +465,23 @@ class PermissionServiceTest {
     }
 
     private Permission createPermission(String name, boolean active) {
+        /**
+         * HELPER METHOD: Tạo Permission test fixture
+         * 
+         * Cách sử dụng:
+         *   Permission p = createPermission("service:resource:action", true)
+         * 
+         * Làm gì: 
+         *   1. Tạo object Permission mới
+         *   2. Gán name + active
+         *   3. Lưu vào DB via repository
+         *   4. Trả về entity đã save (có ID)
+         * 
+         * Tại sao:
+         *   - Giảm code lặp trong @Arrange phase
+         *   - Đảm bảo permission luôn được save vào DB (không null)
+         *   - Dễ dàng tạo nhiều permission khác nhau cho test
+         */
         Permission permission = new Permission();
         permission.setName(name);
         permission.setActive(active);
@@ -407,6 +489,25 @@ class PermissionServiceTest {
     }
 
     private Role createRole(String name, boolean active, List<Permission> permissions) {
+        /**
+         * HELPER METHOD: Tạo Role test fixture với danh sách Permission
+         * 
+         * Cách sử dụng:
+         *   Permission p = createPermission("svc:res:read", true);
+         *   Role r = createRole("ADMIN", true, List.of(p));
+         * 
+         * Làm gì:
+         *   1. Tạo object Role mới
+         *   2. Set name, description, is_active
+         *   3. Gán danh sách permission (M-M relationship)
+         *   4. Lưu vào DB
+         *   5. Trả về role có ID + permissions loaded
+         * 
+         * Tại sao:
+         *   - Permission-Role là Many-to-Many, cần cả hai bên
+         *   - Giảm setup code khi test RBAC logic
+         *   - Tạo sẵn relationship → dễ kiểm tra cache/query
+         */
         Role role = new Role();
         role.setName(name);
         role.setDescription(name + " description");
@@ -416,6 +517,32 @@ class PermissionServiceTest {
     }
 
     private User createUser(String email, Role role) {
+        /**
+         * HELPER METHOD: Tạo User test fixture gán vào Role
+         * 
+         * Cách sử dụng:
+         *   Role r = createRole(...);
+         *   User u = createUser("user@company.com", r);
+         * 
+         * Làm gì:
+         *   1. Tạo object User mới
+         *   2. Set email, password, is_active
+         *   3. Gán role (User-Role là M-1: mỗi user có 1 role)
+         *   4. Lưu vào DB
+         *   5. Trả về user có ID
+         * 
+         * Tại sao:
+         *   - Để test PermissionService.check(permission, userId)
+         *   - check() logic: User → Role → Permission list → check active
+         *   - Cần toàn bộ chain này để test RBAC core logic
+         * 
+         * Ví dụ test:
+         *   Permission p = createPermission("svc:res:action", true);
+         *   Role r = createRole("ROLE", true, List.of(p));
+         *   User u = createUser("test@company.com", r);
+         *   boolean allowed = permissionService.check("svc:res:action", u.getId());
+         *   assertThat(allowed).isTrue();  // RBAC tìm User → Role → Permission
+         */
         User user = new User();
         user.setEmail(email);
         user.setPassword("123456");
@@ -425,6 +552,34 @@ class PermissionServiceTest {
     }
 
     private void forceSyncPersistenceContext() {
+        /**
+         * HELPER METHOD: Đồng bộ JPA Entity Manager với DB
+         * 
+         * Cách sử dụng:
+         *   permissionService.someMethod();
+         *   forceSyncPersistenceContext();  // bắt buộc ghi DB
+         *   assertThat(permissionRepository.findById(...)).isPresent();
+         * 
+         * Làm gì:
+         *   1. flush(): ghi tất cả pending changes từ JPA cache xuống DB
+         *   2. clear(): xóa L1 cache (Hibernate session)
+         *   → Repository truy vấn DB từ đầu, không dùng cache cũ
+         * 
+         * Tại sao:
+         *   - @Transactional + JPA Persistence Context cho phép lazy load
+         *   - Nếu không flush/clear → repository trả về entity từ cache
+         *   - Khi test "xác minh DB", cần CHẮC CHẮN không phải cache
+         *   - flush + clear = "mô phỏng transaction mới" → test thực tế
+         * 
+         * Lưu ý:
+         *   - KHÔNG gọi sau mỗi dòng code
+         *   - Chỉ gọi trước CheckDB assertion
+         *   - Ví dụ:
+         *       permissionService.update(123, dto);
+         *       forceSyncPersistenceContext();
+         *       Permission saved = repo.findById(123).orElseThrow();
+         *       assertThat(saved.getName()).isEqualTo(dto.getName());
+         */
         entityManager.flush();
         entityManager.clear();
     }

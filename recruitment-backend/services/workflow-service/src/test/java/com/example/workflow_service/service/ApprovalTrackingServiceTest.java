@@ -43,58 +43,63 @@ import static org.mockito.Mockito.*;
  * Unit Test: ApprovalTrackingService — Quy trình Phê duyệt
  * =============================================================
  *
- * Mục tiêu:
- *   - Phủ Branch Coverage cấp 2 (mọi nhánh if/else trong source code)
- *   - Mỗi test bắt một lỗi cụ thể nếu implementation sai
- *   - Expected output từ ĐẶC TẢ, không từ source code
+ * PHẠM VI TEST:
+ *   - initializeApproval(): Tạo tracking PENDING cho bước đầu tiên workflow
+ *   - approve(): Duyệt (PENDING → APPROVED/REJECTED), create tracking bước tiếp
+ *   - getById(): Lấy tracking theo id
+ *   - getAll(): Lấy danh sách tracking có filter + phân trang
+ *   - getPendingApprovalsForUser(): Lấy các bước chờ duyệt của user
+ *   - handleWorkflowEvent(): Xử lý event từ job-service
+ *     • REQUEST_APPROVED: tracking PENDING → APPROVED + create tracking bước tiếp
+ *     • REQUEST_REJECTED: tracking PENDING → REJECTED
+ *     • REQUEST_CANCELLED: tracking PENDING → CANCELLED
+ *     • REQUEST_WITHDRAWN: tracking PENDING → CANCELLED (actionType=WITHDRAW)
+ *     • REQUEST_RETURNED: tracking PENDING → RETURNED + returnedToStepId
  *
- * Sơ đồ nhánh chính cần phủ:
+ * KIẾN TRÚC WORKFLOW:
+ *   Workflow có nhiều Step (e.g., Dept Manager → HR Manager → Executive)
+ *   Mỗi step có approverPositionId (vị trí người duyệt)
+ *   Mỗi lần submit request → create tracking cho step đầu tiên
+ *   Approver duyệt bước n → tạo tracking mới cho bước n+1 (nếu tồn tại)
  *
- * approve(id, dto):
- *   [B1] ID không tồn tại → IdInvalidException
- *   [B2] approverPositionId != currentUserId → CustomException, DB không đổi
- *   [B3] status = APPROVED (đã xử lý) → CustomException, DB không đổi
- *   [B4] status = REJECTED (đã xử lý) → CustomException, DB không đổi
- *   [B5] approved=true → status=APPROVED, actionUserId, actionAt, notes cập nhật vào DB
- *   [B6] approved=false → status=REJECTED, DB cập nhật đúng
- *   [B7] approved=true + nextStep tồn tại → tạo thêm tracking PENDING cho bước tiếp
- *   [B8] approved=true + không có nextStep → không tạo thêm tracking
+ *   Flow ví dụ:
+ *   User tạo request (DRAFT) → submit() → job-service publish REQUEST_SUBMITTED event
+ *   ↓
+ *   job-service emit event → workflow-service nhận
+ *   ↓
+ *   initializeApproval() → create tracking PENDING ở step 1
+ *   ↓
+ *   Approver step 1 duyệt → approve(trackingId, approved=true)
+ *     • tracking → APPROVED
+ *     • event publish → job-service nhận
+ *     • nếu step 2 tồn tại → create tracking mới ở step 2
+ *   ↓
+ *   Approver step 2 duyệt (or reject) → ...
  *
- * getById(id):
- *   [B9]  ID tồn tại → DTO đủ trường
- *   [B10] ID không tồn tại → IdInvalidException
+ * CHIẾN LƯỢC TEST:
+ *   - @SpringBootTest: Load full Spring context + H2 DB
+ *   - @Transactional: Auto rollback → DB sạch
+ *   - @ActiveProfiles("test"): Test config
+ *   - MockedStatic SecurityUtil: Fake current user ID
+ *   - Mock Kafka producers: không gửi message thật
+ *   - Mock HTTP clients: không gọi HTTP thật
+ *   - Kiểm tra DB change (tracking status, actionUserId, actionAt, notes)
  *
- * getAll(requestId, status, approverPositionId, pageable):
- *   [B11] filter=null → trả về tất cả
- *   [B12] filter requestId → chỉ trả về tracking của request đó
- *   [B13] filter status=PENDING → chỉ trả về PENDING
+ * MOCK STRATEGY:
+ *   - @MockitoBean UserService: không gọi user-service HTTP API
+ *   - @MockitoBean CandidateService: không gọi candidate-service HTTP API
+ *   - @MockitoBean RecruitmentWorkflowProducer: không publish Kafka event
+ *   - @MockitoBean NotificationProducer: không gửi notification
+ *   - MockedStatic SecurityUtil: fake user ID + JWT token
+ *   - doNothing().when(producer).publishEvent(any()): skip kafka gửi
  *
- * getPendingApprovalsForUser(userId):
- *   [B14] có PENDING → danh sách không rỗng, tất cả là PENDING
- *   [B15] không có PENDING → danh sách rỗng
- *
- * getWorkflowInfoByRequestId(requestId, workflowId, requestType):
- *   [B16] requestType=null → không lọc type, trả về tất cả
- *   [B17] requestType="REQUEST" → chỉ trả về tracking của workflow REQUEST
- *   [B18] requestType="OFFER" → chỉ trả về tracking của workflow OFFER
- *   [B19] requestId không có tracking → danh sách rỗng
- *
- * handleWorkflowEvent(event):
- *   [B20] event=null → early return, không thay đổi DB
- *   [B21] eventType=null → early return, không thay đổi DB
- *   [B22] REQUEST_CANCELLED → tất cả PENDING → CANCELLED, actionType=CANCEL
- *   [B23] REQUEST_CANCELLED + request không có PENDING → DB không đổi
- *   [B24] REQUEST_WITHDRAWN → tất cả PENDING → CANCELLED, actionType=WITHDRAW
- *         (phân biệt CANCEL vs WITHDRAW bằng actionType)
- *   [B25] REQUEST_RETURNED + có returnedToStepId → RETURNED, actionType=RETURN, returnedToStepId được ghi
- *   [B26] REQUEST_RETURNED + returnedToStepId=null → trả về bước đầu tiên (stepOrder=1)
- *   [B27] REQUEST_APPROVED + có bước tiếp → tracking hiện tại APPROVED + tạo tracking mới bước tiếp
- *   [B28] REQUEST_APPROVED + không có bước tiếp → tracking APPROVED, không tạo thêm
- *   [B29] REQUEST_REJECTED → tracking PENDING → REJECTED, actionType=REJECT
- *   [B30] eventType unknown → bỏ qua, DB không đổi
- *
- * CheckDB: Sau mỗi thao tác thay đổi DB, truy vấn lại repository để xác minh
- * Rollback: @Transactional đảm bảo DB sạch sau mỗi test
+ * LƯU Ý:
+ *   - ApprovalTracking khác Job-Service tracking
+ *     • ApprovalTracking: theo dõi workflow approval step
+ *     • RecruitmentRequest: theo dõi overall request status
+ *   - Event-driven: một approve() có thể trigger tạo tracking bước tiếp
+ *     → test phải kiểm tra DB có tracking mới
+ *   - Xác nhân quyền duyệt: approverPositionId must match SecurityUtil.extractEmployeeId()
  * =============================================================
  */
 @SpringBootTest
@@ -109,52 +114,103 @@ class ApprovalTrackingServiceTest {
     @Autowired private WorkflowRepository workflowRepository;
     @Autowired private WorkflowStepRepository workflowStepRepository;
 
-    // --- Mock external dependencies ---
+    // ============================================================
+    // MOCK DEPENDENCIES (không thực thi logic thực)
+    // ============================================================
+    
+    /**
+     * Mock UserService
+     * 
+     * Lý do mock:
+     *   - UserService gọi HTTP user-service API
+     *   - Test ApprovalTrackingService độc lập (không phụ thuộc HTTP)
+     *   - Mock: return Map.of() (không user data thực)
+     */
     @MockitoBean private UserService userService;
+    
     @MockitoBean private CandidateService candidateService;
+    
+    /**
+     * Mock RecruitmentWorkflowProducer
+     * 
+     * Lý do mock:
+     *   - Producer publish event vào Kafka
+     *   - Test không nên gửi message thật vào Kafka
+     *   - Mock: doNothing() → skip publish, vẫn test logic approve()
+     */
     @MockitoBean private RecruitmentWorkflowProducer workflowProducer;
+    
     @MockitoBean private NotificationProducer notificationProducer;
     @MockitoBean private org.springframework.kafka.core.KafkaTemplate<String, String> kafkaTemplate;
     @MockitoBean private org.springframework.web.client.RestTemplate restTemplate;
 
     private MockedStatic<SecurityUtil> mockedSecurityUtil;
 
-    // Người dùng giả lập đang đăng nhập (= approver hợp lệ)
+    // ============================================================
+    // TEST CONSTANTS
+    // ============================================================
+    
+    // Người dùng giả lập đang đăng nhập (= approver hợp lệ ở bước 1)
     private static final Long APPROVER_USER_ID = 100L;
-    // Người dùng khác (không có quyền duyệt)
+    // Người dùng khác (approver ở bước 2)
     private static final Long OTHER_USER_ID    = 999L;
     // Request ID dùng chung
     private static final Long REQUEST_ID       = 1L;
 
-    /** Workflow có 2 bước dùng chung */
+    /**
+     * Workflow có 2 bước dùng chung cho tất cả test
+     * - Step 1: approver=APPROVER_USER_ID=100
+     * - Step 2: approver=OTHER_USER_ID=999
+     */
     private Workflow workflow2Steps;
+    
     /** Bước 1 của workflow */
     private WorkflowStep step1;
+    
     /** Bước 2 của workflow */
     private WorkflowStep step2;
+    
     /** Tracking PENDING tại bước 1 cho REQUEST_ID */
     private ApprovalTracking pendingTracking;
 
     @BeforeEach
     void setUp() {
-        // Giả lập người dùng ID=100 đang đăng nhập
+        /**
+         * SETUP: Chuẩn bị dữ liệu chung cho tất cả test
+         * 
+         * BƯỚC 1: Mock external dependencies (không gọi HTTP/Kafka thật)
+         */
+        
+        // Mock SecurityUtil: fake user ID = APPROVER_USER_ID (100)
+        // → SecurityUtil.extractEmployeeId() sẽ return 100
         mockedSecurityUtil = Mockito.mockStatic(SecurityUtil.class);
         mockedSecurityUtil.when(SecurityUtil::extractEmployeeId).thenReturn(APPROVER_USER_ID);
         mockedSecurityUtil.when(SecurityUtil::getCurrentUserJWT).thenReturn(Optional.of("test-token"));
 
-        // Mock UserService: trả về rỗng (không gọi HTTP thật)
+        // Mock UserService: không gọi user-service HTTP API
+        // → Trả về Map.of() thay vì data thực
         when(userService.getUserNamesByIds(anyList(), anyString())).thenReturn(Map.of());
         when(userService.getPositionNamesByIds(anyList(), anyString())).thenReturn(Map.of());
         when(userService.findUserByPositionIdAndDepartmentId(anyLong(), anyLong(), anyString()))
                 .thenReturn(OTHER_USER_ID);
 
         // Mock Kafka producers: không gửi message thật
+        // → doNothing(): gọi method nhưng skip logic
         doNothing().when(workflowProducer).publishEvent(any());
         doNothing().when(notificationProducer).sendNotification(anyLong(), anyString(), anyString(), anyString());
         doNothing().when(notificationProducer).sendNotificationToDepartment(
                 anyLong(), anyLong(), anyString(), anyString(), anyString());
 
-        // Tạo workflow 2 bước trong H2 DB
+        /**
+         * BƯỚC 2: Tạo Workflow 2 bước trong H2 test DB
+         * 
+         * Sơ đồ:
+         *   Workflow (REQUEST type)
+         *   ├─ Step 1: order=1, approver=APPROVER_USER_ID (100)
+         *   └─ Step 2: order=2, approver=OTHER_USER_ID (999)
+         * 
+         * Dùng cho tất cả test để mô phỏng workflow thực tế
+         */
         workflow2Steps = new Workflow();
         workflow2Steps.setName("Workflow Test 2 Bước");
         workflow2Steps.setType(WorkflowType.REQUEST);
@@ -162,13 +218,15 @@ class ApprovalTrackingServiceTest {
         workflow2Steps.setIsActive(true);
         workflow2Steps = workflowRepository.save(workflow2Steps);
 
+        // Step 1: Approver = user ID 100 (người đang test)
         step1 = new WorkflowStep();
         step1.setWorkflow(workflow2Steps);
         step1.setStepOrder(1);
-        step1.setApproverPositionId(APPROVER_USER_ID); // approver = người đang đăng nhập
+        step1.setApproverPositionId(APPROVER_USER_ID);
         step1.setIsActive(true);
         step1 = workflowStepRepository.save(step1);
 
+        // Step 2: Approver = user ID 999 (người khác)
         step2 = new WorkflowStep();
         step2.setWorkflow(workflow2Steps);
         step2.setStepOrder(2);
@@ -176,13 +234,29 @@ class ApprovalTrackingServiceTest {
         step2.setIsActive(true);
         step2 = workflowStepRepository.save(step2);
 
-        // Tracking PENDING tại bước 1 cho request REQUEST_ID
+        /**
+         * BƯỚC 3: Tạo Tracking PENDING tại Step 1 cho REQUEST_ID
+         * 
+         * Mô phỏng scenario: request được tạo, workflow initialized
+         * → tracking PENDING tại step 1 chờ APPROVER_USER_ID duyệt
+         */
         pendingTracking = buildTracking(REQUEST_ID, step1, ApprovalStatus.PENDING, APPROVER_USER_ID);
         pendingTracking = approvalTrackingRepository.save(pendingTracking);
     }
 
     @AfterEach
     void tearDown() {
+        /**
+         * CLEANUP: Dọn sạch sau mỗi test
+         * 
+         * Làm gì:
+         *   - Đóng MockedStatic SecurityUtil
+         *   - Xóa security context (trong test khác không dùng nhầm)
+         * 
+         * Tại sao:
+         *   - MockedStatic nếu không close → side effect sang test khác
+         *   - @Transactional tự rollback DB → không cần cleanup DB
+         */
         mockedSecurityUtil.close();
     }
 
@@ -242,33 +316,53 @@ class ApprovalTrackingServiceTest {
 
     /**
      * Test Case ID: AT-TC03
-     * assignedUserId = null (người duyệt không tìm thấy) → exception/early return
+     * assignedUserId = null (người duyệt không tìm thấy) → phải ném CustomException
      *
-     * Bug bị bắt: Ghi null vào DB thay vì throw exception
+     * Bug bị bắt:
+     *   - Ghi null vào DB thay vì throw exception → DB có record với actionUserId=null
+     *   - Không kiểm tra null trước khi persist → NPE tại cạch khác trong runtime
      */
     @Test
-    @DisplayName("[AT-TC03] initializeApproval() - assignedUserId = null → exception hoặc early return")
+    @DisplayName("[AT-TC03] initializeApproval() - assignedUserId = null → CustomException, không ghi DB")
     void tc03_initializeApproval_assignedUserIdNull_throwsException() {
-        // Arrange: mock findUserByPositionId để trả null
-        // Tạo new instance để mock findUserByPositionId logic
+        // Test Case ID: AT-TC03
+        // Mục tiêu: xác minh khi findUserByPositionIdAndDepartmentId trả null
+        //           (không tìm được người duyệt) → service phải ném CustomException.
+        //
+        // Lưu ý: KHÔNG dùng try/catch trong test vì:
+        //   - try/catch che giấu NullPointerException hoặc exception không mong muốn
+        //   - assertThrows chỉ pass khi đúng loại exception, fail rõ ràng hơn
+        //
+        // Bug bị bắt:
+        //   - Code không kiểm tra null sau findUserByPositionId → NPE tẫn nơi khác
+        //   - Code ghi null vào DB → DB tăng 1 record với data thiếu → count check FAIL
+        //   - Ném exception không phải CustomException → assertThrows FAIL
+
+        // Arrange: override mock từ setUp → trả null (không tìm được người duyệt)
+        // setUp đưa thiết lập mặc định: anyLong, anyLong → OTHER_USER_ID
+        // Đây ghi đè riêng cho departmentId=10L: trả null
+        when(userService.findUserByPositionIdAndDepartmentId(anyLong(), eq(10L), anyString()))
+                .thenReturn(null);
+
         CreateApprovalTrackingDTO dto = new CreateApprovalTrackingDTO();
-        dto.setDepartmentId(10L); // workflow2Steps.departmentId
+        dto.setDepartmentId(10L); // workflow2Steps.departmentId = 10L
         dto.setRequestId(3L);
         dto.setLevelId(1L);
 
-        // Act + Assert: phương thức sẽ gọi findUserByPositionId
-        // Nếu logic bên trong handleUserNotFound, nó sẽ throw exception
-        // Nếu không, nó sẽ tiếp tục với assignedUserId=null
-        // Hành vi phụ thuộc vào implementation, nhưng thường sẽ throw exception
-        try {
-            ApprovalTrackingResponseDTO result = approvalTrackingService.initializeApproval(dto);
-            assertNull(result.getApproverPositionId(),
-                    "BUG: approverPositionId phải null khi assignedUserId=null");
-        } catch (Exception e) {
-            // Nếu throw exception, đó cũng là hành vi hợp lệ
-            assertTrue(e instanceof CustomException || e instanceof IdInvalidException,
-                    "BUG: Exception loại không đúng");
-        }
+        long countBefore = approvalTrackingRepository.count();
+
+        // Act + Assert: phải ném CustomException khi không tìm được người duyệt
+        // Nếu không ném (ghi null vào DB) → assertThrows FAIL ngay
+        assertThrows(CustomException.class,
+                () -> approvalTrackingService.initializeApproval(dto),
+                "BUG: Không ném CustomException khi assignedUserId=null " +
+                "— có thể đang ghi null vào DB hoặc bỏ qua mà không thông báo lỗi");
+
+        // CheckDB: không tạo thêm record khi exception xảy ra
+        // Nếu code persist trước khi kiểm tra null → count tăng → FAIL
+        assertEquals(countBefore, approvalTrackingRepository.count(),
+                "BUG: Tracking được ghi vào DB dù assignedUserId=null " +
+                "— DB không được phép tăng khi có exception");
     }
 
     /**
@@ -731,27 +825,35 @@ class ApprovalTrackingServiceTest {
      * Bug bị bắt: Filter type không đúng → lẫn tracking của OFFER
      */
     @Test
-    @SuppressWarnings("unchecked") // cast an toàn: approvalTrackingService.getAll() luôn trả về List<ApprovalTrackingResponseDTO>
     @DisplayName("[AT-TC18][B17] getWorkflowInfoByRequestId() - requestType=REQUEST → chỉ cho REQUEST tracking")
     void tc18_getWorkflowInfoByRequestId_typeRequest_returnsOnlyRequestTrackings() {
-        // Tạo workflow OFFER và tracking OFFER cùng REQUEST_ID để kiểm tra filter loại trừ
+        // Arrange: tạo thêm 1 tracking OFFER cùng REQUEST_ID → tổng = 2 trackings
+        // Setup đã có 1 tracking REQUEST → sau khi filter chỉ còn 1
         Workflow offerWf = saveWorkflow("Offer Workflow", WorkflowType.OFFER, 10L);
         WorkflowStep offerStep = saveStep(offerWf, 1, APPROVER_USER_ID);
         approvalTrackingRepository.save(buildTracking(REQUEST_ID, offerStep, ApprovalStatus.PENDING, APPROVER_USER_ID));
 
+        // Act: lọc với type=REQUEST
         var result = approvalTrackingService.getWorkflowInfoByRequestId(REQUEST_ID, null, "REQUEST");
 
-        assertFalse(result.getApprovalTrackings().isEmpty(), "BUG: Không tìm thấy tracking REQUEST");
-        // Tất cả tracking phải thuộc workflow REQUEST
-        boolean allRequest = result.getApprovalTrackings().stream().allMatch(dto ->
-                result.getWorkflow() == null
-                || dto.getStepId() == null
-                || isStepBelongsToRequestWorkflow(dto.getStepId()));
-        // Đảm bảo tracking của OFFER bị loại ra (tổng phải < tổng tất cả)
-        var allResult = approvalTrackingService.getWorkflowInfoByRequestId(REQUEST_ID, null, null);
-        assertTrue(result.getApprovalTrackings().size() < allResult.getApprovalTrackings().size()
-                || result.getApprovalTrackings().size() == 1,
-                "BUG: Filter type=REQUEST không loại được tracking OFFER");
+        // Assert 1: phải có tracking (không rỗng)
+        assertFalse(result.getApprovalTrackings().isEmpty(),
+                "BUG: Không tìm thấy tracking REQUEST nào");
+
+        // Assert 2: số lượng phải chính xác là 1 (chỉ REQUEST, OFFER bị loại)
+        // Nếu filter không hoạt động → trả về 2 (cả REQUEST lẫn OFFER) → FAIL rõ ràng
+        assertEquals(1, result.getApprovalTrackings().size(),
+                "BUG: Filter type=REQUEST không loại được tracking OFFER " +
+                "— trả về " + result.getApprovalTrackings().size() + " thay vì 1");
+
+        // Assert 3: tracking duy nhất phải thuộc workflow REQUEST (không phải OFFER)
+        // Nếu code filter ngược lại (giữ OFFER, loại REQUEST) → type kiểm tra FAIL
+        Long returnedStepId = result.getApprovalTrackings().get(0).getStepId();
+        assertNotNull(returnedStepId, "BUG: stepId null trong tracking trả về");
+        WorkflowStep returnedStep = workflowStepRepository.findById(returnedStepId).orElseThrow();
+        assertEquals(WorkflowType.REQUEST, returnedStep.getWorkflow().getType(),
+                "BUG: Tracking được trả về thuộc workflow OFFER, không phải REQUEST " +
+                "— filter đang giữ nhầm bản ghi");
     }
 
     /**
@@ -800,16 +902,41 @@ class ApprovalTrackingServiceTest {
     @Test
     @DisplayName("[AT-TC25][B19] getWorkflowInfoByRequestId() - requestType unknown → không filter, trả tất cả")
     void tc25_getWorkflowInfoByRequestId_unknownType_returnsAllTrackings() {
-        // Act: requestType không khớp bất kỳ giá trị nào → workflowType=null → không filter
+        // Test Case ID: AT-TC25
+        // Mục tiêu: requestType "SOMETHING_ELSE" không khớp enum nào
+        //           → xử lý như null: không filter, trả tất cả.
+        //
+        // Bug bị bắt:
+        //   - requestType lạ gây exception → FAIL
+        //   - requestType lạ được filter vào UNKNOWN type → kết quả rỗng → FAIL
+        //   - Kết quả có id khác so với gọi null (filter chọn nhầm record) → content check FAIL
+
+        // Act
         var resultUnknown = approvalTrackingService.getWorkflowInfoByRequestId(REQUEST_ID, null, "SOMETHING_ELSE");
         var resultNull    = approvalTrackingService.getWorkflowInfoByRequestId(REQUEST_ID, null, null);
 
-        // Assert: kết quả giống nhau (cả hai không filter)
+        // Assert 1: không rỗng — tracking từ setUp vẫn phải có
+        assertFalse(resultUnknown.getApprovalTrackings().isEmpty(),
+                "BUG: Kết quả rỗng dù có tracking — có thể đang filter nhầm type SOMETHING_ELSE");
+
+        // Assert 2: size bằng nhau — cả hai đều không filter
         assertEquals(resultNull.getApprovalTrackings().size(),
                 resultUnknown.getApprovalTrackings().size(),
                 "BUG: requestType unknown phải giống requestType=null (không filter)");
-        assertFalse(resultUnknown.getApprovalTrackings().isEmpty(),
-                "BUG: Kết quả rỗng dù có tracking - có thể đang filter nhầm type SOMETHING_ELSE");
+
+        // Assert 3: content giống nhau (cùng tracking ID)
+        // Nếu chỉ check size mà không check content → có thể trả record khác với cùng số lượng
+        List<Long> idsNull = resultNull.getApprovalTrackings().stream()
+                .map(dto -> dto.getId())
+                .sorted()
+                .collect(java.util.stream.Collectors.toList());
+        List<Long> idsUnknown = resultUnknown.getApprovalTrackings().stream()
+                .map(dto -> dto.getId())
+                .sorted()
+                .collect(java.util.stream.Collectors.toList());
+        assertEquals(idsNull, idsUnknown,
+                "BUG: Nội dung khác nhau dù size bằng nhau — " +
+                "filter 'SOMETHING_ELSE' đang chọn nhầm bản ghi khác so với null");
     }
 
     /**
