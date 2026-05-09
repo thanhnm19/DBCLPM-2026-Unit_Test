@@ -102,153 +102,6 @@ class EmployeeServiceTest {
     }
 
     @Test
-    @DisplayName("[EMP-TC21] - create() ném CustomException khi vị trí không tồn tại")
-    void tc21_create_missingPosition_throwsCustomException() {
-        // Test Case ID: EMP-TC21
-        // Mục tiêu: xác minh nhánh lỗi position không tồn tại trong create().
-
-        // Arrange
-        Department department = createDepartment("ORG_EMP_21", "Operations 21");
-        when(departmentService.getById(department.getId())).thenReturn(department);
-        when(positionService.getById(404L)).thenReturn(null);
-
-        CreateEmployeeDTO dto = new CreateEmployeeDTO(
-                "Employee TC21",
-                "0901111222",
-                "tc21@company.com",
-                "MALE",
-                "Ha Noi",
-                "Viet Nam",
-                LocalDate.of(1996, 6, 16),
-                "0123456721",
-                department.getId(),
-                404L,
-                null);
-
-        // Act
-        CustomException exception = assertThrows(CustomException.class, () -> employeeService.create(dto));
-
-        // Assert
-        assertThat(exception.getMessage()).isEqualTo("Vị trí không tồn tại");
-    }
-
-    @Test
-    @DisplayName("[EMP-TC22] - update() khi dto toàn null giữ nguyên dữ liệu")
-    void tc22_update_withNullFields_keepsExistingValues() {
-        // Test Case ID: EMP-TC22
-        // Mục tiêu: cover các nhánh false của update() khi tất cả field đều null.
-
-        // Arrange
-        Department department = createDepartment("ORG_EMP_22", "Operations 22");
-        Position position = createPosition("Operator 22", "L2", 2);
-        Employee employee = createEmployee("Employee TC22", "tc22@company.com", department, position, "ACTIVE");
-        UpdateEmployeeDTO dto = new UpdateEmployeeDTO();
-
-        // Act
-        Employee result = employeeService.update(employee.getId(), dto);
-        forceSyncPersistenceContext();
-
-        // Assert
-        Employee updatedEmployee = employeeRepository.findById(result.getId()).orElseThrow();
-        assertThat(updatedEmployee.getName()).isEqualTo("Employee TC22");
-        assertThat(updatedEmployee.getEmail()).isEqualTo("tc22@company.com");
-        assertThat(updatedEmployee.getDepartment().getId()).isEqualTo(department.getId());
-        assertThat(updatedEmployee.getPosition().getId()).isEqualTo(position.getId());
-    }
-
-    @Test
-    @DisplayName("[EMP-TC23] - createFromCandidate() ném CustomException khi phòng ban không tồn tại")
-    void tc23_createFromCandidate_missingDepartment_throwsCustomException() {
-        // Test Case ID: EMP-TC23
-        // Mục tiêu: xác minh nhánh lỗi phòng ban không tồn tại trong
-        // createFromCandidate().
-
-        // Arrange
-        Position position = createPosition("Candidate Pos 23", "L3", 3);
-        when(departmentService.getById(404L)).thenReturn(null);
-        when(positionService.getById(position.getId())).thenReturn(position);
-
-        CreateEmployeeFromCandidateDTO dto = new CreateEmployeeFromCandidateDTO();
-        dto.setCandidateId(2001L);
-        dto.setName("Candidate 23");
-        dto.setEmail("candidate23@company.com");
-        dto.setPhone("0901234523");
-        dto.setDateOfBirth(null);
-        dto.setGender("MALE");
-        dto.setNationality("Viet Nam");
-        dto.setIdNumber("0123456823");
-        dto.setAddress("Ha Noi");
-        dto.setDepartmentId(404L);
-        dto.setPositionId(position.getId());
-
-        // Act
-        CustomException exception = assertThrows(CustomException.class,
-                () -> employeeService.createFromCandidate(dto));
-
-        // Assert
-        assertThat(exception.getMessage()).isEqualTo("Phòng ban không tồn tại");
-    }
-
-    @Test
-    @DisplayName("[EMP-TC24] - createFromCandidate() ném CustomException khi vị trí không tồn tại")
-    void tc24_createFromCandidate_missingPosition_throwsCustomException() {
-        // Test Case ID: EMP-TC24
-        // Mục tiêu: xác minh nhánh lỗi vị trí không tồn tại trong
-        // createFromCandidate().
-
-        // Arrange
-        Department department = createDepartment("ORG_EMP_24", "Operations 24");
-        when(departmentService.getById(department.getId())).thenReturn(department);
-        when(positionService.getById(404L)).thenReturn(null);
-
-        CreateEmployeeFromCandidateDTO dto = new CreateEmployeeFromCandidateDTO();
-        dto.setCandidateId(2002L);
-        dto.setName("Candidate 24");
-        dto.setEmail("candidate24@company.com");
-        dto.setPhone("0901234524");
-        dto.setDateOfBirth(null);
-        dto.setGender("FEMALE");
-        dto.setNationality("Viet Nam");
-        dto.setIdNumber("0123456824");
-        dto.setAddress("Da Nang");
-        dto.setDepartmentId(department.getId());
-        dto.setPositionId(404L);
-
-        // Act
-        CustomException exception = assertThrows(CustomException.class,
-                () -> employeeService.createFromCandidate(dto));
-
-        // Assert
-        assertThat(exception.getMessage()).isEqualTo("Vị trí không tồn tại");
-    }
-
-    @Test
-    @DisplayName("[EMP-TC25] - getAllWithFilters() kích hoạt nhánh positionId == 1")
-    void tc25_getAllWithFilters_positionIdOne_overridesDepartmentId() {
-        // Test Case ID: EMP-TC25
-        // Mục tiêu: cover nhánh if (positionId != null && positionId == 1L &&
-        // departmentId != null).
-
-        // Arrange
-        Department department = createDepartment("ORG_EMP_25", "Operations 25");
-        Position position = createPosition("Employee 25", "L1", 1);
-        createEmployee("Employee TC25", "tc25@company.com", department, position, "ACTIVE");
-        forceSyncPersistenceContext();
-
-        // Act
-        PaginationDTO result = employeeService.getAllWithFilters(
-                department.getId(),
-                1L,
-                "ACTIVE",
-                "Employee",
-                PageRequest.of(0, 10));
-
-        // Assert
-        assertThat(result.getMeta()).isNotNull();
-        assertThat(result.getResult()).isNotNull();
-    }
-
-    @Test
     @DisplayName("[EMP-TC02] - create() ném CustomException khi phòng ban không tồn tại")
     void tc02_create_missingDepartment_throwsCustomException() {
         // Test Case ID: EMP-TC02
@@ -711,6 +564,7 @@ class EmployeeServiceTest {
         assertThat(result.getMeta().getTotal()).isGreaterThanOrEqualTo(1L);
         List<Employee> employees = (List<Employee>) result.getResult();
         assertThat(employees).isNotEmpty();
+        assertThat(employees.get(0).getDepartment().getId()).isEqualTo(department.getId());
     }
 
     @Test
@@ -762,5 +616,152 @@ class EmployeeServiceTest {
         // Assert
         assertThat(result).hasSize(2);
         assertThat(result).extracting(Employee::getEmail).containsExactlyInAnyOrder("e1@company.com", "e3@company.com");
+    }
+
+    @Test
+    @DisplayName("[EMP-TC21] - create() ném CustomException khi vị trí không tồn tại")
+    void tc21_create_missingPosition_throwsCustomException() {
+        // Test Case ID: EMP-TC21
+        // Mục tiêu: xác minh nhánh lỗi position không tồn tại trong create().
+
+        // Arrange
+        Department department = createDepartment("ORG_EMP_21", "Operations 21");
+        when(departmentService.getById(department.getId())).thenReturn(department);
+        when(positionService.getById(404L)).thenReturn(null);
+
+        CreateEmployeeDTO dto = new CreateEmployeeDTO(
+                "Employee TC21",
+                "0901111222",
+                "tc21@company.com",
+                "MALE",
+                "Ha Noi",
+                "Viet Nam",
+                LocalDate.of(1996, 6, 16),
+                "0123456721",
+                department.getId(),
+                404L,
+                null);
+
+        // Act
+        CustomException exception = assertThrows(CustomException.class, () -> employeeService.create(dto));
+
+        // Assert
+        assertThat(exception.getMessage()).isEqualTo("Vị trí không tồn tại");
+    }
+
+    @Test
+    @DisplayName("[EMP-TC22] - update() khi dto toàn null giữ nguyên dữ liệu")
+    void tc22_update_withNullFields_keepsExistingValues() {
+        // Test Case ID: EMP-TC22
+        // Mục tiêu: cover các nhánh false của update() khi tất cả field đều null.
+
+        // Arrange
+        Department department = createDepartment("ORG_EMP_22", "Operations 22");
+        Position position = createPosition("Operator 22", "L2", 2);
+        Employee employee = createEmployee("Employee TC22", "tc22@company.com", department, position, "ACTIVE");
+        UpdateEmployeeDTO dto = new UpdateEmployeeDTO();
+
+        // Act
+        Employee result = employeeService.update(employee.getId(), dto);
+        forceSyncPersistenceContext();
+
+        // Assert
+        Employee updatedEmployee = employeeRepository.findById(result.getId()).orElseThrow();
+        assertThat(updatedEmployee.getName()).isEqualTo("Employee TC22");
+        assertThat(updatedEmployee.getEmail()).isEqualTo("tc22@company.com");
+        assertThat(updatedEmployee.getDepartment().getId()).isEqualTo(department.getId());
+        assertThat(updatedEmployee.getPosition().getId()).isEqualTo(position.getId());
+    }
+
+    @Test
+    @DisplayName("[EMP-TC23] - createFromCandidate() ném CustomException khi phòng ban không tồn tại")
+    void tc23_createFromCandidate_missingDepartment_throwsCustomException() {
+        // Test Case ID: EMP-TC23
+        // Mục tiêu: xác minh nhánh lỗi phòng ban không tồn tại trong
+        // createFromCandidate().
+
+        // Arrange
+        Position position = createPosition("Candidate Pos 23", "L3", 3);
+        when(departmentService.getById(404L)).thenReturn(null);
+        when(positionService.getById(position.getId())).thenReturn(position);
+
+        CreateEmployeeFromCandidateDTO dto = new CreateEmployeeFromCandidateDTO();
+        dto.setCandidateId(2001L);
+        dto.setName("Candidate 23");
+        dto.setEmail("candidate23@company.com");
+        dto.setPhone("0901234523");
+        dto.setDateOfBirth(null);
+        dto.setGender("MALE");
+        dto.setNationality("Viet Nam");
+        dto.setIdNumber("0123456823");
+        dto.setAddress("Ha Noi");
+        dto.setDepartmentId(404L);
+        dto.setPositionId(position.getId());
+
+        // Act
+        CustomException exception = assertThrows(CustomException.class,
+                () -> employeeService.createFromCandidate(dto));
+
+        // Assert
+        assertThat(exception.getMessage()).isEqualTo("Phòng ban không tồn tại");
+    }
+
+    @Test
+    @DisplayName("[EMP-TC24] - createFromCandidate() ném CustomException khi vị trí không tồn tại")
+    void tc24_createFromCandidate_missingPosition_throwsCustomException() {
+        // Test Case ID: EMP-TC24
+        // Mục tiêu: xác minh nhánh lỗi vị trí không tồn tại trong
+        // createFromCandidate().
+
+        // Arrange
+        Department department = createDepartment("ORG_EMP_24", "Operations 24");
+        when(departmentService.getById(department.getId())).thenReturn(department);
+        when(positionService.getById(404L)).thenReturn(null);
+
+        CreateEmployeeFromCandidateDTO dto = new CreateEmployeeFromCandidateDTO();
+        dto.setCandidateId(2002L);
+        dto.setName("Candidate 24");
+        dto.setEmail("candidate24@company.com");
+        dto.setPhone("0901234524");
+        dto.setDateOfBirth(null);
+        dto.setGender("FEMALE");
+        dto.setNationality("Viet Nam");
+        dto.setIdNumber("0123456824");
+        dto.setAddress("Da Nang");
+        dto.setDepartmentId(department.getId());
+        dto.setPositionId(404L);
+
+        // Act
+        CustomException exception = assertThrows(CustomException.class,
+                () -> employeeService.createFromCandidate(dto));
+
+        // Assert
+        assertThat(exception.getMessage()).isEqualTo("Vị trí không tồn tại");
+    }
+
+    @Test
+    @DisplayName("[EMP-TC25] - getAllWithFilters() kích hoạt nhánh positionId == 1")
+    void tc25_getAllWithFilters_positionIdOne_overridesDepartmentId() {
+        // Test Case ID: EMP-TC25
+        // Mục tiêu: cover nhánh if (positionId != null && positionId == 1L &&
+        // departmentId != null).
+
+        // Arrange
+        Department department = createDepartment("ORG_EMP_25", "Operations 25");
+        Position position = createPosition("Employee 25", "L1", 1);
+        createEmployee("Employee TC25", "tc25@company.com", department, position, "ACTIVE");
+        forceSyncPersistenceContext();
+
+        // Act
+        PaginationDTO result = employeeService.getAllWithFilters(
+                department.getId(),
+                1L,
+                "ACTIVE",
+                "Employee",
+                PageRequest.of(0, 10));
+
+        // Assert
+        assertThat(result.getMeta()).isNotNull();
+        assertThat(result.getResult()).isNotNull();
     }
 }

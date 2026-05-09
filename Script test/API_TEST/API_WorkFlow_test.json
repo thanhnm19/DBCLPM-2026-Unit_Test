@@ -509,6 +509,173 @@
               "raw": "{\"name\": \"QT Dang Chay\", \"type\": \"REQUEST\", \"isActive\": true, \"steps\": [{\"stepOrder\": 1, \"approverPositionId\": 1, \"approverPositionName\": \"Test\", \"hierarchyOrder\": 1}]}"
             }
           }
+        },
+        {
+          "name": "WF-TC18 - POST: Tao workflow voi type khong hop le",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[WF-TC18] Status 400', () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/workflow-service/workflows",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{access_token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"name\": \"QT Type Sai\", \"type\": \"INVALID_TYPE\", \"isActive\": true}"
+            }
+          }
+        },
+        {
+          "name": "WF-TC19 - POST: Tao workflow khong co steps (mang rong)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[WF-TC19] Status 400', () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/workflow-service/workflows",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{access_token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"name\": \"QT Khong Steps\", \"type\": \"REQUEST\", \"isActive\": true, \"steps\": []}"
+            }
+          }
+        },
+        {
+          "name": "WF-TC20 - POST: Tao workflow co stepOrder trung lap",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[WF-TC20] Status 400', () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/workflow-service/workflows",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{access_token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"name\": \"QT StepOrder Trung\", \"type\": \"REQUEST\", \"isActive\": true, \"steps\": [{\"stepOrder\": 1, \"approverPositionId\": 2, \"approverPositionName\": \"Truong phong\", \"hierarchyOrder\": 2}, {\"stepOrder\": 1, \"approverPositionId\": 3, \"approverPositionName\": \"Giam doc\", \"hierarchyOrder\": 3}]}"
+            }
+          }
+        },
+        {
+          "name": "WF-TC21 - PUT: Cap nhat workflow ID khong ton tai",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[WF-TC21] Status 404', () => pm.response.to.have.status(404));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PUT",
+            "url": "{{base_url}}/api/v1/workflow-service/workflows/999999",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{access_token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"name\": \"QT Updated\", \"isActive\": true}"
+            }
+          }
+        },
+        {
+          "name": "WF-TC22 - DELETE: Xoa workflow ID khong ton tai",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[WF-TC22] Status 404', () => pm.response.to.have.status(404));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "url": "{{base_url}}/api/v1/workflow-service/workflows/999999",
+            "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }]
+          }
+        },
+        {
+          "name": "WF-TC23 - POST: Tao workflow khong co Access Token",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[WF-TC23] Status 401', () => pm.response.to.have.status(401));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/workflow-service/workflows",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"name\": \"QT Khong Token\", \"type\": \"REQUEST\", \"isActive\": true}"
+            }
+          }
+        },
+        {
+          "name": "WF-TC24 - POST: Tao workflow voi Access Token khong hop le",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[WF-TC24] Status 401', () => pm.response.to.have.status(401));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/workflow-service/workflows",
+            "header": [
+              { "key": "Authorization", "value": "Bearer invalid_token_xyz" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"name\": \"QT Token Invalid\", \"type\": \"REQUEST\", \"isActive\": true}"
+            }
+          }
         }
       ]
     }
