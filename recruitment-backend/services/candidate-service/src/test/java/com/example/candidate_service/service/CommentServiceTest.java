@@ -117,6 +117,7 @@ class CommentServiceTest {
         @SuppressWarnings("unchecked")
         ArgumentCaptor<List<Long>> idsCaptor = (ArgumentCaptor<List<Long>>) (ArgumentCaptor<?>) ArgumentCaptor
                 .forClass(List.class);
+        // Tạo ra một cái lưới (idsCaptor) chuyên dùng để hứng các dữ liệu có kiểu là List (Danh sách).
         verify(userService, times(1)).getEmployeeNames(idsCaptor.capture(), eq(token));
         List<Long> capturedIds = idsCaptor.getValue();
         assertNotNull(capturedIds);
@@ -124,6 +125,7 @@ class CommentServiceTest {
         assertTrue(capturedIds.containsAll(Arrays.asList(5L, 6L)));
 
         verifyNoMoreInteractions(candidateRepository, commentRepository, userService);
+        // Ngoài những hàm tôi đã gọi tên điểm mặt nãy giờ (hàm lấy comment, hàm kiểm tra tồn tại, hàm lấy tên), CẤM bất kỳ hàm nào khác của 3 kho dữ liệu này được kích hoạt
     }
 
     @Test
