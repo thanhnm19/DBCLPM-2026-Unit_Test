@@ -67,6 +67,39 @@
           "name": "OF-TC02 - POST: Tao offer moi (DRAFT)",
           "event": [
             {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "const token = pm.collectionVariables.get('access_token');",
+                  "const baseUrl = pm.variables.get('base_url') || 'http://localhost:8081';",
+                  "",
+                  "// Fetch Workflow",
+                  "pm.sendRequest({",
+                  "  url: baseUrl + '/api/v1/workflow-service/workflows?page=1&limit=1',",
+                  "  method: 'GET',",
+                  "  header: { 'Authorization': 'Bearer ' + token }",
+                  "}, function(err, res) {",
+                  "  if (!err && res && res.code === 200) {",
+                  "    const result = res.json().data && res.json().data.result ? res.json().data.result : [];",
+                  "    if (result.length > 0) pm.collectionVariables.set('workflowId', result[0].id);",
+                  "  }",
+                  "});",
+                  "",
+                  "// Fetch Job Position",
+                  "pm.sendRequest({",
+                  "  url: baseUrl + '/api/v1/job-service/job-positions?page=1&limit=1',",
+                  "  method: 'GET',",
+                  "  header: { 'Authorization': 'Bearer ' + token }",
+                  "}, function(err, res) {",
+                  "  if (!err && res && res.code === 200) {",
+                  "    const result = res.json().data && res.json().data.result ? res.json().data.result : [];",
+                  "    if (result.length > 0) pm.collectionVariables.set('jpId', result[0].id);",
+                  "  }",
+                  "});"
+                ]
+              }
+            },
+            {
               "listen": "test",
               "script": {
                 "exec": [
@@ -88,7 +121,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\"candidateId\": 1, \"jobPositionId\": {{jpId}}, \"salaryOffered\": 15000000, \"onboardingDate\": \"2025-06-01\", \"workflowId\": {{workflowId}}}"
+              "raw": "{\"candidateId\": 1, \"basicSalary\": 15000000, \"onboardingDate\": \"2025-06-01\", \"probationPeriod\": 2, \"workflowId\": {{workflowId}}}"
             }
           }
         },
@@ -104,7 +137,7 @@
                   "const expectedId = parseInt(pm.collectionVariables.get('offerId'));",
                   "pm.test('[OF-TC03] ID dung', () => pm.expect(body.data.id).to.equal(expectedId));",
                   "pm.test('[OF-TC03] Status DRAFT trong DB', () => pm.expect(body.data.status).to.equal('DRAFT'));",
-                  "pm.test('[OF-TC03] salaryOffered dung', () => pm.expect(body.data.salaryOffered).to.equal(15000000));"
+                  "pm.test('[OF-TC03] basicSalary dung', () => pm.expect(body.data.basicSalary).to.equal(15000000));"
                 ]
               }
             }
@@ -124,7 +157,7 @@
                 "exec": [
                   "pm.test('[OF-TC04] Status 200', () => pm.response.to.have.status(200));",
                   "const body = pm.response.json();",
-                  "pm.test('[OF-TC04] salaryOffered da cap nhat', () => pm.expect(body.data.salaryOffered).to.equal(16000000));"
+                  "pm.test('[OF-TC04] basicSalary da cap nhat', () => pm.expect(body.data.basicSalary).to.equal(16000000));"
                 ]
               }
             }
@@ -138,7 +171,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\"salaryOffered\": 16000000}"
+              "raw": "{\"basicSalary\": 16000000}"
             }
           }
         },
@@ -151,7 +184,7 @@
                 "exec": [
                   "pm.test('[OF-TC05] Status 200', () => pm.response.to.have.status(200));",
                   "const body = pm.response.json();",
-                  "pm.test('[OF-TC05] salaryOffered = 16000000 trong DB', () => pm.expect(body.data.salaryOffered).to.equal(16000000));",
+                  "pm.test('[OF-TC05] basicSalary = 16000000 trong DB', () => pm.expect(body.data.basicSalary).to.equal(16000000));",
                   "pm.test('[OF-TC05] Status van la DRAFT', () => pm.expect(body.data.status).to.equal('DRAFT'));"
                 ]
               }
@@ -294,7 +327,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\"salaryOffered\": 15000000}"
+              "raw": "{\"basicSalary\": 15000000}"
             }
           }
         },
@@ -393,7 +426,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\"candidateId\": 1, \"jobPositionId\": {{jpId}}, \"salaryOffered\": 15000000, \"onboardingDate\": \"2020-01-01\", \"workflowId\": {{workflowId}}}"
+              "raw": "{\"candidateId\": 1, \"basicSalary\": 15000000, \"onboardingDate\": \"2020-01-01\", \"probationPeriod\": 2, \"workflowId\": {{workflowId}}}"
             }
           }
         },
@@ -419,7 +452,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\"candidateId\": 1, \"jobPositionId\": {{jpId}}, \"salaryOffered\": 999999999, \"onboardingDate\": \"2025-06-01\", \"workflowId\": {{workflowId}}}"
+              "raw": "{\"candidateId\": 1, \"basicSalary\": 999999999, \"onboardingDate\": \"2025-06-01\", \"probationPeriod\": 2, \"workflowId\": {{workflowId}}}"
             }
           }
         },
@@ -445,7 +478,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\"candidateId\": 1, \"jobPositionId\": {{jpId}}, \"salaryOffered\": 15000000, \"onboardingDate\": \"2025-06-01\", \"workflowId\": {{workflowId}}, \"probationPeriod\": -1, \"probationSalaryRate\": 150}"
+              "raw": "{\"candidateId\": 1, \"basicSalary\": 15000000, \"onboardingDate\": \"2025-06-01\", \"probationPeriod\": 2, \"workflowId\": {{workflowId}}, \"probationPeriod\": -1, \"probationSalaryRate\": 150}"
             }
           }
         }
@@ -503,6 +536,116 @@
               "mode": "raw",
               "raw": "{\"reason\": \"Khong duyet offer vi luong qua cao\"}"
             }
+          }
+        },
+        {
+          "name": "OF-TC20 - PUT: Cap nhat Offer voi ID khong ton tai (404)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[OF-TC20] Status 404', () => pm.response.to.have.status(404));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PUT",
+            "url": "{{base_url}}/api/v1/job-service/offers/999999",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{access_token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"basicSalary\": 16000000}"
+            }
+          }
+        },
+        {
+          "name": "OF-TC21 - DELETE: Xoa Offer voi ID khong ton tai (404)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[OF-TC21] Status 404', () => pm.response.to.have.status(404));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "url": "{{base_url}}/api/v1/job-service/offers/999999",
+            "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }]
+          }
+        },
+        {
+          "name": "OF-TC22 - POST: Tao Offer khong co Access Token (401)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[OF-TC22] Status 401', () => pm.response.to.have.status(401));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/job-service/offers",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"candidateId\": 1, \"basicSalary\": 15000000, \"onboardingDate\": \"2025-06-01\", \"probationPeriod\": 2, \"workflowId\": {{workflowId}}}"
+            }
+          }
+        },
+        {
+          "name": "OF-TC23 - POST: Tao Offer voi Access Token khong hop le (401)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[OF-TC23] Status 401', () => pm.response.to.have.status(401));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/job-service/offers",
+            "header": [
+              { "key": "Authorization", "value": "Bearer invalid_token_xyz" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"candidateId\": 1, \"basicSalary\": 15000000, \"onboardingDate\": \"2025-06-01\", \"probationPeriod\": 2, \"workflowId\": {{workflowId}}}"
+            }
+          }
+        },
+        {
+          "name": "OF-TC24 - POST: Submit Offer khong ton tai (404)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[OF-TC24] Status 404', () => pm.response.to.have.status(404));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/job-service/offers/submit/999999",
+            "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }]
           }
         }
       ]
