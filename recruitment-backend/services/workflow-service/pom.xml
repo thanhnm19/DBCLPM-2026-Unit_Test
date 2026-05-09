@@ -139,6 +139,13 @@
 						<id>report</id>
 						<phase>test</phase>
 						<goals><goal>report</goal></goals>
+						<configuration>
+							<includes>
+								<!-- limit report to only these two service classes -->
+								<include>**/com/example/workflow_service/service/WorkflowService*.class</include>
+								<include>**/com/example/workflow_service/service/ApprovalTrackingService*.class</include>
+							</includes>
+						</configuration>
 					</execution>
 					<!-- 3. Kiểm tra ngưỡng tối thiểu (tuỳ chọn) -->
 					<execution>
