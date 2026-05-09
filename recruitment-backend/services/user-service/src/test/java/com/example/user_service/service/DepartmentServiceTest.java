@@ -370,9 +370,9 @@ class DepartmentServiceTest {
     }
 
     @Test
-    @DisplayName("[DEP-TC15] - update() giữ nguyên khi code mới trùng chính nó")
-    void tc15_update_sameCode_keepsDepartmentAndExecutesLambdaExit() {
-        // Test Case ID: DEP-TC15
+    @DisplayName("[DEP-TC16] - update() giữ nguyên khi code mới trùng chính nó")
+    void tc16_update_sameCode_keepsDepartmentAndExecutesLambdaExit() {
+        // Test Case ID: DEP-TC16
         // Mục tiêu: cover nhánh ifPresent nhưng không throw khi code mới thuộc chính
         // department hiện tại.
 
