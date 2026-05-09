@@ -24,10 +24,10 @@
                 "exec": [
                   "pm.test('[AUTH-TC01] Status 200', () => pm.response.to.have.status(200));",
                   "const body = pm.response.json();",
-                  "pm.test('[AUTH-TC01] Co accessToken', () => pm.expect(body.data.accessToken).to.be.a('string').and.not.empty);",
+                  "pm.test('[AUTH-TC01] Co accessToken', () => pm.expect(body.data.access_token).to.be.a('string').and.not.empty);",
                   "pm.test('[AUTH-TC01] Co user.email', () => pm.expect(body.data.user.email).to.be.a('string'));",
                   "pm.test('[AUTH-TC01] Co user.role', () => pm.expect(body.data.user.role).to.exist);",
-                  "pm.collectionVariables.set('access_token', body.data.accessToken);",
+                  "pm.collectionVariables.set('access_token', body.data.access_token);",
                   "const cookie = pm.cookies.get('refresh_token');",
                   "pm.test('[AUTH-TC01] Cookie refresh_token duoc set', () => pm.expect(cookie).to.exist);"
                 ]
@@ -74,8 +74,8 @@
                 "exec": [
                   "pm.test('[AUTH-TC03] Status 200', () => pm.response.to.have.status(200));",
                   "const body = pm.response.json();",
-                  "pm.test('[AUTH-TC03] Co accessToken moi', () => pm.expect(body.data.accessToken).to.be.a('string').and.not.empty);",
-                  "pm.collectionVariables.set('access_token', body.data.accessToken);"
+                  "pm.test('[AUTH-TC03] Co accessToken moi', () => pm.expect(body.data.access_token).to.be.a('string').and.not.empty);",
+                  "pm.collectionVariables.set('access_token', body.data.access_token);"
                 ]
               }
             }
@@ -121,10 +121,7 @@
           ],
           "request": {
             "method": "GET",
-            "url": {
-              "raw": "{{base_url}}/api/v1/user-service/auth/check?name=CREATE_RECRUITMENT_REQUEST",
-              "query": [{ "key": "name", "value": "CREATE_RECRUITMENT_REQUEST" }]
-            },
+            "url": "{{base_url}}/api/v1/user-service/auth/check?name=CREATE_RECRUITMENT_REQUEST",
             "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }]
           }
         },
@@ -143,10 +140,7 @@
           ],
           "request": {
             "method": "GET",
-            "url": {
-              "raw": "{{base_url}}/api/v1/user-service/auth/check?name=ADMIN_ONLY_PERMISSION",
-              "query": [{ "key": "name", "value": "ADMIN_ONLY_PERMISSION" }]
-            },
+            "url": "{{base_url}}/api/v1/user-service/auth/check?name=ADMIN_ONLY_PERMISSION",
             "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }]
           }
         },
@@ -208,7 +202,7 @@
               "script": {
                 "exec": [
                   "pm.test('[AUTH-TC09] Status 400 hoac 401', () => pm.expect(pm.response.code).to.be.oneOf([400, 401]));",
-                  "pm.test('[AUTH-TC09] Khong co accessToken', () => pm.expect(pm.response.json().data?.accessToken).to.not.exist);"
+                  "pm.test('[AUTH-TC09] Khong co accessToken', () => pm.expect(pm.response.json().data?.access_token).to.not.exist);"
                 ]
               }
             }
@@ -309,7 +303,7 @@
               "script": {
                 "exec": [
                   "pm.test('[AUTH-TC14] Status 401 - expired token', () => pm.response.to.have.status(401));",
-                  "pm.test('[AUTH-TC14] Khong co accessToken', () => pm.expect(pm.response.json().data?.accessToken).to.not.exist);"
+                  "pm.test('[AUTH-TC14] Khong co accessToken', () => pm.expect(pm.response.json().data?.access_token).to.not.exist);"
                 ]
               }
             }
@@ -334,7 +328,7 @@
               "script": {
                 "exec": [
                   "pm.test('[AUTH-TC15] Status 400 hoac 403', () => pm.expect(pm.response.code).to.be.oneOf([400, 403]));",
-                  "pm.test('[AUTH-TC15] Khong co accessToken', () => pm.expect(pm.response.json().data?.accessToken).to.not.exist);"
+                  "pm.test('[AUTH-TC15] Khong co accessToken', () => pm.expect(pm.response.json().data?.access_token).to.not.exist);"
                 ]
               }
             }

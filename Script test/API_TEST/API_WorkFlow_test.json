@@ -11,8 +11,8 @@
     { "key": "employee_token", "value": "" },
     { "key": "refresh_token", "value": "" },
     { "key": "workflowId", "value": "" },
-    { "key": "activeWorkflowId", "value": "" },
-    { "key": "trackingId", "value": "" },
+    { "key": "activeWorkflowId", "value": "1" },
+    { "key": "trackingId", "value": "1" },
     { "key": "initialTotalWorkflows", "value": "0" }
   ],
   "item": [
@@ -28,8 +28,8 @@
                 "exec": [
                   "pm.test('[STEP-0] Status 200', () => pm.response.to.have.status(200));",
                   "const body = pm.response.json();",
-                  "pm.collectionVariables.set('access_token', body.data.accessToken);",
-                  "pm.test('[STEP-0] Co accessToken', () => pm.expect(body.data.accessToken).to.be.a('string').and.not.empty);"
+                  "pm.collectionVariables.set('access_token', body.data.access_token);",
+                  "pm.test('[STEP-0] Co accessToken', () => pm.expect(body.data.access_token).to.be.a('string').and.not.empty);"
                 ]
               }
             }
@@ -96,7 +96,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\"name\": \"QT Tuyen Dung Test\", \"type\": \"RECRUITMENT\", \"isActive\": true}"
+              "raw": "{\"name\": \"QT Tuyen Dung Test\", \"type\": \"REQUEST\", \"isActive\": true}"
             }
           }
         },
@@ -113,7 +113,7 @@
                   "const expectedId = parseInt(pm.collectionVariables.get('workflowId'));",
                   "pm.test('[WF-TC03] ID dung voi workflow vua tao', () => pm.expect(body.data.id).to.equal(expectedId));",
                   "pm.test('[WF-TC03] Name dung', () => pm.expect(body.data.name).to.equal('QT Tuyen Dung Test'));",
-                  "pm.test('[WF-TC03] Type dung', () => pm.expect(body.data.type).to.equal('RECRUITMENT'));",
+                  "pm.test('[WF-TC03] Type dung', () => pm.expect(body.data.type).to.equal('REQUEST'));",
                   "pm.test('[WF-TC03] isActive = true', () => pm.expect(body.data.isActive).to.be.true);"
                 ]
               }
@@ -292,7 +292,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\"type\": \"RECRUITMENT\"}"
+              "raw": "{\"type\": \"REQUEST\"}"
             }
           }
         },
@@ -317,7 +317,7 @@
           }
         },
         {
-          "name": "WF-TC12 - Filter theo type=RECRUITMENT",
+          "name": "WF-TC12 - Filter theo type=REQUEST",
           "event": [
             {
               "listen": "test",
@@ -325,8 +325,8 @@
                 "exec": [
                   "pm.test('[WF-TC12] Status 200', () => pm.response.to.have.status(200));",
                   "const body = pm.response.json();",
-                  "pm.test('[WF-TC12] Tat ca type=RECRUITMENT', () => {",
-                  "  body.data.result.forEach(w => pm.expect(w.type).to.equal('RECRUITMENT'));",
+                  "pm.test('[WF-TC12] Tat ca type=REQUEST', () => {",
+                  "  body.data.result.forEach(w => pm.expect(w.type).to.equal('REQUEST'));",
                   "});"
                 ]
               }
@@ -334,10 +334,7 @@
           ],
           "request": {
             "method": "GET",
-            "url": {
-              "raw": "{{base_url}}/api/v1/workflow-service/workflows?type=RECRUITMENT",
-              "query": [{ "key": "type", "value": "RECRUITMENT" }]
-            },
+            "url": "{{base_url}}/api/v1/workflow-service/workflows?type=REQUEST",
             "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }]
           }
         },
@@ -359,10 +356,7 @@
           ],
           "request": {
             "method": "GET",
-            "url": {
-              "raw": "{{base_url}}/api/v1/workflow-service/workflows?isActive=true",
-              "query": [{ "key": "isActive", "value": "true" }]
-            },
+            "url": "{{base_url}}/api/v1/workflow-service/workflows?isActive=true",
             "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }]
           }
         },
@@ -396,7 +390,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\"name\": \"QT Sai Cap Bac\", \"type\": \"RECRUITMENT\", \"isActive\": true, \"steps\": [{\"stepOrder\": 1, \"approverPositionId\": 3, \"approverPositionName\": \"Giam doc\", \"hierarchyOrder\": 3}, {\"stepOrder\": 2, \"approverPositionId\": 2, \"approverPositionName\": \"Truong phong\", \"hierarchyOrder\": 2}]}"
+              "raw": "{\"name\": \"QT Sai Cap Bac\", \"type\": \"REQUEST\", \"isActive\": true, \"steps\": [{\"stepOrder\": 1, \"approverPositionId\": 3, \"approverPositionName\": \"Giam doc\", \"hierarchyOrder\": 3}, {\"stepOrder\": 2, \"approverPositionId\": 2, \"approverPositionName\": \"Truong phong\", \"hierarchyOrder\": 2}]}"
             }
           }
         },
@@ -404,6 +398,34 @@
           "name": "WF-TC15 - POST: Nhan vien duyet thay Giam doc (phan quyen 403)",
           "description": "Dùng employee_token (nhân viên) để approve tracking dành cho Giám đốc. Prerequisite: employee_token + trackingId đã set sẵn. Không tạo data mới, không cần rollback.",
           "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "if (!pm.variables.get('trackingId')) {",
+                  "  pm.variables.set('trackingId', '1');",
+                  "}",
+                  "const baseUrl = pm.variables.get('base_url') || 'http://localhost:8081';",
+                  "const postRequest = {",
+                  "  url: baseUrl + '/api/v1/user-service/auth/login',",
+                  "  method: 'POST',",
+                  "  header: 'Content-Type:application/json',",
+                  "  body: {",
+                  "    mode: 'raw',",
+                  "    raw: JSON.stringify({ username: 'anh.do@company.com', password: '123456' })",
+                  "  }",
+                  "};",
+                  "pm.sendRequest(postRequest, (err, res) => {",
+                  "  if (!err) {",
+                  "    const response = res.json();",
+                  "    if(response.data && response.data.access_token) {",
+                  "      pm.variables.set('employee_token', response.data.access_token);",
+                  "    }",
+                  "  }",
+                  "});"
+                ]
+              }
+            },
             {
               "listen": "test",
               "script": {
@@ -432,6 +454,17 @@
           "name": "WF-TC16 - DELETE: Xoa workflow dang co phieu PENDING (phai bi chan)",
           "description": "Prerequisite: activeWorkflowId = ID workflow có tracking PENDING. Expected: HTTP 400/409. Không xóa thực tế, không cần rollback.",
           "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "if (!pm.variables.get('activeWorkflowId')) {",
+                  "  pm.variables.set('activeWorkflowId', '1');",
+                  "  console.log('Fallback activeWorkflowId to 1');",
+                  "}"
+                ]
+              }
+            },
             {
               "listen": "test",
               "script": {
@@ -473,7 +506,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\"name\": \"QT Dang Chay\", \"type\": \"RECRUITMENT\", \"isActive\": true, \"steps\": [{\"stepOrder\": 1, \"approverPositionId\": 1, \"approverPositionName\": \"Test\", \"hierarchyOrder\": 1}]}"
+              "raw": "{\"name\": \"QT Dang Chay\", \"type\": \"REQUEST\", \"isActive\": true, \"steps\": [{\"stepOrder\": 1, \"approverPositionId\": 1, \"approverPositionName\": \"Test\", \"hierarchyOrder\": 1}]}"
             }
           }
         }
