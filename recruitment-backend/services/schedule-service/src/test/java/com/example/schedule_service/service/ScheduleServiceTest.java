@@ -31,6 +31,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 
 import java.time.LocalDate;
@@ -40,8 +41,10 @@ import java.time.temporal.IsoFields;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.lang.reflect.Method;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
@@ -1472,6 +1475,1283 @@ class ScheduleServiceTest {
                 assertEquals(1, result.size());
                 assertEquals(1L, result.get(0).getId());
                 assertEquals("INTERVIEW", result.get(0).getMeetingType());
+        }
+
+        @Test
+        @DisplayName("SCH-SVC-TC-042: createSchedule - status được truyền sẵn thì lưu đúng (không default SCHEDULED)")
+        void testCreateSchedule_StatusProvided_NotDefault_SCH_SVC_TC_042() {
+                // arrange
+                CreateScheduleDTO req = cloneBase();
+                req.setStatus("DONE");
+                req.setCandidateId(1L);
+                req.setUserIds(List.of(10L));
+
+                when(scheduleRepository.save(any(Schedule.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+                // act
+                Schedule result = scheduleService.createSchedule(req);
+
+                // assert
+                assertNotNull(result);
+                assertEquals("DONE", result.getStatus());
+                assertNotNull(result.getParticipants());
+                assertEquals(2, result.getParticipants().size());
+        }
+
+        @Test
+        @DisplayName("SCH-SVC-TC-043: createSchedule - userIds rỗng thì không gửi notification")
+        void testCreateSchedule_EmptyUserIds_NoNotification_SCH_SVC_TC_043() {
+                // arrange
+                CreateScheduleDTO req = cloneBase();
+                req.setStatus(null);
+                req.setCandidateId(1L);
+                req.setUserIds(List.of());
+
+                when(scheduleRepository.save(any(Schedule.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+                // act
+                Schedule result = scheduleService.createSchedule(req);
+
+                // assert
+                assertNotNull(result);
+                assertEquals("SCHEDULED", result.getStatus());
+                assertNotNull(result.getParticipants());
+                assertEquals(1, result.getParticipants().size());
+                verify(notificationProducer, never()).sendNotificationToMultiple(anyList(), any(), any(), any());
+        }
+
+        @Test
+        @DisplayName("SCH-SVC-TC-044: createSchedule - candidateId null thì chỉ build USER participants")
+        void testCreateSchedule_CandidateNull_OnlyUsers_SCH_SVC_TC_044() {
+                // arrange
+                CreateScheduleDTO req = cloneBase();
+                req.setStatus(null);
+                req.setCandidateId(null);
+                req.setUserIds(List.of(10L, 11L));
+
+                when(scheduleRepository.save(any(Schedule.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+                // act
+                Schedule result = scheduleService.createSchedule(req);
+
+                // assert
+                assertNotNull(result);
+                assertNotNull(result.getParticipants());
+                assertEquals(2, result.getParticipants().size());
+                assertTrue(result.getParticipants().stream().allMatch(p -> "USER".equalsIgnoreCase(p.getParticipantType())));
+        }
+
+        @Test
+        @DisplayName("SCH-SVC-TC-045: createSchedule - candidateId có nhưng userIds null thì chỉ có CANDIDATE participant")
+        void testCreateSchedule_CandidateOnly_UserIdsNull_SCH_SVC_TC_045() {
+                // arrange
+                CreateScheduleDTO req = cloneBase();
+                req.setStatus(null);
+                req.setCandidateId(1L);
+                req.setUserIds(null);
+
+                when(scheduleRepository.save(any(Schedule.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+                // act
+                Schedule result = scheduleService.createSchedule(req);
+
+                // assert
+                assertNotNull(result);
+                assertNotNull(result.getParticipants());
+                assertEquals(1, result.getParticipants().size());
+                assertTrue(result.getParticipants().stream().allMatch(p -> "CANDIDATE".equalsIgnoreCase(p.getParticipantType())));
+        }
+
+        @Test
+        @DisplayName("SCH-SVC-TC-046: createSchedule - notificationProducer throw -> exception propagate")
+        void testCreateSchedule_NotificationProducerThrows_Propagate_SCH_SVC_TC_046() {
+                // arrange
+                CreateScheduleDTO req = cloneBase();
+                req.setStatus(null);
+                req.setCandidateId(1L);
+                req.setUserIds(List.of(10L));
+
+                when(scheduleRepository.save(any(Schedule.class))).thenAnswer(invocation -> invocation.getArgument(0));
+                doThrow(new RuntimeException("producer-error")).when(notificationProducer).sendNotificationToMultiple(
+                                anyList(), anyString(), anyString(), any());
+
+                try (MockedStatic<SecurityUtil> mocked = mockStatic(SecurityUtil.class)) {
+                        mocked.when(SecurityUtil::getCurrentUserJWT).thenReturn(Optional.of("jwt-token"));
+
+                        // act
+                        RuntimeException ex = assertThrows(RuntimeException.class, () -> scheduleService.createSchedule(req));
+
+                        // assert
+                        assertEquals("producer-error", ex.getMessage());
+                        verify(scheduleRepository, times(2)).save(any(Schedule.class));
+                        verify(notificationProducer, times(1)).sendNotificationToMultiple(
+                                        eq(List.of(10L)),
+                                        eq("Bạn có lịch hẹn mới"),
+                                        contains("Bạn đã được mời tham gia:"),
+                                        eq("jwt-token"));
+                }
+        }
+
+        @Test
+        @DisplayName("SCH-SVC-TC-047: deleteSchedule - deleteById throw -> exception propagate")
+        void testDeleteSchedule_DeleteByIdThrows_Propagate_SCH_SVC_TC_047() {
+                // arrange
+                when(scheduleRepository.existsById(1L)).thenReturn(true);
+                doThrow(new RuntimeException("db-error")).when(scheduleRepository).deleteById(1L);
+
+                // act
+                RuntimeException ex = assertThrows(RuntimeException.class, () -> scheduleService.deleteSchedule(1L));
+
+                // assert
+                assertEquals("db-error", ex.getMessage());
+                verify(scheduleRepository, times(1)).deleteById(1L);
+        }
+
+        @Test
+        @DisplayName("SCH-SVC-TC-048: getScheduleWithParticipantNames - participantType lạ -> name Unknown, không crash")
+        void testGetScheduleWithParticipantNames_UnknownParticipantType_NoCrash_SCH_SVC_TC_048() {
+                // arrange
+                Long scheduleId = 123L;
+                Schedule schedule = new Schedule();
+                schedule.setId(scheduleId);
+
+                ScheduleParticipant other = new ScheduleParticipant();
+                other.setId(1L);
+                other.setParticipantType("OTHER");
+                other.setParticipantId(999L);
+                other.setResponseStatus("PENDING");
+                schedule.setParticipants(new HashSet<>(Set.of(other)));
+
+                when(scheduleRepository.findById(scheduleId)).thenReturn(Optional.of(schedule));
+
+                // act
+                ScheduleDetailDTO dto = scheduleService.getScheduleWithParticipantNames(scheduleId, "token");
+
+                // assert
+                assertNotNull(dto);
+                assertNotNull(dto.getParticipants());
+                assertEquals(1, dto.getParticipants().size());
+                assertEquals("Unknown", dto.getParticipants().get(0).getName());
+                verify(userService, never()).getEmployeeNames(anyList(), anyString());
+                verify(candidateService, never()).getCandidateNames(anyList(), anyString());
+        }
+
+        @Test
+        @DisplayName("SCH-SVC-TC-049: getScheduleWithParticipantNames - userService throw -> exception propagate")
+        void testGetScheduleWithParticipantNames_UserServiceThrows_Propagate_SCH_SVC_TC_049() {
+                // arrange
+                Long scheduleId = 1L;
+                Schedule schedule = new Schedule();
+                schedule.setId(scheduleId);
+                ScheduleParticipant user = new ScheduleParticipant();
+                user.setId(1L);
+                user.setParticipantType("USER");
+                user.setParticipantId(10L);
+                user.setResponseStatus("PENDING");
+                schedule.setParticipants(new HashSet<>(Set.of(user)));
+
+                when(scheduleRepository.findById(scheduleId)).thenReturn(Optional.of(schedule));
+                when(userService.getEmployeeNames(anyList(), anyString())).thenThrow(new RuntimeException("user-svc-down"));
+
+                // act
+                RuntimeException ex = assertThrows(RuntimeException.class,
+                                () -> scheduleService.getScheduleWithParticipantNames(scheduleId, "token"));
+
+                // assert
+                assertEquals("user-svc-down", ex.getMessage());
+        }
+
+        @Test
+        @DisplayName("SCH-SVC-TC-050: getScheduleWithParticipantNames - candidateService throw -> exception propagate")
+        void testGetScheduleWithParticipantNames_CandidateServiceThrows_Propagate_SCH_SVC_TC_050() {
+                // arrange
+                Long scheduleId = 1L;
+                Schedule schedule = new Schedule();
+                schedule.setId(scheduleId);
+                ScheduleParticipant cand = new ScheduleParticipant();
+                cand.setId(1L);
+                cand.setParticipantType("CANDIDATE");
+                cand.setParticipantId(2L);
+                cand.setResponseStatus("PENDING");
+                schedule.setParticipants(new HashSet<>(Set.of(cand)));
+
+                when(scheduleRepository.findById(scheduleId)).thenReturn(Optional.of(schedule));
+                when(candidateService.getCandidateNames(anyList(), anyString()))
+                                .thenThrow(new RuntimeException("cand-svc-down"));
+
+                // act
+                RuntimeException ex = assertThrows(RuntimeException.class,
+                                () -> scheduleService.getScheduleWithParticipantNames(scheduleId, "token"));
+
+                // assert
+                assertEquals("cand-svc-down", ex.getMessage());
+        }
+
+        @Test
+        @DisplayName("SCH-SVC-TC-051: getAllSchedules - ưu tiên filter date nếu truyền đồng thời date+status+meetingType")
+        void testGetAllSchedules_Priority_DateOverOthers_SCH_SVC_TC_051() {
+                // arrange
+                LocalDate date = LocalDate.of(2026, 4, 20);
+                when(scheduleRepository.findByStartTimeBetween(any(LocalDateTime.class), any(LocalDateTime.class),
+                                any(Pageable.class)))
+                                .thenReturn(Page.empty());
+
+                // act
+                scheduleService.getAllSchedules(
+                                1, 10, "startTime", "desc",
+                                date, null, null, "DONE", "INTERVIEW",
+                                null, null);
+
+                // assert
+                verify(scheduleRepository, times(1)).findByStartTimeBetween(any(LocalDateTime.class), any(LocalDateTime.class),
+                                any(Pageable.class));
+                verify(scheduleRepository, never()).findByStatus(anyString(), any(Pageable.class));
+                verify(scheduleRepository, never()).findByMeetingType(anyString(), any(Pageable.class));
+                verify(scheduleRepository, never()).findAll(any(Pageable.class));
+        }
+
+        @Test
+        @DisplayName("SCH-SVC-TC-052: getAllSchedules - sortOrder=asc tạo Sort tăng dần")
+        void testGetAllSchedules_SortOrderAsc_SCH_SVC_TC_052() {
+                // arrange
+                when(scheduleRepository.findAll(any(Pageable.class))).thenReturn(new PageImpl<>(List.of()));
+
+                // act
+                scheduleService.getAllSchedules(
+                                1, 10, "startTime", "asc",
+                                null, null, null, null, null,
+                                null, null);
+
+                // assert
+                ArgumentCaptor<Pageable> pageableCap = ArgumentCaptor.forClass(Pageable.class);
+                verify(scheduleRepository, times(1)).findAll(pageableCap.capture());
+                Sort sort = pageableCap.getValue().getSort();
+                assertTrue(sort.getOrderFor("startTime").isAscending());
+        }
+
+        @Test
+        @DisplayName("SCH-SVC-TC-053: getAllSchedules - sortOrder invalid -> mặc định DESC theo code")
+        void testGetAllSchedules_SortOrderInvalid_DefaultDesc_SCH_SVC_TC_053() {
+                // arrange
+                when(scheduleRepository.findAll(any(Pageable.class))).thenReturn(new PageImpl<>(List.of()));
+
+                // act
+                scheduleService.getAllSchedules(
+                                1, 10, "startTime", "abc",
+                                null, null, null, null, null,
+                                null, null);
+
+                // assert
+                ArgumentCaptor<Pageable> pageableCap = ArgumentCaptor.forClass(Pageable.class);
+                verify(scheduleRepository, times(1)).findAll(pageableCap.capture());
+                Sort sort = pageableCap.getValue().getSort();
+                assertTrue(sort.getOrderFor("startTime").isDescending());
+        }
+
+        @Test
+        @DisplayName("SCH-SVC-TC-054: getAllSchedules - sortOrder null -> NPE (do code dùng equalsIgnoreCase)")
+        void testGetAllSchedules_SortOrderNull_ThrowsNpe_SCH_SVC_TC_054() {
+                // act + assert
+                assertThrows(NullPointerException.class, () -> scheduleService.getAllSchedules(
+                                1, 10, "startTime", null,
+                                null, null, null, null, null,
+                                null, null));
+        }
+
+        @Test
+        @DisplayName("SCH-SVC-TC-055: getAllSchedules - sortBy null -> exception")
+        void testGetAllSchedules_SortByNull_Throws_SCH_SVC_TC_055() {
+                // act + assert (Sort.by(direction, sortBy) sẽ throw khi sortBy null)
+                assertThrows(RuntimeException.class, () -> scheduleService.getAllSchedules(
+                                1, 10, null, "desc",
+                                null, null, null, null, null,
+                                null, null));
+        }
+
+        @Test
+        @DisplayName("SCH-SVC-TC-056: getAllSchedules - participantId có nhưng participantType null -> không filter thêm")
+        void testGetAllSchedules_ParticipantIdOnly_NoAdditionalFilter_SCH_SVC_TC_056() {
+                // arrange
+                Schedule s1 = new Schedule();
+                s1.setId(1L);
+                Schedule s2 = new Schedule();
+                s2.setId(2L);
+                when(scheduleRepository.findAll(any(Pageable.class))).thenReturn(new PageImpl<>(List.of(s1, s2)));
+
+                // act
+                PaginationDTO dto = scheduleService.getAllSchedules(
+                                1, 10, "startTime", "desc",
+                                null, null, null, null, null,
+                                10L, null);
+
+                // assert
+                @SuppressWarnings("unchecked")
+                List<Schedule> result = (List<Schedule>) dto.getResult();
+                assertEquals(2, result.size());
+        }
+
+        @Test
+        @DisplayName("SCH-SVC-TC-057: getAllSchedules - participantType có nhưng participantId null -> không filter thêm")
+        void testGetAllSchedules_ParticipantTypeOnly_NoAdditionalFilter_SCH_SVC_TC_057() {
+                // arrange
+                Schedule s1 = new Schedule();
+                s1.setId(1L);
+                when(scheduleRepository.findAll(any(Pageable.class))).thenReturn(new PageImpl<>(List.of(s1)));
+
+                // act
+                PaginationDTO dto = scheduleService.getAllSchedules(
+                                1, 10, "startTime", "desc",
+                                null, null, null, null, null,
+                                null, "USER");
+
+                // assert
+                @SuppressWarnings("unchecked")
+                List<Schedule> result = (List<Schedule>) dto.getResult();
+                assertEquals(1, result.size());
+        }
+
+        @Test
+        @DisplayName("SCH-SVC-TC-058: getAllSchedules - repository trả Page rỗng -> result=[], meta đúng")
+        void testGetAllSchedules_RepositoryPageEmpty_SCH_SVC_TC_058() {
+                // arrange
+                when(scheduleRepository.findAll(any(Pageable.class))).thenReturn(Page.empty());
+
+                // act
+                PaginationDTO dto = scheduleService.getAllSchedules(
+                                1, 10, "startTime", "desc",
+                                null, null, null, null, null,
+                                null, null);
+
+                // assert
+                assertNotNull(dto);
+                assertNotNull(dto.getMeta());
+                assertEquals(0, dto.getMeta().getTotal());
+                assertNotNull(dto.getResult());
+                @SuppressWarnings("unchecked")
+                List<Schedule> result = (List<Schedule>) dto.getResult();
+                assertTrue(result.isEmpty());
+        }
+
+        @Test
+        @DisplayName("SCH-SVC-TC-059: updateScheduleStatus - status null vẫn save null theo implement")
+        void testUpdateScheduleStatus_StatusNull_SaveNull_SCH_SVC_TC_059() {
+                // arrange
+                Schedule existing = new Schedule();
+                existing.setId(1L);
+                existing.setStatus("SCHEDULED");
+                when(scheduleRepository.findById(1L)).thenReturn(Optional.of(existing));
+                when(scheduleRepository.save(any(Schedule.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+                // act
+                Schedule saved = scheduleService.updateScheduleStatus(1L, null);
+
+                // assert
+                assertNotNull(saved);
+                assertNull(saved.getStatus());
+                verify(scheduleRepository, times(1)).save(existing);
+        }
+
+        @Test
+        @DisplayName("SCH-SVC-TC-060: updateScheduleStatus - status invalid vẫn save string theo implement")
+        void testUpdateScheduleStatus_StatusInvalid_SaveString_SCH_SVC_TC_060() {
+                // arrange
+                Schedule existing = new Schedule();
+                existing.setId(1L);
+                when(scheduleRepository.findById(1L)).thenReturn(Optional.of(existing));
+                when(scheduleRepository.save(any(Schedule.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+                // act
+                Schedule saved = scheduleService.updateScheduleStatus(1L, "ABC_INVALID");
+
+                // assert
+                assertEquals("ABC_INVALID", saved.getStatus());
+        }
+
+        @Test
+        @DisplayName("SCH-SVC-TC-061: getSchedulesDetailed - chỉ truyền startDate hoặc endDate -> rơi về findAll")
+        void testGetSchedulesDetailed_StartOnlyOrEndOnly_FallsBackFindAll_SCH_SVC_TC_061() {
+                // arrange
+                when(scheduleRepository.findAll(any(Sort.class))).thenReturn(List.of(new Schedule()));
+
+                // act
+                scheduleService.getSchedulesDetailed(
+                                null, null, null, null,
+                                null, null, null, null,
+                                "token", LocalDate.of(2026, 4, 1), null);
+                scheduleService.getSchedulesDetailed(
+                                null, null, null, null,
+                                null, null, null, null,
+                                "token", null, LocalDate.of(2026, 4, 30));
+
+                // assert
+                verify(scheduleRepository, times(2)).findAll(any(Sort.class));
+        }
+
+        @Test
+        @DisplayName("SCH-SVC-TC-062: getSchedulesDetailed - startDate > endDate vẫn query between theo implement")
+        void testGetSchedulesDetailed_StartAfterEnd_StillCallsBetween_SCH_SVC_TC_062() {
+                // arrange
+                LocalDate startDate = LocalDate.of(2026, 5, 1);
+                LocalDate endDate = LocalDate.of(2026, 4, 1);
+                when(scheduleRepository.findByStartTimeBetween(any(LocalDateTime.class), any(LocalDateTime.class),
+                                any(Sort.class)))
+                                .thenReturn(List.of());
+
+                // act
+                List<ScheduleDetailDTO> result = scheduleService.getSchedulesDetailed(
+                                null, null, null, null,
+                                null, null, null, null,
+                                "token", startDate, endDate);
+
+                // assert
+                assertNotNull(result);
+                verify(scheduleRepository, times(1)).findByStartTimeBetween(
+                                eq(startDate.atStartOfDay()),
+                                eq(endDate.atTime(LocalTime.MAX)),
+                                any(Sort.class));
+        }
+
+        @Test
+        @DisplayName("SCH-SVC-TC-063: getAvailableParticipants - excludeScheduleId được truyền vào query overlap")
+        void testGetAvailableParticipants_ExcludeScheduleId_PassedToRepo_SCH_SVC_TC_063() {
+                // arrange
+                LocalDateTime start = LocalDateTime.of(2026, 4, 20, 9, 0);
+                LocalDateTime end = LocalDateTime.of(2026, 4, 20, 10, 0);
+                String token = "token";
+                Long excludeId = 77L;
+
+                when(userService.getAllEmployeeIds(token)).thenReturn(List.of(1L));
+                when(scheduleRepository.findOverlappingSchedules(start, end, excludeId)).thenReturn(List.of());
+
+                ObjectNode body = objectMapper.createObjectNode();
+                ObjectNode emp = objectMapper.createObjectNode();
+                emp.put("name", "A");
+                emp.put("departmentName", "D");
+                body.set("1", emp);
+                when(userService.getEmployeeNamesAndDepartmentNames(List.of(1L), token))
+                                .thenReturn(ResponseEntity.ok((JsonNode) body));
+
+                // act
+                List<AvailableParticipantDTO> result = scheduleService.getAvailableParticipants(start, end, excludeId, token);
+
+                // assert
+                assertEquals(1, result.size());
+                verify(scheduleRepository, times(1)).findOverlappingSchedules(start, end, excludeId);
+        }
+
+        @Test
+        @DisplayName("SCH-SVC-TC-064: getAvailableParticipants - userService.getAllEmployeeIds throw -> propagate")
+        void testGetAvailableParticipants_GetAllEmployeeIdsThrows_Propagate_SCH_SVC_TC_064() {
+                // arrange
+                when(userService.getAllEmployeeIds(anyString())).thenThrow(new RuntimeException("user-svc-error"));
+
+                // act
+                RuntimeException ex = assertThrows(RuntimeException.class,
+                                () -> scheduleService.getAvailableParticipants(LocalDateTime.now(), LocalDateTime.now().plusHours(1),
+                                                null, "token"));
+
+                // assert
+                assertEquals("user-svc-error", ex.getMessage());
+        }
+
+        @Test
+        @DisplayName("SCH-SVC-TC-065: getSchedulesForStatistics - repository trả rỗng -> result rỗng")
+        void testGetSchedulesForStatistics_RepoEmpty_ReturnEmpty_SCH_SVC_TC_065() {
+                // arrange
+                when(scheduleRepository.findAll(any(Sort.class))).thenReturn(List.of());
+
+                // act
+                List<ScheduleStatisticsDTO> result = scheduleService.getSchedulesForStatistics(null, null, null, null);
+
+                // assert
+                assertNotNull(result);
+                assertTrue(result.isEmpty());
+        }
+
+        @Test
+        @DisplayName("SCH-SVC-TC-066: getSchedulesForStatistics - dateRange + meetingType, schedule.meetingType null bị loại")
+        void testGetSchedulesForStatistics_DateRange_MeetingTypeFilter_NullMeetingTypeExcluded_SCH_SVC_TC_066() {
+                // arrange
+                LocalDate startDate = LocalDate.of(2026, 4, 1);
+                LocalDate endDate = LocalDate.of(2026, 4, 30);
+
+                Schedule nullType = new Schedule();
+                nullType.setId(1L);
+                nullType.setMeetingType(null);
+                nullType.setStatus("SCHEDULED");
+                nullType.setStartTime(startDate.atStartOfDay().plusDays(1));
+
+                Schedule match = new Schedule();
+                match.setId(2L);
+                match.setMeetingType(MeetingType.INTERVIEW);
+                match.setStatus("SCHEDULED");
+                match.setStartTime(startDate.atStartOfDay().plusDays(2));
+
+                when(scheduleRepository.findByStartTimeBetween(eq(startDate.atStartOfDay()), eq(endDate.atTime(LocalTime.MAX)),
+                                any(Sort.class)))
+                                .thenReturn(List.of(nullType, match));
+
+                // act
+                List<ScheduleStatisticsDTO> result = scheduleService.getSchedulesForStatistics(startDate, endDate, null, "INTERVIEW");
+
+                // assert
+                assertEquals(1, result.size());
+                assertEquals(2L, result.get(0).getId());
+                assertEquals("INTERVIEW", result.get(0).getMeetingType());
+        }
+
+        @Test
+        @DisplayName("SCH-SVC-TC-067: getAvailableParticipants - response non-2xx/body null -> fallback Unknown")
+        void testGetAvailableParticipants_Non2xxOrNullBody_FallbackUnknown_SCH_SVC_TC_067() {
+                // arrange
+                LocalDateTime start = LocalDateTime.of(2026, 4, 20, 9, 0);
+                LocalDateTime end = LocalDateTime.of(2026, 4, 20, 10, 0);
+                String token = "token";
+                when(userService.getAllEmployeeIds(token)).thenReturn(List.of(1L));
+                when(scheduleRepository.findOverlappingSchedules(start, end, null)).thenReturn(List.of());
+                when(userService.getEmployeeNamesAndDepartmentNames(List.of(1L), token))
+                                .thenReturn(ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build());
+
+                // act
+                List<AvailableParticipantDTO> result = scheduleService.getAvailableParticipants(start, end, null, token);
+
+                // assert
+                assertEquals(1, result.size());
+                assertEquals("Unknown", result.get(0).getName());
+                assertEquals("Unknown", result.get(0).getDepartmentName());
+        }
+
+        @Test
+        @DisplayName("SCH-SVC-TC-068: createSchedule - scheduleInfo fallback khi title/startTime/location null")
+        void testCreateSchedule_ScheduleInfoFallback_TitleNull_StartNull_LocationNull_SCH_SVC_TC_068() {
+                // arrange
+                CreateScheduleDTO req = cloneBase();
+                req.setStatus(null);
+                req.setCandidateId(null);
+                req.setUserIds(List.of(10L));
+                req.setTitle(null);
+                req.setStartTime(null);
+                req.setLocation(null);
+
+                when(scheduleRepository.save(any(Schedule.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+                try (MockedStatic<SecurityUtil> mocked = mockStatic(SecurityUtil.class)) {
+                        mocked.when(SecurityUtil::getCurrentUserJWT).thenReturn(Optional.of("jwt-token"));
+
+                        // act
+                        Schedule result = scheduleService.createSchedule(req);
+
+                        // assert
+                        assertNotNull(result);
+                        verify(notificationProducer, times(1)).sendNotificationToMultiple(
+                                        eq(List.of(10L)),
+                                        eq("Bạn có lịch hẹn mới"),
+                                        contains("Bạn đã được mời tham gia: Lịch hẹn."),
+                                        eq("jwt-token"));
+                }
+        }
+
+        @Test
+        @DisplayName("SCH-SVC-TC-069: updateSchedule - userIds null -> không gửi notification (cover nhánh if userIds null)")
+        void testUpdateSchedule_UserIdsNull_NoNotification_SCH_SVC_TC_069() {
+                // arrange
+                Long id = 1L;
+                Schedule existing = new Schedule();
+                existing.setId(id);
+                existing.setParticipants(new HashSet<>());
+                when(scheduleRepository.findById(id)).thenReturn(Optional.of(existing));
+                when(scheduleRepository.save(any(Schedule.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+                CreateScheduleDTO req = cloneBase();
+                req.setUserIds(null);
+                req.setCandidateId(1L);
+
+                // act
+                Schedule saved = scheduleService.updateSchedule(id, req);
+
+                // assert
+                assertNotNull(saved);
+                verify(notificationProducer, never()).sendNotificationToMultiple(anyList(), any(), any(), any());
+        }
+
+        @Test
+        @DisplayName("SCH-SVC-TC-070: getScheduleWithParticipantNames - schedule.participants null -> dto participants rỗng")
+        void testGetScheduleWithParticipantNames_ParticipantsNull_ReturnEmptyParticipants_SCH_SVC_TC_070() {
+                // arrange
+                Long scheduleId = 1L;
+                Schedule schedule = new Schedule();
+                schedule.setId(scheduleId);
+                schedule.setParticipants(null);
+                when(scheduleRepository.findById(scheduleId)).thenReturn(Optional.of(schedule));
+
+                // act
+                ScheduleDetailDTO dto = scheduleService.getScheduleWithParticipantNames(scheduleId, "token");
+
+                // assert
+                assertNotNull(dto);
+                assertNotNull(dto.getParticipants());
+                assertTrue(dto.getParticipants().isEmpty());
+                verify(userService, never()).getEmployeeNames(anyList(), anyString());
+                verify(candidateService, never()).getCandidateNames(anyList(), anyString());
+        }
+
+        @Test
+        @DisplayName("SCH-SVC-TC-071: toDetailDTO - cover nhánh participants null và userMap/candidateMap null (reflection)")
+        void testToDetailDTO_ParticipantsNull_MapsNull_Reflection_SCH_SVC_TC_071() throws Exception {
+                // arrange: gọi private method để cover nhánh userMap/candidateMap null
+                Schedule schedule = new Schedule();
+                schedule.setId(1L);
+                schedule.setParticipants(null);
+
+                Method m = ScheduleService.class.getDeclaredMethod(
+                                "toDetailDTO",
+                                Schedule.class,
+                                String.class,
+                                Map.class,
+                                Map.class);
+                m.setAccessible(true);
+
+                // act
+                Object dtoObj = m.invoke(scheduleService, schedule, "token", null, null);
+
+                // assert
+                assertNotNull(dtoObj);
+                assertTrue(dtoObj instanceof ScheduleDetailDTO);
+                ScheduleDetailDTO dto = (ScheduleDetailDTO) dtoObj;
+                assertNotNull(dto.getParticipants());
+                assertTrue(dto.getParticipants().isEmpty());
+        }
+
+        @Test
+        @DisplayName("SCH-SVC-TC-072: toDetailDTO - cover nhánh USER/CANDIDATE khi map null (reflection)")
+        void testToDetailDTO_UserCandidate_WithNullMaps_Reflection_SCH_SVC_TC_072() throws Exception {
+                // arrange
+                Schedule schedule = new Schedule();
+                schedule.setId(1L);
+                ScheduleParticipant user = new ScheduleParticipant();
+                user.setId(1L);
+                user.setParticipantType("USER");
+                user.setParticipantId(10L);
+                user.setResponseStatus("PENDING");
+                ScheduleParticipant cand = new ScheduleParticipant();
+                cand.setId(2L);
+                cand.setParticipantType("CANDIDATE");
+                cand.setParticipantId(20L);
+                cand.setResponseStatus("PENDING");
+                schedule.setParticipants(new HashSet<>(Set.of(user, cand)));
+
+                Method m = ScheduleService.class.getDeclaredMethod(
+                                "toDetailDTO",
+                                Schedule.class,
+                                String.class,
+                                Map.class,
+                                Map.class);
+                m.setAccessible(true);
+
+                // act
+                ScheduleDetailDTO dto = (ScheduleDetailDTO) m.invoke(scheduleService, schedule, "token", null, null);
+
+                // assert
+                assertNotNull(dto);
+                assertEquals(2, dto.getParticipants().size());
+                assertTrue(dto.getParticipants().stream().allMatch(p -> "Unknown".equals(p.getName())));
+        }
+
+        @Test
+        @DisplayName("SCH-SVC-TC-073: updateSchedule - scheduleInfo fallback khi title/startTime/location null")
+        void testUpdateSchedule_ScheduleInfoFallback_TitleNull_StartNull_LocationNull_SCH_SVC_TC_073() {
+                // arrange
+                Long id = 1L;
+                Schedule existing = new Schedule();
+                existing.setId(id);
+                existing.setParticipants(new HashSet<>());
+                when(scheduleRepository.findById(id)).thenReturn(Optional.of(existing));
+                when(scheduleRepository.save(any(Schedule.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+                CreateScheduleDTO req = cloneBase();
+                req.setUserIds(List.of(10L));
+                req.setCandidateId(null);
+                req.setTitle(null);
+                req.setStartTime(null);
+                req.setLocation(null);
+
+                try (MockedStatic<SecurityUtil> mocked = mockStatic(SecurityUtil.class)) {
+                        mocked.when(SecurityUtil::getCurrentUserJWT).thenReturn(Optional.of("jwt-token"));
+
+                        // act
+                        scheduleService.updateSchedule(id, req);
+
+                        // assert
+                        verify(notificationProducer, times(1)).sendNotificationToMultiple(
+                                        eq(List.of(10L)),
+                                        eq("Lịch hẹn đã được cập nhật"),
+                                        contains("Lịch hẹn 'Lịch hẹn' đã được cập nhật."),
+                                        eq("jwt-token"));
+                }
+        }
+
+        @Test
+        @DisplayName("SCH-SVC-TC-074: getAllSchedules - limit<1 -> normalize về 10")
+        void testGetAllSchedules_LimitLessThan1_Normalize_SCH_SVC_TC_074() {
+                // arrange
+                when(scheduleRepository.findAll(any(Pageable.class))).thenReturn(Page.empty());
+
+                // act
+                PaginationDTO dto = scheduleService.getAllSchedules(
+                                1, 0, "startTime", "desc",
+                                null, null, null, null, null,
+                                null, null);
+
+                // assert
+                assertEquals(10, dto.getMeta().getPageSize());
+        }
+
+        @Test
+        @DisplayName("SCH-SVC-TC-075: getAllSchedules - year có nhưng month null -> không vào nhánh year&month")
+        void testGetAllSchedules_YearOnly_FallsBack_SCH_SVC_TC_075() {
+                // arrange
+                when(scheduleRepository.findAll(any(Pageable.class))).thenReturn(new PageImpl<>(List.of()));
+
+                // act
+                scheduleService.getAllSchedules(
+                                1, 10, "startTime", "desc",
+                                null, 2026, null, null, null,
+                                null, null);
+
+                // assert
+                verify(scheduleRepository, times(1)).findAll(any(Pageable.class));
+                verify(scheduleRepository, never()).findByStartTimeBetween(any(), any(), any(Pageable.class));
+        }
+
+        @Test
+        @DisplayName("SCH-SVC-TC-076: getAllSchedules - month có nhưng year null -> không vào nhánh year&month")
+        void testGetAllSchedules_MonthOnly_FallsBack_SCH_SVC_TC_076() {
+                // arrange
+                when(scheduleRepository.findAll(any(Pageable.class))).thenReturn(new PageImpl<>(List.of()));
+
+                // act
+                scheduleService.getAllSchedules(
+                                1, 10, "startTime", "desc",
+                                null, null, 4, null, null,
+                                null, null);
+
+                // assert
+                verify(scheduleRepository, times(1)).findAll(any(Pageable.class));
+                verify(scheduleRepository, never()).findByStartTimeBetween(any(), any(), any(Pageable.class));
+        }
+
+        @Test
+        @DisplayName("SCH-SVC-TC-077: getAllSchedules - participant filter: id match nhưng type mismatch -> loại")
+        void testGetAllSchedules_ParticipantFilter_IdMatch_TypeMismatch_Excluded_SCH_SVC_TC_077() {
+                // arrange
+                Schedule s = new Schedule();
+                s.setId(1L);
+                ScheduleParticipant p = new ScheduleParticipant();
+                p.setParticipantId(10L);
+                p.setParticipantType("CANDIDATE");
+                s.setParticipants(new HashSet<>(Set.of(p)));
+                when(scheduleRepository.findAll(any(Pageable.class))).thenReturn(new PageImpl<>(List.of(s)));
+
+                // act
+                PaginationDTO dto = scheduleService.getAllSchedules(
+                                1, 10, "startTime", "desc",
+                                null, null, null, null, null,
+                                10L, "USER");
+
+                // assert
+                @SuppressWarnings("unchecked")
+                List<Schedule> result = (List<Schedule>) dto.getResult();
+                assertTrue(result.isEmpty());
+        }
+
+        @Test
+        @DisplayName("SCH-SVC-TC-078: getSchedulesDetailed - schedule.participants null trong list -> continue, không crash")
+        void testGetSchedulesDetailed_ScheduleWithNullParticipants_Continue_NoCrash_SCH_SVC_TC_078() {
+                // arrange
+                Schedule s1 = new Schedule();
+                s1.setId(1L);
+                s1.setParticipants(null);
+                when(scheduleRepository.findAll(any(Sort.class))).thenReturn(List.of(s1));
+
+                // act
+                List<ScheduleDetailDTO> result = scheduleService.getSchedulesDetailed(
+                                null, null, null, null,
+                                null, null, null, null,
+                                "token", null, null);
+
+                // assert
+                assertEquals(1, result.size());
+                assertNotNull(result.get(0).getParticipants());
+                assertTrue(result.get(0).getParticipants().isEmpty());
+        }
+
+        @Test
+        @DisplayName("SCH-SVC-TC-079: getAvailableParticipants - 2xx nhưng body null -> fallback Unknown")
+        void testGetAvailableParticipants_2xxButNullBody_FallbackUnknown_SCH_SVC_TC_079() {
+                // arrange
+                LocalDateTime start = LocalDateTime.of(2026, 4, 20, 9, 0);
+                LocalDateTime end = LocalDateTime.of(2026, 4, 20, 10, 0);
+                String token = "token";
+                when(userService.getAllEmployeeIds(token)).thenReturn(List.of(1L));
+                when(scheduleRepository.findOverlappingSchedules(start, end, null)).thenReturn(List.of());
+                when(userService.getEmployeeNamesAndDepartmentNames(List.of(1L), token))
+                                .thenReturn(ResponseEntity.ok(null));
+
+                // act
+                List<AvailableParticipantDTO> result = scheduleService.getAvailableParticipants(start, end, null, token);
+
+                // assert
+                assertEquals(1, result.size());
+                assertEquals("Unknown", result.get(0).getName());
+                assertEquals("Unknown", result.get(0).getDepartmentName());
+        }
+
+        @Test
+        @DisplayName("SCH-SVC-TC-080: getSchedulesForStatistics - dateRange + status only (cover nhánh status != null)")
+        void testGetSchedulesForStatistics_DateRange_StatusOnly_SCH_SVC_TC_080() {
+                // arrange
+                LocalDate startDate = LocalDate.of(2026, 4, 1);
+                LocalDate endDate = LocalDate.of(2026, 4, 30);
+
+                Schedule s1 = new Schedule();
+                s1.setId(1L);
+                s1.setStatus("DONE");
+                s1.setStartTime(startDate.atStartOfDay().plusDays(1));
+
+                Schedule s2 = new Schedule();
+                s2.setId(2L);
+                s2.setStatus("SCHEDULED");
+                s2.setStartTime(startDate.atStartOfDay().plusDays(2));
+
+                when(scheduleRepository.findByStartTimeBetween(eq(startDate.atStartOfDay()), eq(endDate.atTime(LocalTime.MAX)),
+                                any(Sort.class)))
+                                .thenReturn(List.of(s1, s2));
+
+                // act
+                List<ScheduleStatisticsDTO> result = scheduleService.getSchedulesForStatistics(startDate, endDate, "DONE", null);
+
+                // assert
+                assertEquals(1, result.size());
+                assertEquals(1L, result.get(0).getId());
+                assertEquals("DONE", result.get(0).getStatus());
+        }
+
+        @Test
+        @DisplayName("SCH-SVC-TC-081: getScheduleWithParticipantNames - 2xx nhưng body null (USER) -> Unknown")
+        void testGetScheduleWithParticipantNames_UserService2xxNullBody_FallbackUnknown_SCH_SVC_TC_081() {
+                // arrange
+                Long scheduleId = 1L;
+                Schedule schedule = new Schedule();
+                schedule.setId(scheduleId);
+                ScheduleParticipant user = new ScheduleParticipant();
+                user.setId(1L);
+                user.setParticipantType("USER");
+                user.setParticipantId(10L);
+                user.setResponseStatus("PENDING");
+                schedule.setParticipants(new HashSet<>(Set.of(user)));
+                when(scheduleRepository.findById(scheduleId)).thenReturn(Optional.of(schedule));
+                when(userService.getEmployeeNames(eq(List.of(10L)), anyString())).thenReturn(ResponseEntity.ok(null));
+
+                // act
+                ScheduleDetailDTO dto = scheduleService.getScheduleWithParticipantNames(scheduleId, "token");
+
+                // assert
+                assertEquals(1, dto.getParticipants().size());
+                assertEquals("Unknown", dto.getParticipants().get(0).getName());
+        }
+
+        @Test
+        @DisplayName("SCH-SVC-TC-082: getScheduleWithParticipantNames - 2xx nhưng body null (CANDIDATE) -> Unknown")
+        void testGetScheduleWithParticipantNames_CandidateService2xxNullBody_FallbackUnknown_SCH_SVC_TC_082() {
+                // arrange
+                Long scheduleId = 1L;
+                Schedule schedule = new Schedule();
+                schedule.setId(scheduleId);
+                ScheduleParticipant cand = new ScheduleParticipant();
+                cand.setId(1L);
+                cand.setParticipantType("CANDIDATE");
+                cand.setParticipantId(2L);
+                cand.setResponseStatus("PENDING");
+                schedule.setParticipants(new HashSet<>(Set.of(cand)));
+                when(scheduleRepository.findById(scheduleId)).thenReturn(Optional.of(schedule));
+                when(candidateService.getCandidateNames(eq(List.of(2L)), anyString())).thenReturn(ResponseEntity.ok(null));
+
+                // act
+                ScheduleDetailDTO dto = scheduleService.getScheduleWithParticipantNames(scheduleId, "token");
+
+                // assert
+                assertEquals(1, dto.getParticipants().size());
+                assertEquals("Unknown", dto.getParticipants().get(0).getName());
+        }
+
+        @Test
+        @DisplayName("SCH-SVC-TC-083: getSchedulesDetailed - week có nhưng year null / year có nhưng week null -> rơi về findAll")
+        void testGetSchedulesDetailed_WeekOrYearMissing_FallsBackFindAll_SCH_SVC_TC_083() {
+                // arrange
+                when(scheduleRepository.findAll(any(Sort.class))).thenReturn(List.of(new Schedule()));
+                when(scheduleRepository.findByStartTimeBetween(any(LocalDateTime.class), any(LocalDateTime.class), any(Sort.class)))
+                                .thenReturn(List.of(new Schedule()));
+
+                // act
+                scheduleService.getSchedulesDetailed(
+                                null, 16, null, null,
+                                null, null, null, null,
+                                "token", null, null);
+                scheduleService.getSchedulesDetailed(
+                                null, null, null, 2026,
+                                null, null, null, null,
+                                "token", null, null);
+
+                // assert
+                verify(scheduleRepository, times(1)).findAll(any(Sort.class));
+                verify(scheduleRepository, times(1)).findByStartTimeBetween(any(LocalDateTime.class), any(LocalDateTime.class), any(Sort.class));
+        }
+
+        @Test
+        @DisplayName("SCH-SVC-TC-084: getSchedulesDetailed - month có nhưng year null -> rơi về findAll")
+        void testGetSchedulesDetailed_MonthWithoutYear_FallsBackFindAll_SCH_SVC_TC_084() {
+                // arrange
+                when(scheduleRepository.findAll(any(Sort.class))).thenReturn(List.of(new Schedule()));
+
+                // act
+                scheduleService.getSchedulesDetailed(
+                                null, null, 4, null,
+                                null, null, null, null,
+                                "token", null, null);
+
+                // assert
+                verify(scheduleRepository, times(1)).findAll(any(Sort.class));
+        }
+
+        @Test
+        @DisplayName("SCH-SVC-TC-085: getSchedulesDetailed - participant filter exclude schedules có participants null")
+        void testGetSchedulesDetailed_ParticipantFilter_ExcludeNullParticipants_SCH_SVC_TC_085() {
+                // arrange
+                Schedule sNull = new Schedule();
+                sNull.setId(1L);
+                sNull.setParticipants(null);
+
+                Schedule sMatch = new Schedule();
+                sMatch.setId(2L);
+                ScheduleParticipant p = new ScheduleParticipant();
+                p.setParticipantType("USER");
+                p.setParticipantId(10L);
+                sMatch.setParticipants(new HashSet<>(Set.of(p)));
+
+                when(scheduleRepository.findAll(any(Sort.class))).thenReturn(List.of(sNull, sMatch));
+                when(userService.getEmployeeNames(anyList(), anyString()))
+                                .thenReturn(ResponseEntity.ok(objectMapper.createObjectNode()));
+
+                // act
+                List<ScheduleDetailDTO> result = scheduleService.getSchedulesDetailed(
+                                null, null, null, null,
+                                null, null, 10L, "USER",
+                                "token", null, null);
+
+                // assert
+                assertEquals(1, result.size());
+                assertEquals(2L, result.get(0).getId());
+        }
+
+        @Test
+        @DisplayName("SCH-SVC-TC-086: getSchedulesDetailed - employeeIds/candidateIds có nhưng response non2xx hoặc null body")
+        void testGetSchedulesDetailed_NameResolve_Non2xxOrNullBody_SCH_SVC_TC_086() {
+                // arrange
+                Schedule s = new Schedule();
+                s.setId(1L);
+                ScheduleParticipant user = new ScheduleParticipant();
+                user.setParticipantType("USER");
+                user.setParticipantId(10L);
+                user.setResponseStatus("PENDING");
+                ScheduleParticipant cand = new ScheduleParticipant();
+                cand.setParticipantType("CANDIDATE");
+                cand.setParticipantId(2L);
+                cand.setResponseStatus("PENDING");
+                s.setParticipants(new HashSet<>(Set.of(user, cand)));
+
+                when(scheduleRepository.findAll(any(Sort.class))).thenReturn(List.of(s));
+                when(userService.getEmployeeNames(eq(List.of(10L)), anyString())).thenReturn(ResponseEntity.ok(null));
+                when(candidateService.getCandidateNames(eq(List.of(2L)), anyString()))
+                                .thenReturn(ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build());
+
+                // act
+                List<ScheduleDetailDTO> result = scheduleService.getSchedulesDetailed(
+                                null, null, null, null,
+                                null, null, null, null,
+                                "token", null, null);
+
+                // assert
+                assertEquals(1, result.size());
+                assertEquals(2, result.get(0).getParticipants().size());
+                assertTrue(result.get(0).getParticipants().stream().allMatch(pdto -> "Unknown".equals(pdto.getName())));
+        }
+
+        @Test
+        @DisplayName("SCH-SVC-TC-087: getSchedulesForStatistics - startDate only / endDate only -> rơi về findAll")
+        void testGetSchedulesForStatistics_StartOnlyOrEndOnly_FallsBackFindAll_SCH_SVC_TC_087() {
+                // arrange
+                when(scheduleRepository.findAll(any(Sort.class))).thenReturn(List.of());
+
+                // act
+                scheduleService.getSchedulesForStatistics(LocalDate.of(2026, 4, 1), null, null, null);
+                scheduleService.getSchedulesForStatistics(null, LocalDate.of(2026, 4, 30), null, null);
+
+                // assert
+                verify(scheduleRepository, times(2)).findAll(any(Sort.class));
+        }
+
+        @Test
+        @DisplayName("SCH-SVC-TC-088: getSchedulesForStatistics - dateRange + status + meetingType, schedule.meetingType null bị loại")
+        void testGetSchedulesForStatistics_DateRange_StatusAndMeetingType_NullMeetingTypeExcluded_SCH_SVC_TC_088() {
+                // arrange
+                LocalDate startDate = LocalDate.of(2026, 4, 1);
+                LocalDate endDate = LocalDate.of(2026, 4, 30);
+
+                Schedule nullType = new Schedule();
+                nullType.setId(1L);
+                nullType.setStatus("DONE");
+                nullType.setMeetingType(null);
+                nullType.setStartTime(startDate.atStartOfDay().plusDays(1));
+
+                Schedule match = new Schedule();
+                match.setId(2L);
+                match.setStatus("DONE");
+                match.setMeetingType(MeetingType.INTERVIEW);
+                match.setStartTime(startDate.atStartOfDay().plusDays(2));
+
+                when(scheduleRepository.findByStartTimeBetween(eq(startDate.atStartOfDay()), eq(endDate.atTime(LocalTime.MAX)),
+                                any(Sort.class)))
+                                .thenReturn(List.of(nullType, match));
+
+                // act
+                List<ScheduleStatisticsDTO> result = scheduleService.getSchedulesForStatistics(startDate, endDate, "DONE", "INTERVIEW");
+
+                // assert
+                assertEquals(1, result.size());
+                assertEquals(2L, result.get(0).getId());
+        }
+
+        @Test
+        @DisplayName("SCH-SVC-TC-089: getSchedulesForStatistics - status only + meetingType, schedule.meetingType null bị loại")
+        void testGetSchedulesForStatistics_StatusOnly_WithMeetingType_NullMeetingTypeExcluded_SCH_SVC_TC_089() {
+                // arrange
+                Schedule nullType = new Schedule();
+                nullType.setId(1L);
+                nullType.setStatus("SCHEDULED");
+                nullType.setMeetingType(null);
+
+                Schedule match = new Schedule();
+                match.setId(2L);
+                match.setStatus("SCHEDULED");
+                match.setMeetingType(MeetingType.INTERVIEW);
+
+                Page<Schedule> page = new PageImpl<>(List.of(nullType, match));
+                when(scheduleRepository.findByStatus(eq("SCHEDULED"), any(Pageable.class))).thenReturn(page);
+
+                // act
+                List<ScheduleStatisticsDTO> result = scheduleService.getSchedulesForStatistics(null, null, "SCHEDULED", "INTERVIEW");
+
+                // assert
+                assertEquals(1, result.size());
+                assertEquals(2L, result.get(0).getId());
+        }
+
+        @Test
+        @DisplayName("SCH-SVC-TC-090: getScheduleWithParticipantNames - candidateService non2xx -> fallback Unknown")
+        void testGetScheduleWithParticipantNames_CandidateServiceNon2xx_FallbackUnknown_SCH_SVC_TC_090() {
+                // arrange
+                Long scheduleId = 1L;
+                Schedule schedule = new Schedule();
+                schedule.setId(scheduleId);
+                ScheduleParticipant cand = new ScheduleParticipant();
+                cand.setId(1L);
+                cand.setParticipantType("CANDIDATE");
+                cand.setParticipantId(2L);
+                cand.setResponseStatus("PENDING");
+                schedule.setParticipants(new HashSet<>(Set.of(cand)));
+                when(scheduleRepository.findById(scheduleId)).thenReturn(Optional.of(schedule));
+                when(candidateService.getCandidateNames(eq(List.of(2L)), anyString()))
+                                .thenReturn(ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build());
+
+                // act
+                ScheduleDetailDTO dto = scheduleService.getScheduleWithParticipantNames(scheduleId, "token");
+
+                // assert
+                assertEquals(1, dto.getParticipants().size());
+                assertEquals("Unknown", dto.getParticipants().get(0).getName());
+        }
+
+        @Test
+        @DisplayName("SCH-SVC-TC-091: getSchedulesDetailed - participantId có nhưng participantType null -> bỏ qua filter")
+        void testGetSchedulesDetailed_ParticipantIdOnly_NoFilter_SCH_SVC_TC_091() {
+                // arrange
+                when(scheduleRepository.findAll(any(Sort.class))).thenReturn(List.of(new Schedule()));
+
+                // act
+                List<ScheduleDetailDTO> result = scheduleService.getSchedulesDetailed(
+                                null, null, null, null,
+                                null, null, 10L, null,
+                                "token", null, null);
+
+                // assert
+                assertEquals(1, result.size());
+        }
+
+        @Test
+        @DisplayName("SCH-SVC-TC-092: getSchedulesDetailed - participantType có nhưng participantId null -> bỏ qua filter")
+        void testGetSchedulesDetailed_ParticipantTypeOnly_NoFilter_SCH_SVC_TC_092() {
+                // arrange
+                when(scheduleRepository.findAll(any(Sort.class))).thenReturn(List.of(new Schedule()));
+
+                // act
+                List<ScheduleDetailDTO> result = scheduleService.getSchedulesDetailed(
+                                null, null, null, null,
+                                null, null, null, "USER",
+                                "token", null, null);
+
+                // assert
+                assertEquals(1, result.size());
+        }
+
+        @Test
+        @DisplayName("SCH-SVC-TC-093: getSchedulesDetailed - chỉ có CANDIDATE participants -> cover nhánh collect candidateIds")
+        void testGetSchedulesDetailed_CandidateOnly_CollectCandidateIds_SCH_SVC_TC_093() {
+                // arrange
+                Schedule s = new Schedule();
+                s.setId(1L);
+                ScheduleParticipant cand = new ScheduleParticipant();
+                cand.setParticipantType("CANDIDATE");
+                cand.setParticipantId(2L);
+                cand.setResponseStatus("PENDING");
+                s.setParticipants(new HashSet<>(Set.of(cand)));
+
+                when(scheduleRepository.findAll(any(Sort.class))).thenReturn(List.of(s));
+                when(candidateService.getCandidateNames(eq(List.of(2L)), anyString()))
+                                .thenReturn(ResponseEntity.ok(objectMapper.createObjectNode().put("2", "C")));
+
+                // act
+                List<ScheduleDetailDTO> result = scheduleService.getSchedulesDetailed(
+                                null, null, null, null,
+                                null, null, null, null,
+                                "token", null, null);
+
+                // assert
+                assertEquals(1, result.size());
+                assertEquals(1, result.get(0).getParticipants().size());
+                assertEquals("C", result.get(0).getParticipants().get(0).getName());
+        }
+
+        @Test
+        @DisplayName("SCH-SVC-TC-094: getSchedulesDetailed - userService non2xx, candidateService 2xx body -> không crash")
+        void testGetSchedulesDetailed_UserNon2xx_Candidate2xxBody_SCH_SVC_TC_094() {
+                // arrange
+                Schedule s = new Schedule();
+                s.setId(1L);
+                ScheduleParticipant user = new ScheduleParticipant();
+                user.setParticipantType("USER");
+                user.setParticipantId(10L);
+                user.setResponseStatus("PENDING");
+                ScheduleParticipant cand = new ScheduleParticipant();
+                cand.setParticipantType("CANDIDATE");
+                cand.setParticipantId(2L);
+                cand.setResponseStatus("PENDING");
+                s.setParticipants(new HashSet<>(Set.of(user, cand)));
+
+                when(scheduleRepository.findAll(any(Sort.class))).thenReturn(List.of(s));
+                when(userService.getEmployeeNames(eq(List.of(10L)), anyString()))
+                                .thenReturn(ResponseEntity.badRequest().build());
+                when(candidateService.getCandidateNames(eq(List.of(2L)), anyString()))
+                                .thenReturn(ResponseEntity.ok(objectMapper.createObjectNode().put("2", "C")));
+
+                // act
+                List<ScheduleDetailDTO> result = scheduleService.getSchedulesDetailed(
+                                null, null, null, null,
+                                null, null, null, null,
+                                "token", null, null);
+
+                // assert
+                assertEquals(1, result.size());
+                assertEquals(2, result.get(0).getParticipants().size());
+                assertTrue(result.get(0).getParticipants().stream()
+                                .anyMatch(p -> "USER".equalsIgnoreCase(p.getParticipantType()) && "Unknown".equals(p.getName())));
+                assertTrue(result.get(0).getParticipants().stream()
+                                .anyMatch(p -> "CANDIDATE".equalsIgnoreCase(p.getParticipantType()) && "C".equals(p.getName())));
+        }
+
+        @Test
+        @DisplayName("SCH-SVC-TC-095: getSchedulesDetailed - participantId match nhưng participantType mismatch -> bị loại")
+        void testGetSchedulesDetailed_ParticipantIdMatch_TypeMismatch_Excluded_SCH_SVC_TC_095() {
+                // arrange
+                Schedule s = new Schedule();
+                s.setId(1L);
+                ScheduleParticipant p = new ScheduleParticipant();
+                p.setParticipantId(10L);
+                p.setParticipantType("CANDIDATE");
+                p.setResponseStatus("PENDING");
+                s.setParticipants(new HashSet<>(Set.of(p)));
+
+                when(scheduleRepository.findAll(any(Sort.class))).thenReturn(List.of(s));
+
+                // act
+                List<ScheduleDetailDTO> result = scheduleService.getSchedulesDetailed(
+                                null, null, null, null,
+                                null, null, 10L, "USER",
+                                "token", null, null);
+
+                // assert
+                assertTrue(result.isEmpty());
+        }
+
+        @Test
+        @DisplayName("SCH-SVC-TC-096: getSchedulesDetailed - participantType OTHER -> không add employee/candidate ids")
+        void testGetSchedulesDetailed_OtherParticipantType_DoesNotCollectIds_SCH_SVC_TC_096() {
+                // arrange
+                Schedule s = new Schedule();
+                s.setId(1L);
+                ScheduleParticipant other = new ScheduleParticipant();
+                other.setParticipantType("OTHER");
+                other.setParticipantId(999L);
+                other.setResponseStatus("PENDING");
+                s.setParticipants(new HashSet<>(Set.of(other)));
+
+                when(scheduleRepository.findAll(any(Sort.class))).thenReturn(List.of(s));
+
+                // act
+                List<ScheduleDetailDTO> result = scheduleService.getSchedulesDetailed(
+                                null, null, null, null,
+                                null, null, null, null,
+                                "token", null, null);
+
+                // assert
+                assertEquals(1, result.size());
+                verify(userService, never()).getEmployeeNames(anyList(), anyString());
+                verify(candidateService, never()).getCandidateNames(anyList(), anyString());
+        }
+
+        @Test
+        @DisplayName("SCH-SVC-TC-097: getSchedulesDetailed - candidateService 2xx nhưng body null -> fallback Unknown")
+        void testGetSchedulesDetailed_CandidateService2xxNullBody_FallbackUnknown_SCH_SVC_TC_097() {
+                // arrange
+                Schedule s = new Schedule();
+                s.setId(1L);
+                ScheduleParticipant cand = new ScheduleParticipant();
+                cand.setParticipantType("CANDIDATE");
+                cand.setParticipantId(2L);
+                cand.setResponseStatus("PENDING");
+                s.setParticipants(new HashSet<>(Set.of(cand)));
+
+                when(scheduleRepository.findAll(any(Sort.class))).thenReturn(List.of(s));
+                when(candidateService.getCandidateNames(eq(List.of(2L)), anyString())).thenReturn(ResponseEntity.ok(null));
+
+                // act
+                List<ScheduleDetailDTO> result = scheduleService.getSchedulesDetailed(
+                                null, null, null, null,
+                                null, null, null, null,
+                                "token", null, null);
+
+                // assert
+                assertEquals(1, result.size());
+                assertEquals("Unknown", result.get(0).getParticipants().get(0).getName());
         }
 
         private CreateScheduleDTO cloneBase() {

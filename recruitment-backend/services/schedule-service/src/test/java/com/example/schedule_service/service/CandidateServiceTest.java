@@ -577,4 +577,499 @@ class CandidateServiceTest {
                 assertNotNull(result.getBody());
                 assertEquals(0, result.getBody().size());
         }
+
+        @Test
+        @DisplayName("SCH-CAND-TC-004: getCandidateName - candidate-service trả body null -> trả 500 theo implement")
+        void testGetCandidateName_ResponseBodyNull_Return500_SCH_CAND_TC_004() {
+                // arrange
+                when(restTemplate.exchange(
+                                eq("http://candidate-service/api/v1/candidate-service/candidates/1"),
+                                eq(HttpMethod.GET),
+                                any(HttpEntity.class),
+                                eq(String.class)))
+                                .thenReturn(ResponseEntity.ok(null));
+
+                ObjectNode err = new ObjectMapper().createObjectNode();
+                when(objectMapper.createObjectNode()).thenReturn(err);
+
+                // act
+                ResponseEntity<JsonNode> result = candidateService.getCandidateName(1L, "t");
+
+                // assert
+                assertNotNull(result);
+                assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, result.getStatusCode());
+                assertNotNull(result.getBody());
+                assertEquals(500, result.getBody().path("statusCode").asInt());
+        }
+
+        @Test
+        @DisplayName("SCH-CAND-TC-005: getCandidateName - JSON thiếu name -> trả 500 theo implement")
+        void testGetCandidateName_JsonMissingName_Return500_SCH_CAND_TC_005() throws Exception {
+                // arrange
+                String body = "{\"data\":{}}";
+                when(restTemplate.exchange(
+                                eq("http://candidate-service/api/v1/candidate-service/candidates/1"),
+                                eq(HttpMethod.GET),
+                                any(HttpEntity.class),
+                                eq(String.class)))
+                                .thenReturn(ResponseEntity.ok(body));
+
+                ObjectMapper realMapper = new ObjectMapper();
+                when(objectMapper.readTree(eq(body))).thenReturn(realMapper.readTree(body));
+
+                // act
+                ResponseEntity<JsonNode> result = candidateService.getCandidateName(1L, null);
+
+                // assert: data.get("name") == null => ResponseEntity.ok(null)
+                assertEquals(HttpStatus.OK, result.getStatusCode());
+                assertNull(result.getBody());
+        }
+
+        @Test
+        @DisplayName("SCH-CAND-TC-006: getCandidateNames - candidateIds rỗng vẫn gọi service và trả map rỗng nếu data array rỗng")
+        void testGetCandidateNames_EmptyCandidateIds_ReturnEmptyMap_SCH_CAND_TC_006() throws Exception {
+                // arrange
+                List<Long> ids = List.of();
+                String body = "{\"data\":[]}";
+                when(restTemplate.exchange(
+                                eq("http://candidate-service/api/v1/candidate-service/candidates?ids="),
+                                eq(HttpMethod.GET),
+                                any(HttpEntity.class),
+                                eq(String.class)))
+                                .thenReturn(ResponseEntity.ok(body));
+
+                ObjectMapper realMapper = new ObjectMapper();
+                when(objectMapper.readTree(eq(body))).thenReturn(realMapper.readTree(body));
+                ObjectNode map = realMapper.createObjectNode();
+                when(objectMapper.createObjectNode()).thenReturn(map);
+
+                // act
+                ResponseEntity<JsonNode> result = candidateService.getCandidateNames(ids, "");
+
+                // assert
+                assertEquals(HttpStatus.OK, result.getStatusCode());
+                assertNotNull(result.getBody());
+                assertEquals(0, result.getBody().size());
+        }
+
+        @Test
+        @DisplayName("SCH-CAND-TC-007: getCandidateNames - candidate-service trả body null -> trả 500 theo implement")
+        void testGetCandidateNames_ResponseBodyNull_Return500_SCH_CAND_TC_007() {
+                // arrange
+                when(restTemplate.exchange(
+                                eq("http://candidate-service/api/v1/candidate-service/candidates?ids=1,2"),
+                                eq(HttpMethod.GET),
+                                any(HttpEntity.class),
+                                eq(String.class)))
+                                .thenReturn(ResponseEntity.ok(null));
+
+                ObjectNode err = new ObjectMapper().createObjectNode();
+                when(objectMapper.createObjectNode()).thenReturn(err);
+
+                // act
+                ResponseEntity<JsonNode> result = candidateService.getCandidateNames(List.of(1L, 2L), null);
+
+                // assert
+                assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, result.getStatusCode());
+                assertEquals(500, result.getBody().path("statusCode").asInt());
+        }
+
+        @Test
+        @DisplayName("SCH-CAND-TC-008: getCandidateNames - HTTP error parse fail -> fallback ObjectNode")
+        void testGetCandidateNames_HttpError_ParseFail_FallbackObjectNode_SCH_CAND_TC_008() throws Exception {
+                // arrange
+                List<Long> ids = List.of(1L, 2L);
+                String responseBody = "not-json";
+
+                HttpClientErrorException httpEx = HttpClientErrorException.create(
+                                HttpStatus.BAD_REQUEST,
+                                "Bad Request",
+                                HttpHeaders.EMPTY,
+                                responseBody.getBytes(StandardCharsets.UTF_8),
+                                StandardCharsets.UTF_8);
+
+                when(restTemplate.exchange(
+                                eq("http://candidate-service/api/v1/candidate-service/candidates?ids=1,2"),
+                                eq(HttpMethod.GET),
+                                any(HttpEntity.class),
+                                eq(String.class)))
+                                .thenThrow(httpEx);
+
+                when(objectMapper.readTree(eq(responseBody))).thenThrow(new RuntimeException("parse fail"));
+                ObjectNode fallback = new ObjectMapper().createObjectNode();
+                when(objectMapper.createObjectNode()).thenReturn(fallback);
+
+                // act
+                ResponseEntity<JsonNode> result = candidateService.getCandidateNames(ids, null);
+
+                // assert
+                assertEquals(HttpStatus.BAD_REQUEST, result.getStatusCode());
+                assertNotNull(result.getBody());
+                assertEquals(400, result.getBody().path("statusCode").asInt());
+                assertTrue(result.getBody().path("message").asText().contains("Không thể parse"));
+        }
+
+        @Test
+        @DisplayName("SCH-CAND-TC-009: getCandidateNames - generic exception -> trả 500 theo implement")
+        void testGetCandidateNames_GenericException_Return500_SCH_CAND_TC_009() {
+                // arrange
+                when(restTemplate.exchange(
+                                eq("http://candidate-service/api/v1/candidate-service/candidates?ids=1"),
+                                eq(HttpMethod.GET),
+                                any(HttpEntity.class),
+                                eq(String.class)))
+                                .thenThrow(new ResourceAccessException("Connection refused"));
+
+                ObjectNode fallback = new ObjectMapper().createObjectNode();
+                when(objectMapper.createObjectNode()).thenReturn(fallback);
+
+                // act
+                ResponseEntity<JsonNode> result = candidateService.getCandidateNames(List.of(1L), "t");
+
+                // assert
+                assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, result.getStatusCode());
+                assertEquals(500, result.getBody().path("statusCode").asInt());
+        }
+
+        @Test
+        @DisplayName("SCH-CAND-TC-010: getEmployeeIdFromCandidateEmail - search result rỗng -> null")
+        void testGetEmployeeIdFromCandidateEmail_SearchEmpty_ReturnNull_SCH_CAND_TC_010() throws Exception {
+                // arrange
+                String email = "missing@gmail.com";
+                String searchBody = "{\"data\":{\"result\":[]}}";
+
+                when(restTemplate.exchange(
+                                startsWith("http://candidate-service/api/v1/candidate-service/candidates?keyword="),
+                                eq(HttpMethod.GET),
+                                any(HttpEntity.class),
+                                eq(String.class)))
+                                .thenReturn(ResponseEntity.ok(searchBody));
+
+                ObjectMapper realMapper = new ObjectMapper();
+                when(objectMapper.readTree(eq(searchBody))).thenReturn(realMapper.readTree(searchBody));
+
+                // act
+                Long result = candidateService.getEmployeeIdFromCandidateEmail(email);
+
+                // assert
+                assertNull(result);
+                verify(restTemplate, times(1)).exchange(anyString(), eq(HttpMethod.GET), any(HttpEntity.class), eq(String.class));
+        }
+
+        @Test
+        @DisplayName("SCH-CAND-TC-013: getEmployeeIdFromCandidateEmail - candidate có updatedBy và createdBy null -> null")
+        void testGetEmployeeIdFromCandidateEmail_UpdatedByAndCreatedByNull_ReturnNull_SCH_CAND_TC_013() throws Exception {
+                // arrange
+                String email = "cand@gmail.com";
+
+                String searchBody = """
+                                {"data":{"result":[{"id":1,"email":"cand@gmail.com"}]}}
+                                """;
+                String detailBody = """
+                                {"data":{"result":[{"updatedBy":null,"createdBy":null}]}}
+                                """;
+
+                when(restTemplate.exchange(
+                                startsWith("http://candidate-service/api/v1/candidate-service/candidates?keyword="),
+                                eq(HttpMethod.GET),
+                                any(HttpEntity.class),
+                                eq(String.class)))
+                                .thenReturn(ResponseEntity.ok(searchBody));
+
+                when(restTemplate.exchange(
+                                eq("http://candidate-service/api/v1/candidate-service/candidates?candidateId=1&page=1&limit=1&sortBy=id&sortOrder=desc"),
+                                eq(HttpMethod.GET),
+                                any(HttpEntity.class),
+                                eq(String.class)))
+                                .thenReturn(ResponseEntity.ok(detailBody));
+
+                ObjectMapper realMapper = new ObjectMapper();
+                when(objectMapper.readTree(eq(searchBody))).thenReturn(realMapper.readTree(searchBody));
+                when(objectMapper.readTree(eq(detailBody))).thenReturn(realMapper.readTree(detailBody));
+
+                // act
+                Long result = candidateService.getEmployeeIdFromCandidateEmail(email);
+
+                // assert
+                assertNull(result);
+        }
+
+        @Test
+        @DisplayName("SCH-CAND-TC-014: getEmployeeIdFromCandidateEmail - detail result empty -> null")
+        void testGetEmployeeIdFromCandidateEmail_DetailResultEmpty_ReturnNull_SCH_CAND_TC_014() throws Exception {
+                // arrange
+                String email = "cand@gmail.com";
+
+                String searchBody = """
+                                {"data":{"result":[{"id":1,"email":"cand@gmail.com"}]}}
+                                """;
+                String detailBody = """
+                                {"data":{"result":[]}}
+                                """;
+
+                when(restTemplate.exchange(
+                                startsWith("http://candidate-service/api/v1/candidate-service/candidates?keyword="),
+                                eq(HttpMethod.GET),
+                                any(HttpEntity.class),
+                                eq(String.class)))
+                                .thenReturn(ResponseEntity.ok(searchBody));
+
+                when(restTemplate.exchange(
+                                eq("http://candidate-service/api/v1/candidate-service/candidates?candidateId=1&page=1&limit=1&sortBy=id&sortOrder=desc"),
+                                eq(HttpMethod.GET),
+                                any(HttpEntity.class),
+                                eq(String.class)))
+                                .thenReturn(ResponseEntity.ok(detailBody));
+
+                ObjectMapper realMapper = new ObjectMapper();
+                when(objectMapper.readTree(eq(searchBody))).thenReturn(realMapper.readTree(searchBody));
+                when(objectMapper.readTree(eq(detailBody))).thenReturn(realMapper.readTree(detailBody));
+
+                // act
+                Long result = candidateService.getEmployeeIdFromCandidateEmail(email);
+
+                // assert
+                assertNull(result);
+        }
+
+        @Test
+        @DisplayName("SCH-CAND-TC-015: getCandidateNames - root.get('data') null -> trả object rỗng")
+        void testGetCandidateNames_DataNull_ReturnEmptyMap_SCH_CAND_TC_015() throws Exception {
+                // arrange
+                List<Long> ids = List.of(1L);
+                String responseBody = "{\"x\":1}";
+
+                JsonNode root = mock(JsonNode.class);
+                when(restTemplate.exchange(
+                                eq("http://candidate-service/api/v1/candidate-service/candidates?ids=1"),
+                                eq(HttpMethod.GET),
+                                any(HttpEntity.class),
+                                eq(String.class)))
+                                .thenReturn(ResponseEntity.ok(responseBody));
+
+                when(objectMapper.readTree(eq(responseBody))).thenReturn(root);
+                when(root.get("data")).thenReturn(null);
+
+                ObjectNode idToName = new ObjectMapper().createObjectNode();
+                when(objectMapper.createObjectNode()).thenReturn(idToName);
+
+                // act
+                ResponseEntity<JsonNode> result = candidateService.getCandidateNames(ids, null);
+
+                // assert
+                assertEquals(HttpStatus.OK, result.getStatusCode());
+                assertNotNull(result.getBody());
+                assertEquals(0, result.getBody().size());
+        }
+
+        @Test
+        @DisplayName("SCH-CAND-TC-016: getCandidateNames - candidate thiếu id hoặc name -> không add vào map")
+        void testGetCandidateNames_CandidateMissingIdOrName_NotAdded_SCH_CAND_TC_016() throws Exception {
+                // arrange
+                List<Long> ids = List.of(1L, 2L);
+                String responseBody = "{\"data\":[{\"id\":1},{\"name\":\"B\"}]}";
+
+                ObjectMapper realMapper = new ObjectMapper();
+                when(restTemplate.exchange(
+                                eq("http://candidate-service/api/v1/candidate-service/candidates?ids=1,2"),
+                                eq(HttpMethod.GET),
+                                any(HttpEntity.class),
+                                eq(String.class)))
+                                .thenReturn(ResponseEntity.ok(responseBody));
+
+                when(objectMapper.readTree(eq(responseBody))).thenReturn(realMapper.readTree(responseBody));
+                ObjectNode idToName = realMapper.createObjectNode();
+                when(objectMapper.createObjectNode()).thenReturn(idToName);
+
+                // act
+                ResponseEntity<JsonNode> result = candidateService.getCandidateNames(ids, null);
+
+                // assert
+                assertEquals(HttpStatus.OK, result.getStatusCode());
+                assertNotNull(result.getBody());
+                assertEquals(0, result.getBody().size());
+        }
+
+        @Test
+        @DisplayName("SCH-CAND-TC-017: getEmployeeIdFromCandidateEmail - candidateData không phải array -> null")
+        void testGetEmployeeIdFromCandidateEmail_CandidateDataNotArray_ReturnNull_SCH_CAND_TC_017() throws Exception {
+                // arrange
+                String email = "cand@gmail.com";
+                String searchBody = "{\"data\":{\"result\":{\"id\":1}}}";
+
+                when(restTemplate.exchange(
+                                startsWith("http://candidate-service/api/v1/candidate-service/candidates?keyword="),
+                                eq(HttpMethod.GET),
+                                any(HttpEntity.class),
+                                eq(String.class)))
+                                .thenReturn(ResponseEntity.ok(searchBody));
+
+                ObjectMapper realMapper = new ObjectMapper();
+                when(objectMapper.readTree(eq(searchBody))).thenReturn(realMapper.readTree(searchBody));
+
+                // act
+                Long result = candidateService.getEmployeeIdFromCandidateEmail(email);
+
+                // assert
+                assertNull(result);
+                verify(restTemplate, times(1)).exchange(anyString(), eq(HttpMethod.GET), any(HttpEntity.class), eq(String.class));
+        }
+
+        @Test
+        @DisplayName("SCH-CAND-TC-018: getEmployeeIdFromCandidateEmail - candidate thiếu email field -> null")
+        void testGetEmployeeIdFromCandidateEmail_CandidateMissingEmailField_ReturnNull_SCH_CAND_TC_018() throws Exception {
+                // arrange
+                String email = "cand@gmail.com";
+                String searchBody = "{\"data\":{\"result\":[{\"id\":1}]}}";
+
+                when(restTemplate.exchange(
+                                startsWith("http://candidate-service/api/v1/candidate-service/candidates?keyword="),
+                                eq(HttpMethod.GET),
+                                any(HttpEntity.class),
+                                eq(String.class)))
+                                .thenReturn(ResponseEntity.ok(searchBody));
+
+                ObjectMapper realMapper = new ObjectMapper();
+                when(objectMapper.readTree(eq(searchBody))).thenReturn(realMapper.readTree(searchBody));
+
+                // act
+                Long result = candidateService.getEmployeeIdFromCandidateEmail(email);
+
+                // assert: candidateId stays null because has("email")==false
+                assertNull(result);
+                verify(restTemplate, times(1)).exchange(anyString(), eq(HttpMethod.GET), any(HttpEntity.class), eq(String.class));
+        }
+
+        @Test
+        @DisplayName("SCH-CAND-TC-019: getEmployeeIdFromCandidateEmail - detail result không phải array -> null")
+        void testGetEmployeeIdFromCandidateEmail_DetailResultNotArray_ReturnNull_SCH_CAND_TC_019() throws Exception {
+                // arrange
+                String email = "cand@gmail.com";
+                String searchBody = "{\"data\":{\"result\":[{\"id\":1,\"email\":\"cand@gmail.com\"}]}}";
+                String detailBody = "{\"data\":{\"result\":{\"updatedBy\":99}}}";
+
+                when(restTemplate.exchange(
+                                startsWith("http://candidate-service/api/v1/candidate-service/candidates?keyword="),
+                                eq(HttpMethod.GET),
+                                any(HttpEntity.class),
+                                eq(String.class)))
+                                .thenReturn(ResponseEntity.ok(searchBody));
+
+                when(restTemplate.exchange(
+                                eq("http://candidate-service/api/v1/candidate-service/candidates?candidateId=1&page=1&limit=1&sortBy=id&sortOrder=desc"),
+                                eq(HttpMethod.GET),
+                                any(HttpEntity.class),
+                                eq(String.class)))
+                                .thenReturn(ResponseEntity.ok(detailBody));
+
+                ObjectMapper realMapper = new ObjectMapper();
+                when(objectMapper.readTree(eq(searchBody))).thenReturn(realMapper.readTree(searchBody));
+                when(objectMapper.readTree(eq(detailBody))).thenReturn(realMapper.readTree(detailBody));
+
+                // act
+                Long result = candidateService.getEmployeeIdFromCandidateEmail(email);
+
+                // assert
+                assertNull(result);
+        }
+
+        @Test
+        @DisplayName("SCH-CAND-TC-020: getEmployeeIdFromCandidateEmail - thiếu updatedBy/createdBy fields -> null")
+        void testGetEmployeeIdFromCandidateEmail_MissingUpdatedByCreatedByFields_ReturnNull_SCH_CAND_TC_020()
+                        throws Exception {
+                // arrange
+                String email = "cand@gmail.com";
+                String searchBody = "{\"data\":{\"result\":[{\"id\":1,\"email\":\"cand@gmail.com\"}]}}";
+                String detailBody = "{\"data\":{\"result\":[{\"id\":1}]}}";
+
+                when(restTemplate.exchange(
+                                startsWith("http://candidate-service/api/v1/candidate-service/candidates?keyword="),
+                                eq(HttpMethod.GET),
+                                any(HttpEntity.class),
+                                eq(String.class)))
+                                .thenReturn(ResponseEntity.ok(searchBody));
+
+                when(restTemplate.exchange(
+                                eq("http://candidate-service/api/v1/candidate-service/candidates?candidateId=1&page=1&limit=1&sortBy=id&sortOrder=desc"),
+                                eq(HttpMethod.GET),
+                                any(HttpEntity.class),
+                                eq(String.class)))
+                                .thenReturn(ResponseEntity.ok(detailBody));
+
+                ObjectMapper realMapper = new ObjectMapper();
+                when(objectMapper.readTree(eq(searchBody))).thenReturn(realMapper.readTree(searchBody));
+                when(objectMapper.readTree(eq(detailBody))).thenReturn(realMapper.readTree(detailBody));
+
+                // act
+                Long result = candidateService.getEmployeeIdFromCandidateEmail(email);
+
+                // assert
+                assertNull(result);
+        }
+
+        @Test
+        @DisplayName("SCH-CAND-TC-021: getEmployeeIdFromCandidateEmail - candidateData null (mock path trả null) -> null")
+        void testGetEmployeeIdFromCandidateEmail_CandidateDataNullViaMockPath_ReturnNull_SCH_CAND_TC_021() throws Exception {
+                // arrange
+                String email = "cand@gmail.com";
+                String searchBody = "{\"dummy\":true}";
+
+                when(restTemplate.exchange(
+                                startsWith("http://candidate-service/api/v1/candidate-service/candidates?keyword="),
+                                eq(HttpMethod.GET),
+                                any(HttpEntity.class),
+                                eq(String.class)))
+                                .thenReturn(ResponseEntity.ok(searchBody));
+
+                JsonNode root = mock(JsonNode.class);
+                JsonNode data = mock(JsonNode.class);
+                when(objectMapper.readTree(eq(searchBody))).thenReturn(root);
+                when(root.path("data")).thenReturn(data);
+                when(data.path("result")).thenReturn(null); // force candidateData == null
+
+                // act
+                Long result = candidateService.getEmployeeIdFromCandidateEmail(email);
+
+                // assert
+                assertNull(result);
+        }
+
+        @Test
+        @DisplayName("SCH-CAND-TC-022: getEmployeeIdFromCandidateEmail - candidateDetailData null (mock path trả null) -> null")
+        void testGetEmployeeIdFromCandidateEmail_CandidateDetailDataNullViaMockPath_ReturnNull_SCH_CAND_TC_022()
+                        throws Exception {
+                // arrange
+                String email = "cand@gmail.com";
+                String searchBody = "{\"data\":{\"result\":[{\"id\":1,\"email\":\"cand@gmail.com\"}]}}";
+                String detailBody = "{\"dummy\":true}";
+
+                when(restTemplate.exchange(
+                                startsWith("http://candidate-service/api/v1/candidate-service/candidates?keyword="),
+                                eq(HttpMethod.GET),
+                                any(HttpEntity.class),
+                                eq(String.class)))
+                                .thenReturn(ResponseEntity.ok(searchBody));
+
+                when(restTemplate.exchange(
+                                eq("http://candidate-service/api/v1/candidate-service/candidates?candidateId=1&page=1&limit=1&sortBy=id&sortOrder=desc"),
+                                eq(HttpMethod.GET),
+                                any(HttpEntity.class),
+                                eq(String.class)))
+                                .thenReturn(ResponseEntity.ok(detailBody));
+
+                ObjectMapper realMapper = new ObjectMapper();
+                when(objectMapper.readTree(eq(searchBody))).thenReturn(realMapper.readTree(searchBody));
+
+                JsonNode detailRoot = mock(JsonNode.class);
+                JsonNode detailData = mock(JsonNode.class);
+                when(objectMapper.readTree(eq(detailBody))).thenReturn(detailRoot);
+                when(detailRoot.path("data")).thenReturn(detailData);
+                when(detailData.path("result")).thenReturn(null); // force candidateDetailData == null
+
+                // act
+                Long result = candidateService.getEmployeeIdFromCandidateEmail(email);
+
+                // assert
+                assertNull(result);
+        }
 }
