@@ -1924,9 +1924,166 @@ class RecruitmentRequestServiceTest {
                 () -> recruitmentRequestService.getByIdWithUser(draftRequest.getId(), TOKEN));
     }
 
-    // ================================================================
-    // HELPER METHODS
-    // ================================================================
+    private com.example.job_service.service.RecruitmentRequestService getTargetService() throws Exception {
+        if (org.springframework.aop.support.AopUtils.isAopProxy(recruitmentRequestService)) {
+            return (com.example.job_service.service.RecruitmentRequestService) 
+                org.springframework.test.util.AopTestUtils.getTargetObject(recruitmentRequestService);
+        }
+        return recruitmentRequestService;
+    }
+
+    /**
+     * Test Case ID: RR-TC70
+     * Phủ nhánh includeWorkflow = false
+     */
+    @Test
+    @DisplayName("[RR-TC70] convertToWithUserDTO - includeWorkflow=false")
+    void tc70_convertToWithUserDTO_noWorkflow() throws Exception {
+        var service = getTargetService();
+        var mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+
+        // Mock UserClient để tránh NPE
+        when(userClient.getEmployeeById(any(), any()))
+                .thenReturn(org.springframework.http.ResponseEntity.ok(mapper.createObjectNode()));
+        when(userClient.getDepartmentById(any(), any()))
+                .thenReturn(org.springframework.http.ResponseEntity.ok(mapper.createObjectNode()));
+
+        var method = org.springframework.util.ReflectionUtils.findMethod(
+                com.example.job_service.service.RecruitmentRequestService.class,
+                "convertToWithUserDTO",
+                com.example.job_service.model.RecruitmentRequest.class,
+                String.class,
+                boolean.class,
+                boolean.class
+        );
+        org.springframework.util.ReflectionUtils.makeAccessible(method);
+
+        // Tham số: request, token, truncateText=true, includeWorkflow=false
+        var result = (com.example.job_service.dto.recruitment.RecruitmentRequestWithUserDTO) 
+                org.springframework.util.ReflectionUtils.invokeMethod(method, service, draftRequest, TOKEN, true, false);
+
+        assertNotNull(result);
+        assertNull(result.getWorkflowInfo()); 
+    }
+
+    /**
+     * Test Case ID: RR-TC71
+     * Phủ nhánh includeEmployee = false
+     */
+    @Test
+    @DisplayName("[RR-TC71] convertToWithUserDTO - truncateText=false")
+    void tc71_convertToWithUserDTO_noTruncate() throws Exception {
+        var service = getTargetService();
+        var mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+
+        // Mock đầy đủ để tránh NPE
+        when(userClient.getEmployeeById(any(), any()))
+                .thenReturn(org.springframework.http.ResponseEntity.ok(mapper.createObjectNode()));
+        when(userClient.getDepartmentById(any(), any()))
+                .thenReturn(org.springframework.http.ResponseEntity.ok(mapper.createObjectNode()));
+
+        var method = org.springframework.util.ReflectionUtils.findMethod(
+                com.example.job_service.service.RecruitmentRequestService.class,
+                "convertToWithUserDTO",
+                com.example.job_service.model.RecruitmentRequest.class,
+                String.class,
+                boolean.class,
+                boolean.class
+        );
+        org.springframework.util.ReflectionUtils.makeAccessible(method);
+
+        // Tham số: request, token, truncateText=false, includeWorkflow=true
+        var result = (com.example.job_service.dto.recruitment.RecruitmentRequestWithUserDTO) 
+                org.springframework.util.ReflectionUtils.invokeMethod(method, service, draftRequest, TOKEN, false, true);
+
+        assertNotNull(result);
+        assertNotNull(result.getRequester());
+    }
+
+    /**
+     * Test Case ID: RR-TC72
+     * changeStatus() - Phủ nhánh Repository trả về null
+     */
+    @Test
+    @DisplayName("[RR-TC72] changeStatus() - Repository trả null")
+    void tc72_changeStatus_repoReturnsNull() throws Exception {
+        var service = getTargetService();
+        var mockRepo = mock(com.example.job_service.repository.RecruitmentRequestRepository.class);
+        when(mockRepo.findById(any())).thenReturn(java.util.Optional.of(draftRequest));
+        when(mockRepo.save(any())).thenReturn(null);
+
+        var field = com.example.job_service.service.RecruitmentRequestService.class.getDeclaredField("recruitmentRequestRepository");
+        field.setAccessible(true);
+        var originalRepo = field.get(service);
+        field.set(service, mockRepo);
+
+        try {
+            boolean result = service.changeStatus(draftRequest.getId(), RecruitmentRequestStatus.PENDING);
+            assertFalse(result);
+        } finally {
+            field.set(service, originalRepo);
+        }
+    }
+
+    /**
+     * Test Case ID: RR-TC73
+     * getAllWithFilters() - Phủ nhánh status rỗng
+     */
+    @Test
+    @DisplayName("[RR-TC73] getAllWithFilters() - status hợp lệ")
+    void tc73_getAllWithFilters_validStatus() {
+        // Phủ dòng 171: gọi valueOf với status hợp lệ
+        assertDoesNotThrow(() -> recruitmentRequestService.getAllWithFilters(
+                null, "DRAFT", null, null, TOKEN, org.springframework.data.domain.PageRequest.of(0, 10)));
+    }
+
+    /**
+     * Test Case ID: RR-TC74
+     * convertToWithUserDTOList - Phủ nhánh tổ hợp logic A && B (NullNode)
+     */
+    @Test
+    @DisplayName("[RR-TC74] convertToWithUserDTOList - JSON logic coverage (NullNode vs Missing)")
+    void tc74_convertToWithUserDTOList_jsonBranches() throws Exception {
+        var service = getTargetService();
+        var mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+        
+        // Trường hợp 1: employee có department nhưng department là NullNode (dept != null nhưng dept.has("id") là false)
+        var employee1 = mapper.createObjectNode();
+        employee1.set("department", com.fasterxml.jackson.databind.node.NullNode.getInstance());
+        
+        // Trường hợp 2: employee có department, department có id nhưng id là NullNode
+        var employee2 = mapper.createObjectNode();
+        var dept2 = mapper.createObjectNode();
+        dept2.set("id", com.fasterxml.jackson.databind.node.NullNode.getInstance());
+        employee2.set("department", dept2);
+
+        when(userClient.getEmployeeById(any(), any()))
+                .thenReturn(org.springframework.http.ResponseEntity.ok(employee1))
+                .thenReturn(org.springframework.http.ResponseEntity.ok(employee2));
+
+        org.springframework.data.domain.Page<com.example.job_service.model.RecruitmentRequest> page = 
+                new org.springframework.data.domain.PageImpl<>(java.util.List.of(draftRequest, draftRequest));
+
+        var method = org.springframework.util.ReflectionUtils.findMethod(
+                com.example.job_service.service.RecruitmentRequestService.class, "convertToWithUserDTOList",
+                org.springframework.data.domain.Page.class, String.class);
+        org.springframework.util.ReflectionUtils.makeAccessible(method);
+        
+        var result = org.springframework.util.ReflectionUtils.invokeMethod(method, service, page, TOKEN);
+        assertNotNull(result);
+    }
+
+    /**
+     * Test Case ID: RR-TC75
+     * getAllWithFilters() - Phủ nhánh Pageable.unpaged()
+     */
+    @Test
+    @DisplayName("[RR-TC75] getAllWithFilters() - Pageable.unpaged()")
+    void tc75_getAllWithFilters_unpaged() {
+        // Phủ nhánh pageable.isPaged() = false
+        assertDoesNotThrow(() -> recruitmentRequestService.getAllWithFilters(
+                null, null, null, null, TOKEN, org.springframework.data.domain.Pageable.unpaged()));
+    }
 
     private RecruitmentRequest buildRequest(String title, RecruitmentRequestStatus status,
                                              Long requesterId, Long ownerId, Long deptId, Long workflowId) {
