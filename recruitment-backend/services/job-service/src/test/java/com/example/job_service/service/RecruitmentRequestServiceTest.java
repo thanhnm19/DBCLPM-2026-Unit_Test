@@ -1777,6 +1777,153 @@ class RecruitmentRequestServiceTest {
         }, "BUG: NPE khi requesterId=null trong convertToWithUserDTOList()");
     }
 
+    /**
+     * Test Case ID: RR-TC61
+     * getAllWithFilters(): employee có node "department" nhưng là NullNode
+     * → nhánh `if (dept != null && dept.has("id"))` = FALSE.
+     */
+    @Test
+    @DisplayName("[RR-TC61] getAllWithFilters() - employee có department là NullNode → không crash")
+    void tc61_getAllWithFilters_nullDepartmentNode_noNpe() {
+        com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+        com.fasterxml.jackson.databind.node.ObjectNode employee = mapper.createObjectNode();
+        employee.put("id", REQUESTER_ID);
+        employee.set("department", mapper.nullNode()); // NullNode
+
+        when(userClient.getEmployeesByIds(any(), any()))
+                .thenReturn(Map.of(REQUESTER_ID, employee));
+
+        assertDoesNotThrow(() -> recruitmentRequestService.getAllWithFilters(
+                null, null, null, null, TOKEN, org.springframework.data.domain.PageRequest.of(0, 10)));
+    }
+
+    /**
+     * Test Case ID: RR-TC62
+     * getAllWithFilters(): employee có department nhưng thiếu "id"
+     * → nhánh `if (dept.has("id"))` = FALSE.
+     */
+    @Test
+    @DisplayName("[RR-TC62] getAllWithFilters() - department thiếu id → không crash")
+    void tc62_getAllWithFilters_departmentMissingId_noNpe() {
+        com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+        com.fasterxml.jackson.databind.node.ObjectNode employee = mapper.createObjectNode();
+        employee.put("id", REQUESTER_ID);
+        employee.set("department", mapper.createObjectNode()); // Empty object {}
+
+        when(userClient.getEmployeesByIds(any(), any()))
+                .thenReturn(Map.of(REQUESTER_ID, employee));
+
+        assertDoesNotThrow(() -> recruitmentRequestService.getAllWithFilters(
+                null, null, null, null, TOKEN, org.springframework.data.domain.PageRequest.of(0, 10)));
+    }
+
+    /**
+     * Test Case ID: RR-TC63
+     * getAllWithFilters(): employeeMap không chứa ID của requester
+     * → `employeeMap.get(id)` trả về null → nhánh `if (employee != null)` = FALSE.
+     */
+    @Test
+    @DisplayName("[RR-TC63] getAllWithFilters() - employeeMap thiếu ID → không crash, dto.requester=null")
+    void tc63_getAllWithFilters_missingEmployeeInMap_noNpe() {
+        // Mock map rỗng dù có requesterId
+        when(userClient.getEmployeesByIds(any(), any())).thenReturn(Map.of());
+
+        var result = assertDoesNotThrow(() -> recruitmentRequestService.getAllWithFilters(
+                null, null, null, null, TOKEN, org.springframework.data.domain.PageRequest.of(0, 10)));
+        
+        @SuppressWarnings("unchecked")
+        java.util.List<com.example.job_service.dto.recruitment.RecruitmentRequestAllWithUserDTO> list =
+                (java.util.List<com.example.job_service.dto.recruitment.RecruitmentRequestAllWithUserDTO>) result.getResult();
+        assertTrue(list.stream().anyMatch(d -> d.getRequester() == null));
+    }
+
+    /**
+     * Test Case ID: RR-TC64
+     * submit() - Trạng thái SUBMITTED → IllegalStateException
+     */
+    @Test
+    @DisplayName("[RR-TC64] submit() - SUBMITTED → IllegalStateException")
+    void tc64_submit_fromSubmitted_throwsIllegalStateException() {
+        pendingRequest.setStatus(RecruitmentRequestStatus.SUBMITTED);
+        recruitmentRequestRepository.save(pendingRequest);
+
+        assertThrows(IllegalStateException.class,
+                () -> recruitmentRequestService.submit(pendingRequest.getId(), OWNER_ID, TOKEN));
+    }
+
+    /**
+     * Test Case ID: RR-TC65
+     * approveStep() - Trạng thái REJECTED → IllegalStateException
+     */
+    @Test
+    @DisplayName("[RR-TC65] approveStep() - REJECTED → IllegalStateException")
+    void tc65_approveStep_fromRejected_throwsIllegalStateException() {
+        pendingRequest.setStatus(RecruitmentRequestStatus.REJECTED);
+        recruitmentRequestRepository.save(pendingRequest);
+
+        assertThrows(IllegalStateException.class,
+                () -> recruitmentRequestService.approveStep(pendingRequest.getId(), new ApproveRecruitmentRequestDTO(), OWNER_ID, TOKEN));
+    }
+
+    /**
+     * Test Case ID: RR-TC66
+     * rejectStep() - Trạng thái APPROVED → IllegalStateException
+     */
+    @Test
+    @DisplayName("[RR-TC66] rejectStep() - APPROVED → IllegalStateException")
+    void tc66_rejectStep_fromApproved_throwsIllegalStateException() {
+        pendingRequest.setStatus(RecruitmentRequestStatus.APPROVED);
+        recruitmentRequestRepository.save(pendingRequest);
+
+        assertThrows(IllegalStateException.class,
+                () -> recruitmentRequestService.rejectStep(pendingRequest.getId(), new RejectRecruitmentRequestDTO(), OWNER_ID, TOKEN));
+    }
+
+    /**
+     * Test Case ID: RR-TC67
+     * returnRequest() - Trạng thái CANCELLED → IllegalStateException
+     */
+    @Test
+    @DisplayName("[RR-TC67] returnRequest() - CANCELLED → IllegalStateException")
+    void tc67_returnRequest_fromCancelled_throwsIllegalStateException() {
+        pendingRequest.setStatus(RecruitmentRequestStatus.CANCELLED);
+        recruitmentRequestRepository.save(pendingRequest);
+
+        assertThrows(IllegalStateException.class,
+                () -> recruitmentRequestService.returnRequest(pendingRequest.getId(), new ReturnRecruitmentRequestDTO(), OWNER_ID, TOKEN));
+    }
+
+    /**
+     * Test Case ID: RR-TC68
+     * findAllWithFilters() - status="   " (khoảng trắng) → bỏ qua filter
+     */
+    @Test
+    @DisplayName("[RR-TC68] findAllWithFilters() - status=\"   \" → bỏ qua filter")
+    void tc68_findAllWithFilters_whitespaceStatus_ignoresFilter() {
+        List<RecruitmentRequest> result = recruitmentRequestService.findAllWithFilters(null, "   ", null, null);
+        assertTrue(result.size() >= 2);
+    }
+
+    /**
+     * Test Case ID: RR-TC69
+     * getByIdWithUser() - getDepartmentById() 500 → UserClientException
+     */
+    @Test
+    @DisplayName("[RR-TC69] getByIdWithUser() - getDepartmentById() 500 → UserClientException")
+    void tc69_getByIdWithUser_department500_throwsUserClientException() {
+        com.fasterxml.jackson.databind.node.ObjectNode fakeEmployee =
+                new com.fasterxml.jackson.databind.ObjectMapper().createObjectNode();
+        fakeEmployee.put("id", REQUESTER_ID);
+
+        when(userClient.getEmployeeById(eq(REQUESTER_ID), eq(TOKEN)))
+                .thenReturn(org.springframework.http.ResponseEntity.ok(fakeEmployee));
+        when(userClient.getDepartmentById(any(), eq(TOKEN)))
+                .thenReturn(org.springframework.http.ResponseEntity.status(500).build());
+
+        assertThrows(com.example.job_service.exception.UserClientException.class,
+                () -> recruitmentRequestService.getByIdWithUser(draftRequest.getId(), TOKEN));
+    }
+
     // ================================================================
     // HELPER METHODS
     // ================================================================
