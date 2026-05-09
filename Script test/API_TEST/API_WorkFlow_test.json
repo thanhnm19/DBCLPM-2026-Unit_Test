@@ -1,0 +1,683 @@
+{
+  "info": {
+    "name": "Recruitment System API Tests - Workflow",
+    "_postman_id": "recruit-api-wf",
+    "description": "Luồng CRUD tự rollback: GET baseline → POST tạo → GET verify tạo → PUT sửa → GET verify sửa → DELETE → GET verify xóa. Dữ liệu test được dọn sạch khi kết thúc collection.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "base_url", "value": "http://localhost:8081" },
+    { "key": "access_token", "value": "" },
+    { "key": "employee_token", "value": "" },
+    { "key": "refresh_token", "value": "" },
+    { "key": "workflowId", "value": "" },
+    { "key": "activeWorkflowId", "value": "1" },
+    { "key": "trackingId", "value": "1" },
+    { "key": "initialTotalWorkflows", "value": "0" }
+  ],
+  "item": [
+    {
+      "name": "Workflow CRUD Lifecycle (tự rollback)",
+      "item": [
+        {
+          "name": "STEP 0 - Login lay token",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[STEP-0] Status 200', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.collectionVariables.set('access_token', body.data.access_token);",
+                  "pm.test('[STEP-0] Co accessToken', () => pm.expect(body.data.access_token).to.be.a('string').and.not.empty);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/user-service/auth/login",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"username\": \"admin@gmail.com\", \"password\": \"123456\"}"
+            }
+          }
+        },
+        {
+          "name": "WF-TC01 - GET BASELINE: Dem so luong workflow ban dau",
+          "description": "Lưu tổng số workflow trước khi tạo mới → so sánh cuối luồng để verify rollback hoàn toàn.",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[WF-TC01] Status 200', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('[WF-TC01] Co meta va result', () => {",
+                  "  pm.expect(body.data.meta).to.exist;",
+                  "  pm.expect(body.data.result).to.be.an('array');",
+                  "});",
+                  "const total = body.data.meta.total || body.data.result.length;",
+                  "pm.collectionVariables.set('initialTotalWorkflows', total);",
+                  "console.log('[BASELINE] Tong workflow ban dau: ' + total);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/v1/workflow-service/workflows",
+            "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }]
+          }
+        },
+        {
+          "name": "WF-TC02 - POST: Tao workflow moi",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[WF-TC02] Status 201', () => pm.response.to.have.status(201));",
+                  "const body = pm.response.json();",
+                  "pm.test('[WF-TC02] Co id', () => pm.expect(body.data.id).to.be.a('number'));",
+                  "pm.test('[WF-TC02] Name dung', () => pm.expect(body.data.name).to.equal('QT Tuyen Dung Test'));",
+                  "pm.collectionVariables.set('workflowId', body.data.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/workflow-service/workflows",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{access_token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"name\": \"QT Tuyen Dung Test\", \"type\": \"REQUEST\", \"isActive\": true}"
+            }
+          }
+        },
+        {
+          "name": "WF-TC03 - GET VERIFY TAO: Lay workflow vua tao bang ID",
+          "description": "Verify record vừa tạo đã tồn tại trong DB bằng cách GET by ID.",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[WF-TC03] Status 200', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "const expectedId = parseInt(pm.collectionVariables.get('workflowId'));",
+                  "pm.test('[WF-TC03] ID dung voi workflow vua tao', () => pm.expect(body.data.id).to.equal(expectedId));",
+                  "pm.test('[WF-TC03] Name dung', () => pm.expect(body.data.name).to.equal('QT Tuyen Dung Test'));",
+                  "pm.test('[WF-TC03] Type dung', () => pm.expect(body.data.type).to.equal('REQUEST'));",
+                  "pm.test('[WF-TC03] isActive = true', () => pm.expect(body.data.isActive).to.be.true);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/v1/workflow-service/workflows/{{workflowId}}",
+            "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }]
+          }
+        },
+        {
+          "name": "WF-TC04 - GET VERIFY TAO: List workflow phai tang them 1",
+          "description": "Verify tổng record đã tăng 1 so với baseline.",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[WF-TC04] Status 200', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "const initialTotal = parseInt(pm.collectionVariables.get('initialTotalWorkflows'));",
+                  "const currentTotal = body.data.meta.total || body.data.result.length;",
+                  "pm.test('[WF-TC04] Tong workflow tang 1 so voi baseline (' + initialTotal + ' -> ' + currentTotal + ')', () => {",
+                  "  pm.expect(currentTotal).to.equal(initialTotal + 1);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/v1/workflow-service/workflows",
+            "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }]
+          }
+        },
+        {
+          "name": "WF-TC05 - PUT: Cap nhat workflow",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[WF-TC05] Status 200', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('[WF-TC05] Name da cap nhat', () => pm.expect(body.data.name).to.equal('QT Tuyen Dung Updated'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PUT",
+            "url": "{{base_url}}/api/v1/workflow-service/workflows/{{workflowId}}",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{access_token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"name\": \"QT Tuyen Dung Updated\", \"isActive\": true}"
+            }
+          }
+        },
+        {
+          "name": "WF-TC06 - GET VERIFY SUA: Lay workflow va kiem tra name da doi",
+          "description": "Verify bằng GET lại rằng tên đã thay đổi trên DB.",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[WF-TC06] Status 200', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('[WF-TC06] Name da cap nhat thanh cong trong DB', () => pm.expect(body.data.name).to.equal('QT Tuyen Dung Updated'));",
+                  "pm.test('[WF-TC06] ID khong thay doi', () => pm.expect(body.data.id).to.equal(parseInt(pm.collectionVariables.get('workflowId'))));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/v1/workflow-service/workflows/{{workflowId}}",
+            "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }]
+          }
+        },
+        {
+          "name": "WF-TC07 - DELETE (ROLLBACK): Xoa workflow vua tao",
+          "description": "ROLLBACK: Xóa workflow test để trả DB về trạng thái ban đầu.",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[WF-TC07] Status 200 hoac 204', () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200, 204]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "url": "{{base_url}}/api/v1/workflow-service/workflows/{{workflowId}}",
+            "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }]
+          }
+        },
+        {
+          "name": "WF-TC08 - GET VERIFY XOA: Workflow da bi xoa, GET phai tra loi 400/404",
+          "description": "Verify DELETE thành công: GET by ID phải trả về 400 hoặc 404.",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[WF-TC08] Status 400 hoac 404 - workflow da bi xoa', () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([400, 404]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/v1/workflow-service/workflows/{{workflowId}}",
+            "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }]
+          }
+        },
+        {
+          "name": "WF-TC09 - GET VERIFY ROLLBACK: List workflow phai ve dung so ban dau",
+          "description": "Verify DB rollback hoàn toàn: tổng record phải bằng đúng baseline ban đầu.",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[WF-TC09] Status 200', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "const initialTotal = parseInt(pm.collectionVariables.get('initialTotalWorkflows'));",
+                  "const currentTotal = body.data.meta.total || body.data.result.length;",
+                  "pm.test('[WF-TC09] ROLLBACK OK: Tong workflow ve bang baseline (' + currentTotal + ' == ' + initialTotal + ')', () => {",
+                  "  pm.expect(currentTotal).to.equal(initialTotal);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/v1/workflow-service/workflows",
+            "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Workflow Negative Cases (khong tao du lieu, khong can rollback)",
+      "item": [
+        {
+          "name": "WF-TC10 - POST: Tao workflow thieu name (validation 400)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[WF-TC10] Status 400', () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/workflow-service/workflows",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{access_token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"type\": \"REQUEST\"}"
+            }
+          }
+        },
+        {
+          "name": "WF-TC11 - GET: Workflow ID khong ton tai (404)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[WF-TC11] Status 400 hoac 404', () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([400, 404]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/v1/workflow-service/workflows/999999",
+            "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }]
+          }
+        },
+        {
+          "name": "WF-TC12 - Filter theo type=REQUEST",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[WF-TC12] Status 200', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('[WF-TC12] Tat ca type=REQUEST', () => {",
+                  "  body.data.result.forEach(w => pm.expect(w.type).to.equal('REQUEST'));",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/v1/workflow-service/workflows?type=REQUEST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }]
+          }
+        },
+        {
+          "name": "WF-TC13 - Filter isActive=true",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[WF-TC13] Status 200', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('[WF-TC13] Tat ca isActive=true', () => {",
+                  "  body.data.result.forEach(w => pm.expect(w.isActive).to.be.true);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/v1/workflow-service/workflows?isActive=true",
+            "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }]
+          }
+        },
+        {
+          "name": "WF-TC14 - POST: stepOrder sai logic cap bac (Giam doc truoc Truong phong) - phai 400",
+          "description": "Kiểm tra logic hierarchyOrder. Payload sai: Bước 1=Giám đốc(cấp cao), Bước 2=Trưởng phòng(cấp thấp). Expected: HTTP 400. Test này KHÔNG tạo data nên không cần rollback.",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[WF-TC14] Status 400 - hierarchyOrder sai logic', () => {",
+                  "  pm.response.to.have.status(400);",
+                  "});",
+                  "pm.test('[WF-TC14] Response co thong bao loi hierarchy', () => {",
+                  "  const body = pm.response.json();",
+                  "  const bodyStr = JSON.stringify(body).toLowerCase();",
+                  "  const hasError = bodyStr.includes('hierarchy') || bodyStr.includes('order') || bodyStr.includes('invalid') || bodyStr.includes('cap bac');",
+                  "  pm.expect(hasError).to.be.true;",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/workflow-service/workflows",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{access_token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"name\": \"QT Sai Cap Bac\", \"type\": \"REQUEST\", \"isActive\": true, \"steps\": [{\"stepOrder\": 1, \"approverPositionId\": 3, \"approverPositionName\": \"Giam doc\", \"hierarchyOrder\": 3}, {\"stepOrder\": 2, \"approverPositionId\": 2, \"approverPositionName\": \"Truong phong\", \"hierarchyOrder\": 2}]}"
+            }
+          }
+        },
+        {
+          "name": "WF-TC15 - POST: Nhan vien duyet thay Giam doc (phan quyen 403)",
+          "description": "Dùng employee_token (nhân viên) để approve tracking dành cho Giám đốc. Prerequisite: employee_token + trackingId đã set sẵn. Không tạo data mới, không cần rollback.",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "if (!pm.variables.get('trackingId')) {",
+                  "  pm.variables.set('trackingId', '1');",
+                  "}",
+                  "const baseUrl = pm.variables.get('base_url') || 'http://localhost:8081';",
+                  "const postRequest = {",
+                  "  url: baseUrl + '/api/v1/user-service/auth/login',",
+                  "  method: 'POST',",
+                  "  header: 'Content-Type:application/json',",
+                  "  body: {",
+                  "    mode: 'raw',",
+                  "    raw: JSON.stringify({ username: 'anh.do@company.com', password: '123456' })",
+                  "  }",
+                  "};",
+                  "pm.sendRequest(postRequest, (err, res) => {",
+                  "  if (!err) {",
+                  "    const response = res.json();",
+                  "    if(response.data && response.data.access_token) {",
+                  "      pm.variables.set('employee_token', response.data.access_token);",
+                  "    }",
+                  "  }",
+                  "});"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[WF-TC15] Status 403 Forbidden', () => {",
+                  "  pm.response.to.have.status(403);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/workflow-service/approval-trackings/{{trackingId}}/approve",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{employee_token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"action\": \"APPROVED\", \"notes\": \"Nhan vien co gang duyet thay Giam doc\"}"
+            }
+          }
+        },
+        {
+          "name": "WF-TC16 - DELETE: Xoa workflow dang co phieu PENDING (phai bi chan)",
+          "description": "Prerequisite: activeWorkflowId = ID workflow có tracking PENDING. Expected: HTTP 400/409. Không xóa thực tế, không cần rollback.",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "if (!pm.variables.get('activeWorkflowId')) {",
+                  "  pm.variables.set('activeWorkflowId', '1');",
+                  "  console.log('Fallback activeWorkflowId to 1');",
+                  "}"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[WF-TC16] Status 400 hoac 409 - khong xoa duoc workflow dang chay', () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([400, 409, 422]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "url": "{{base_url}}/api/v1/workflow-service/workflows/{{activeWorkflowId}}",
+            "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }]
+          }
+        },
+        {
+          "name": "WF-TC17 - PUT: Sua luong dang co phieu PENDING (phai bi chan)",
+          "description": "Prerequisite: activeWorkflowId = ID workflow có tracking PENDING. Expected: HTTP 400/409. Việc sửa cấu trúc (steps) khi đang chạy sẽ làm sập tiến trình duyệt.",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[WF-TC17] Status 400 hoac 409 - khong sua duoc workflow dang chay', () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([400, 409, 422]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PUT",
+            "url": "{{base_url}}/api/v1/workflow-service/workflows/{{activeWorkflowId}}",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{access_token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"name\": \"QT Dang Chay\", \"type\": \"REQUEST\", \"isActive\": true, \"steps\": [{\"stepOrder\": 1, \"approverPositionId\": 1, \"approverPositionName\": \"Test\", \"hierarchyOrder\": 1}]}"
+            }
+          }
+        },
+        {
+          "name": "WF-TC18 - POST: Tao workflow voi type khong hop le",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[WF-TC18] Status 400', () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/workflow-service/workflows",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{access_token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"name\": \"QT Type Sai\", \"type\": \"INVALID_TYPE\", \"isActive\": true}"
+            }
+          }
+        },
+        {
+          "name": "WF-TC19 - POST: Tao workflow khong co steps (mang rong)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[WF-TC19] Status 400', () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/workflow-service/workflows",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{access_token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"name\": \"QT Khong Steps\", \"type\": \"REQUEST\", \"isActive\": true, \"steps\": []}"
+            }
+          }
+        },
+        {
+          "name": "WF-TC20 - POST: Tao workflow co stepOrder trung lap",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[WF-TC20] Status 400', () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/workflow-service/workflows",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{access_token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"name\": \"QT StepOrder Trung\", \"type\": \"REQUEST\", \"isActive\": true, \"steps\": [{\"stepOrder\": 1, \"approverPositionId\": 2, \"approverPositionName\": \"Truong phong\", \"hierarchyOrder\": 2}, {\"stepOrder\": 1, \"approverPositionId\": 3, \"approverPositionName\": \"Giam doc\", \"hierarchyOrder\": 3}]}"
+            }
+          }
+        },
+        {
+          "name": "WF-TC21 - PUT: Cap nhat workflow ID khong ton tai",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[WF-TC21] Status 404', () => pm.response.to.have.status(404));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PUT",
+            "url": "{{base_url}}/api/v1/workflow-service/workflows/999999",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{access_token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"name\": \"QT Updated\", \"isActive\": true}"
+            }
+          }
+        },
+        {
+          "name": "WF-TC22 - DELETE: Xoa workflow ID khong ton tai",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[WF-TC22] Status 404', () => pm.response.to.have.status(404));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "url": "{{base_url}}/api/v1/workflow-service/workflows/999999",
+            "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }]
+          }
+        },
+        {
+          "name": "WF-TC23 - POST: Tao workflow khong co Access Token",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[WF-TC23] Status 401', () => pm.response.to.have.status(401));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/workflow-service/workflows",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"name\": \"QT Khong Token\", \"type\": \"REQUEST\", \"isActive\": true}"
+            }
+          }
+        },
+        {
+          "name": "WF-TC24 - POST: Tao workflow voi Access Token khong hop le",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[WF-TC24] Status 401', () => pm.response.to.have.status(401));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/workflow-service/workflows",
+            "header": [
+              { "key": "Authorization", "value": "Bearer invalid_token_xyz" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"name\": \"QT Token Invalid\", \"type\": \"REQUEST\", \"isActive\": true}"
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -29,6 +29,54 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+/**
+ * ============================================================
+ * Unit Test: PermissionInterceptor - Kiểm soát Truy cập HTTP
+ * ============================================================
+ *
+ * PHẠM VI TEST:
+ *   - preHandle(): Chặn request TRƯỚC khi vào controller
+ *     • Kiểm tra permission dựa trên HTTP method + path
+ *     • Ném AccessDeniedException nếu user không có quyền
+ *     • Bỏ qua OPTIONS request (CORS preflight)
+ *
+ * CÁCH HOẠT ĐỘNG:
+ *   1. Spring interceptor.preHandle() được gọi TẠI ĐÂU?
+ *      → Trước khi @RequestMapping method được thực thi
+ *      → Cơ hội cuối cùng để chặn request không hợp lệ
+ *
+ *   2. Luồng kiểm tra quyền:
+ *      Request: GET /api/v1/user-service/roles/123
+ *      ↓ Interceptor.preHandle()
+ *      ↓ extractPermissionName() = "user-service:roles:read"
+ *      ↓ PermissionService.check("user-service:roles:read", userId)
+ *      ↓ Nếu FALSE → ném AccessDeniedException
+ *      ↓ Nếu TRUE → return true → request tiếp tục
+ *
+ *   3. Mapping HTTP method → action:
+ *      GET/HEAD/OPTIONS → "read"
+ *      POST/PUT/PATCH/DELETE → "manage"
+ *      Endpoint đặc biệt (/approve, /withdraw, /reject) → "manage"
+ *
+ * CHIẾN LƯỢC TEST:
+ *   - @SpringBootTest: Load full context
+ *   - @ActiveProfiles("test"): Test config
+ *   - Mock PermissionService.check() để kiểm soát result
+ *   - Mock SecurityUtil.extractEmployeeId() để fake user ID
+ *   - Mock JWT token từ security context
+ *
+ * MOCK STRATEGY:
+ *   - @MockitoBean PermissionService: Kiểm soát check() result
+ *   - MockedStatic SecurityUtil: Fake user ID + JWT token
+ *   - MockHttpServletRequest: Fake HTTP request (không HTTP thật)
+ *   - MockHttpServletResponse: Fake HTTP response
+ *
+ * LƯU Ý:
+ *   - Interceptor chỉ kiểm tra quyền, KHÔNG handle error UI
+ *   - AccessDeniedException được catch ở GlobalExceptionHandler
+ *   - Test focus: logic kiểm tra quyền, không test exception handling
+ * ============================================================
+ */
 @SpringBootTest
 @ActiveProfiles("test")
 @DisplayName("PermissionInterceptor Unit Test")
@@ -37,6 +85,15 @@ class PermissionInterceptorTest {
     @Autowired
     private PermissionInterceptor permissionInterceptor;
 
+    /**
+     * Mock PermissionService.check()
+     * 
+     * Lý do mock:
+     *   - check() gọi userRepository, roleRepository (tìm user-role-permission)
+     *   - Test PermissionInterceptor CHỈ nên test interceptor logic
+     *   - Không test PermissionService.check() (đó là test riêng)
+     *   - Mock: kiểm soát return value → test nhánh interceptor
+     */
     @MockitoBean
     private PermissionService permissionService;
 
@@ -320,12 +377,81 @@ class PermissionInterceptorTest {
     }
 
     private MockHttpServletRequest buildRequest(String method, String requestUri, String matchingPattern) {
+        /**
+         * HELPER METHOD: Tạo fake HTTP request cho Interceptor.preHandle()
+         * 
+         * Cách sử dụng:
+         *   MockHttpServletRequest req = buildRequest("GET", 
+         *       "/api/v1/user-service/roles", 
+         *       "/api/v1/user-service/roles");
+         *   boolean allowed = permissionInterceptor.preHandle(req, response, handler);
+         * 
+         * Tham số:
+         *   method: "GET", "POST", "PUT", "DELETE", "OPTIONS", "HEAD", etc.
+         *   requestUri: full URL path mà client request (e.g., "/api/v1/users/123")
+         *   matchingPattern: Spring handler pattern (e.g., "/api/v1/users/{id}")
+         *
+         * Làm gì:
+         *   1. Tạo MockHttpServletRequest (Spring test utility, KHÔNG HTTP thật)
+         *   2. Set method + requestUri
+         *   3. Set HandlerMapping.BEST_MATCHING_PATTERN_ATTRIBUTE = pattern
+         *      → Interceptor dùng attribute này để extract permission name
+         * 
+         * Tại sao:
+         *   - Interceptor.preHandle(request, response, handler) cần request object
+         *   - MockHttpServletRequest: không cần mở real socket/port
+         *   - Pattern attribute: Interceptor dùng nó để xây dựng permission name
+         * 
+         * Ví dụ:
+         *   Request:  GET /api/v1/user-service/roles/123
+         *   Pattern:  /api/v1/user-service/roles/{id}
+         *   Interceptor sẽ extract: service=user-service, resource=roles, action=read
+         *   Permission: "user-service:roles:read"
+         */
         MockHttpServletRequest request = new MockHttpServletRequest(method, requestUri);
         request.setAttribute(HandlerMapping.BEST_MATCHING_PATTERN_ATTRIBUTE, matchingPattern);
         return request;
     }
 
     private void setAuthenticatedUser(Long userId) {
+        /**
+         * HELPER METHOD: Fake authenticated user trong Spring Security context
+         * 
+         * Cách sử dụng:
+         *   setAuthenticatedUser(1001L);  // Current user = 1001
+         *   MockHttpServletRequest req = buildRequest(...);
+         *   boolean allowed = permissionInterceptor.preHandle(req, resp, handler);
+         *   // Interceptor sẽ gọi SecurityUtil.extractEmployeeId() → 1001
+         * 
+         * Làm gì:
+         *   1. Tạo JWT mock chứa claim userId
+         *   2. Wrap vào JwtAuthenticationToken
+         *   3. Set vào SecurityContextHolder (Spring security context)
+         *   → SecurityUtil.extractEmployeeId() sẽ đọc được userId từ JWT
+         * 
+         * Tại sao:
+         *   - Interceptor.preHandle() gọi SecurityUtil.extractEmployeeId()
+         *   - Để test, cần fake SecurityContext (không test OAuth2 server)
+         *   - MockedStatic SecurityUtil không được dùng ở đây
+         *     (dùng real SecurityContext thay vì mock)
+         *   - Lý do: PermissionService.check() cũng đọc từ SecurityContext
+         *     → Nếu mock SecurityUtil → PermissionService không biết userId
+         *     → Test không thực tế
+         * 
+         * JWT structure:
+         *   {
+         *     "sub": "test-user",
+         *     "user": {
+         *       "userId": 1001
+         *     },
+         *     "alg": "none"
+         *   }
+         * 
+         * Lưu ý:
+         *   - @AfterEach clearSecurityContext() → cleanup
+         *   - Cuối helper: assertThat(SecurityUtil.extractUserId()) 
+         *     → Xác minh setup đúng trước khi chạy test
+         */
         // Tạo JWT giả chứa claim user.userId để SecurityUtil.extractUserId() đọc được.
         Map<String, Object> user = new HashMap<>();
         user.put("userId", userId);
@@ -342,7 +468,8 @@ class PermissionInterceptorTest {
         JwtAuthenticationToken authentication = new JwtAuthenticationToken(jwt);
         SecurityContextHolder.getContext().setAuthentication(authentication);
 
-        // Dòng assert nhỏ để đảm bảo helper set context đúng trước khi chạy test.
+        // Assertion nhỏ: xác minh helper set context đúng
+        // Nếu assertion fail → helper không hoạt động → test sẽ fail sớm
         assertThat(SecurityUtil.extractUserId()).isEqualTo(userId);
     }
 

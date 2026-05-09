@@ -50,71 +50,61 @@ import static org.mockito.Mockito.*;
  *      ↑                 cancel()      → [CANCELLED]
  *      └──────────(mọi trạng thái trừ APPROVED/REJECTED)──────────┘
  *
- * Nhánh cần phủ:
+ * PHẠM VI TEST:
+ *   - create(): Tạo request mới ở trạng thái DRAFT
+ *   - submit(): DRAFT → PENDING (gửi workflow)
+ *   - approveStep(): Workflow APPROVED → update status (nếu needed)
+ *   - rejectStep(): Workflow REJECTED → update status
+ *   - returnRequest(): Return request về bước trước (RETURNED)
+ *   - cancel(): Hủy request (CANCELLED, idempotent)
+ *   - withdraw(): Rút lại request (WITHDRAWN, chỉ owner/requester)
+ *   - findAllWithFilters(): Query filter theo status/department/keyword + phân trang
+ *   - findById(): Lấy request theo id
+ *   - delete(): Soft delete (isActive=false)
+ *   - changeStatus(): Đổi status (helper method)
  *
- * create():
- *   [N1] Input hợp lệ → DRAFT, isActive=true, tất cả trường được lưu đúng
+ * TRẠNG THÁI WORKFLOW:
+ *   RecruitmentRequest State Machine:
+ *   
+ *   [DRAFT] ← User tạo mới
+ *       ↓ submit()
+ *   [PENDING] ← Workflow xử lý (approveStep/rejectStep)
+ *       ↓ approveStep() → nếu approved=true
+ *   [APPROVED] ← Xong, có thể tạo offer
+ *       ↓ rejectStep()
+ *   [REJECTED] ← Từ chối
+ *       ↓ returnRequest()
+ *   [RETURNED] ← Trả về sửa, có thể submit lại
+ *       ↓ submit() again
+ *   [PENDING] ← cycle lại
  *
- * submit():
- *   [N2] DRAFT → PENDING, submittedAt được ghi, ownerUserId giữ nguyên
- *   [N3] RETURNED → PENDING (submit lại sau khi được trả về)
- *   [N4] PENDING → IllegalStateException, DB không đổi
- *   [N5] APPROVED → IllegalStateException
- *   [N6] ownerUserId=null → được gán actorId
- *   [N7] ID không tồn tại → IdInvalidException
+ *   Bất kỳ trạng thái (trừ APPROVED/REJECTED) → cancel() → [CANCELLED]
+ *   [PENDING] → withdraw() → [WITHDRAWN]
  *
- * approveStep():
- *   [N8]  PENDING → PENDING (giữ nguyên; workflow-service xử lý APPROVED), publish event
- *   [N9]  SUBMITTED → PENDING, publish event (cùng điều kiện)
- *   [N10] DRAFT → IllegalStateException, DB không đổi
- *   [N11] APPROVED → IllegalStateException
+ * CHIẾN LƯỢC TEST:
+ *   - @SpringBootTest: Load full Spring context + H2 test DB
+ *   - @Transactional: Auto rollback → DB sạch
+ *   - @ActiveProfiles("test"): Test config
+ *   - Mock HTTP clients (WorkflowClient, UserClient)
+ *   - Mock Kafka producer (không gửi event thật)
+ *   - MockedStatic SecurityUtil: fake user ID
+ *   - Kiểm tra từng nhánh state machine (branch coverage)
+ *   - CheckDB: Truy vấn DB sau mỗi thao tác để xác minh
  *
- * rejectStep():
- *   [N12] PENDING → REJECTED, DB cập nhật, publish event
- *   [N13] DRAFT → IllegalStateException, DB không đổi
- *   [N14] CANCELLED → IllegalStateException
+ * MOCK STRATEGY:
+ *   - @MockitoBean RestTemplate: Mock HTTP client dependencies
+ *   - @MockitoBean UserClient: không gọi user-service HTTP
+ *   - @MockitoBean WorkflowClient: không gọi workflow-service HTTP
+ *   - @MockitoBean RecruitmentWorkflowProducer: không publish Kafka
+ *   - @MockitoBean KafkaTemplate: không gửi message Kafka
+ *   - doNothing().when(producer).publishEvent(any())
  *
- * returnRequest():
- *   [N15] PENDING → RETURNED, publish event với reason và returnedToStepId
- *   [N16] DRAFT → IllegalStateException, DB không đổi
- *   [N17] APPROVED → IllegalStateException
- *
- * cancel():
- *   [N18] DRAFT → CANCELLED, publish event
- *   [N19] PENDING → CANCELLED, publish event
- *   [N20] đã CANCELLED (idempotent) → trả về nguyên, không publish event
- *   [N21] APPROVED → IllegalStateException, DB không đổi
- *   [N22] REJECTED → IllegalStateException
- *
- * withdraw():
- *   [N23] PENDING + actor=owner → WITHDRAWN, publish event
- *   [N24] PENDING + actor=requester (khác owner) → WITHDRAWN
- *   [N25] PENDING + actor sai (không phải owner/requester) → IllegalStateException, DB không đổi
- *   [N26] DRAFT → IllegalStateException
- *   [N27] APPROVED → IllegalStateException
- *
- * findAllWithFilters():
- *   [N28] status string không hợp lệ → không exception, filter bị bỏ qua
- *   [N29] status=PENDING → chỉ trả về PENDING
- *   [N30] departmentId → chỉ trả về đúng department
- *   [N31] keyword → chỉ trả về khớp title/reason
- *
- * findById() / getById():
- *   [N32] ID tồn tại → đúng entity
- *   [N33] ID không tồn tại → IdInvalidException
- *
- * changeStatus():
- *   [N34] Đổi status bất kỳ → DB cập nhật đúng, trả về true
- *
- * getAll():
- *   [N35] Chỉ trả về isActive=true, loại bỏ inactive
- *
- * delete() (soft delete):
- *   [N36] ID tồn tại → isActive=false, record vẫn còn
- *   [N37] ID không tồn tại → IdInvalidException
- *
- * CheckDB: Sau mỗi thao tác ghi, truy vấn lại repository để xác minh
- * Rollback: @Transactional đảm bảo DB sạch sau mỗi test
+ * CHÚ Ý:
+ *   - ownerUserId: người tạo request (copy từ requesterId khi submit nếu null)
+ *   - submittedAt: thời gian submit (ghi vào DB lần đầu submit)
+ *   - isActive: soft delete flag (false = xóa logic)
+ *   - Kafka event: publish sau mỗi state transition
+ *   - Idempotent cancel: gọi 2 lần cancel() cùng request → lần 2 không publish event
  * =============================================================
  */
 @SpringBootTest
@@ -124,42 +114,86 @@ import static org.mockito.Mockito.*;
 @DisplayName("RecruitmentRequestService - Branch Coverage Cấp 2")
 class RecruitmentRequestServiceTest {
 
+    // ============================================================
+    // DEPENDENCIES INJECTION (từ Spring context - real beans)
+    // ============================================================
+    
     @Autowired private RecruitmentRequestService recruitmentRequestService;
     @Autowired private RecruitmentRequestRepository recruitmentRequestRepository;
 
-    // --- Mock external dependencies (HTTP + Kafka) ---
+    // ============================================================
+    // MOCK DEPENDENCIES (không thực thi logic thực)
+    // ============================================================
+    
     /**
-     * Mock RestTemplate: UserClient và WorkflowClient cần RestTemplate trong constructor.
-     * @MockitoBean thay thế bean RestTemplate thật bằng mock để Spring
-     * có thể khởi tạo UserClient và WorkflowClient mà không gối HTTP thật.
+     * Mock RestTemplate
+     * 
+     * Lý do mock:
+     *   - UserClient + WorkflowClient cần RestTemplate trong constructor
+     *   - @MockitoBean RestTemplate → Spring có thể inject mock vào UserClient
+     *   - Test không gọi HTTP thật (tránh network delay, external dependency fail)
      */
     @MockitoBean
     private RestTemplate restTemplate;
 
     @MockitoBean private UserClient userClient;
     @MockitoBean private WorkflowClient workflowClient;
+    
+    /**
+     * Mock RecruitmentWorkflowProducer
+     * 
+     * Lý do mock:
+     *   - publish event vào Kafka
+     *   - Test không gửi message thật
+     *   - Mock: doNothing() → skip publish, vẫn test state transition logic
+     */
     @MockitoBean private RecruitmentWorkflowProducer workflowProducer;
+    
     /** KafkaTemplate: cần mock để Spring tạo được RecruitmentWorkflowProducer bean */
     @MockitoBean private KafkaTemplate<String, String> kafkaTemplate;
 
-    // Constants
+    // ============================================================
+    // TEST CONSTANTS
+    // ============================================================
+    
     private static final Long REQUESTER_ID = 10L;
     private static final Long OWNER_ID     = 10L;
     private static final Long OTHER_ACTOR  = 99L;   // người không liên quan
     private static final String TOKEN      = "test-token";
 
-    /** Yêu cầu đang ở trạng thái DRAFT */
+    /**
+     * Yêu cầu đang ở trạng thái DRAFT
+     * Setup lại ở mỗi @BeforeEach
+     */
     private RecruitmentRequest draftRequest;
-    /** Yêu cầu đang ở trạng thái PENDING */
+    
+    /**
+     * Yêu cầu đang ở trạng thái PENDING
+     * Setup lại ở mỗi @BeforeEach
+     */
     private RecruitmentRequest pendingRequest;
 
     @BeforeEach
     void setUp() {
-        // Kafka: không gửi thật
+        /**
+         * SETUP: Chuẩn bị dữ liệu chung
+         * 
+         * Mock external service calls
+         */
+        
+        // Mock Kafka: không gửi message thật
         doNothing().when(workflowProducer).publishEvent(any());
-        // WorkflowClient: không gọi HTTP thật
+        
+        // Mock WorkflowClient: không gọi HTTP workflow-service thật
         when(workflowClient.getWorkflowInfoByRequestId(any(), any(), any(), any())).thenReturn(null);
 
+        /**
+         * Tạo 2 fixture: DRAFT + PENDING
+         * 
+         * Dùng cho từng test:
+         *   - tc02_submit_fromDraft_...: dùng draftRequest
+         *   - tc04_submit_fromPending_...: dùng pendingRequest
+         */
         draftRequest = recruitmentRequestRepository.save(buildRequest(
                 "Tuyển Kỹ Sư Java", RecruitmentRequestStatus.DRAFT,
                 REQUESTER_ID, OWNER_ID, 5L, 1L));
@@ -183,10 +217,24 @@ class RecruitmentRequestServiceTest {
      *   - ownerUserId không được copy từ requesterId
      *   - Salary không được lưu
      *   - DB không tăng record
+     *
+     * STRATEGY:
+     *   - Arrange: Tạo CreateRecruitmentRequestDTO với dữ liệu hợp lệ
+     *   - Act: Gọi recruitmentRequestService.create(dto)
+     *   - Assert-1: Kiểm tra DB count tăng 1 (record được lưu)
+     *   - Assert-2: Truy vấn DB lại (CheckDB), xác minh từng trường
+     *     • Status = DRAFT (nhánh N1)
+     *     • isActive = true (khác APPROVED/REJECTED)
+     *     • ownerUserId = requesterId (sao chép)
+     *     • title, salaryMin được lưu đúng giá trị
      */
     @Test
     @DisplayName("[RR-TC01][N1] create() - Input hợp lệ → status=DRAFT, isActive=true, các trường lưu đúng")
     void tc01_create_validInput_persistsAllFieldsWithDraftStatus() {
+        // ============================================================
+        // ARRANGE: Tạo input DTO
+        // ============================================================
+        
         CreateRecruitmentRequestDTO dto = new CreateRecruitmentRequestDTO();
         dto.setTitle("Tuyển QA Engineer");
         dto.setQuantity(2);
@@ -197,15 +245,27 @@ class RecruitmentRequestServiceTest {
         dto.setWorkflowId(1L);
         dto.setDepartmentId(5L);
 
+        // Lưu số lượng record TRƯỚC khi create()
         long countBefore = recruitmentRequestRepository.count();
 
+        // ============================================================
+        // ACT: Gọi service method
+        // ============================================================
+        
         RecruitmentRequest result = recruitmentRequestService.create(dto);
 
-        // CHECK DB: số lượng tăng 1
+        // ============================================================
+        // ASSERT-1: Kiểm tra DB count (record được lưu)
+        // ============================================================
+        
+        // CheckDB: Số record phải tăng đúng 1
         assertEquals(countBefore + 1, recruitmentRequestRepository.count(),
                 "BUG: Không tạo thêm record trong DB");
 
-        // CHECK DB: từng trường
+        // ============================================================
+        // ASSERT-2: CheckDB - Truy vấn lại từ DB, kiểm tra từng trường
+        // ============================================================
+        
         RecruitmentRequest saved = recruitmentRequestRepository.findById(result.getId()).orElseThrow();
         assertAll("BUG: Một hoặc nhiều trường không được lưu đúng",
                 () -> assertEquals(RecruitmentRequestStatus.DRAFT, saved.getStatus(),
@@ -233,14 +293,35 @@ class RecruitmentRequestServiceTest {
      *   - Status không được đổi thành PENDING
      *   - submittedAt vẫn null sau submit (thời gian submit không được ghi nhận)
      *   - ownerUserId bị overwrite dù đã có giá trị
+     *
+     * STRATEGY:
+     *   - Arrange: Dùng draftRequest fixture (đã setup ở @BeforeEach)
+     *   - Assert-Pre: Xác minh precondition: submittedAt==null trước khi submit
+     *   - Act: Gọi recruitmentRequestService.submit(requestId, userId, token)
+     *   - CheckDB: Truy vấn DB lại, xác minh:
+     *     • Status = PENDING (từ DRAFT)
+     *     • submittedAt != null (ghi nhận thời gian submit)
+     *     • ownerUserId giữ nguyên (không bị overwrite)
      */
     @Test
     @DisplayName("[RR-TC02][N2] submit() - DRAFT → PENDING, submittedAt được ghi, ownerUserId giữ nguyên")
     void tc02_submit_fromDraft_setsPendingAndRecordsSubmittedAt() throws IdInvalidException {
+        // ============================================================
+        // PRECONDITION: Xác minh state của fixture
+        // ============================================================
+        
         assertNull(draftRequest.getSubmittedAt(), "Precondition: submittedAt phải null trước khi submit");
 
+        // ============================================================
+        // ACT: Gọi submit()
+        // ============================================================
+        
         recruitmentRequestService.submit(draftRequest.getId(), OWNER_ID, TOKEN);
 
+        // ============================================================
+        // CHECKDB: Truy vấn lại từ DB, xác minh state change
+        // ============================================================
+        
         RecruitmentRequest saved = recruitmentRequestRepository.findById(draftRequest.getId()).orElseThrow();
         assertAll("BUG: submit() không cập nhật đúng dữ liệu",
                 () -> assertEquals(RecruitmentRequestStatus.PENDING, saved.getStatus(),
@@ -248,7 +329,7 @@ class RecruitmentRequestServiceTest {
                 () -> assertNotNull(saved.getSubmittedAt(),
                         "BUG: submittedAt null - không ghi nhận thời gian submit"),
                 () -> assertEquals(OWNER_ID, saved.getOwnerUserId(),
-                        "BUG: ownerUserId bị thay đổi dù đã có giá trị - chỉ nên set khi null")
+                        "BUG: ownerUserId bị thay đổi dù đã có giá trị - phải giữ nguyên")
         );
     }
 
@@ -257,19 +338,36 @@ class RecruitmentRequestServiceTest {
      * Nhánh [N3]: RETURNED → PENDING (submit lại sau khi bị trả về)
      *
      * Bug bị bắt: Không cho phép submit lại từ RETURNED → luồng phê duyệt bị kẹt
+     *
+     * STRATEGY:
+     *   - Arrange: Tạo request ở trạng thái RETURNED
+     *   - Act: Gọi submit() từ RETURNED status
+     *   - Assert: Status phải thành PENDING (submit lại được phép)
      */
     @Test
     @DisplayName("[RR-TC03][N3] submit() - RETURNED → PENDING (submit lại hợp lệ)")
     void tc03_submit_fromReturned_transitionsToPending() throws IdInvalidException {
-        draftRequest.setStatus(RecruitmentRequestStatus.RETURNED);
-        recruitmentRequestRepository.save(draftRequest);
+        // ============================================================
+        // ARRANGE: Tạo request ở state RETURNED
+        // ============================================================
+        
+        RecruitmentRequest returnedRequest = recruitmentRequestRepository.save(buildRequest(
+                "Tuyển tiếp nhân viên", RecruitmentRequestStatus.RETURNED,
+                REQUESTER_ID, OWNER_ID, 5L, 1L));
 
-        recruitmentRequestService.submit(draftRequest.getId(), OWNER_ID, TOKEN);
+        // ============================================================
+        // ACT: Submit lại từ RETURNED
+        // ============================================================
+        
+        recruitmentRequestService.submit(returnedRequest.getId(), OWNER_ID, TOKEN);
 
-        RecruitmentRequestStatus status = recruitmentRequestRepository
-                .findById(draftRequest.getId()).orElseThrow().getStatus();
-        assertEquals(RecruitmentRequestStatus.PENDING, status,
-                "BUG: Không cho phép submit lại từ RETURNED → luồng bị kẹt");
+        // ============================================================
+        // ASSERT: Status phải là PENDING
+        // ============================================================
+        
+        RecruitmentRequest saved = recruitmentRequestRepository.findById(returnedRequest.getId()).orElseThrow();
+        assertEquals(RecruitmentRequestStatus.PENDING, saved.getStatus(),
+                "BUG: Không cho phép submit từ RETURNED → workflow bị kẹt");
     }
 
     /**
@@ -278,23 +376,40 @@ class RecruitmentRequestServiceTest {
      *
      * Bug bị bắt: Cho phép submit lại khi đang PENDING → tạo tracking mới sai luồng
      *
-     * CheckDB: Status vẫn là PENDING
+     * STRATEGY:
+     *   - Arrange: Dùng pendingRequest fixture
+     *   - Act: Gọi submit() trên request đang PENDING
+     *   - Assert-1: Exception được ném (IllegalStateException)
+     *   - CheckDB: Status vẫn là PENDING (DB không đổi)
      */
     @Test
     @DisplayName("[RR-TC04][N4] submit() - PENDING → IllegalStateException; DB giữ nguyên PENDING")
     void tc04_submit_fromPending_throwsIllegalStateException_dbUnchanged() {
-        IllegalStateException ex = assertThrows(IllegalStateException.class,
+        // ============================================================
+        // PRECONDITION: Xác minh fixture đang PENDING
+        // ============================================================
+        
+        assertEquals(RecruitmentRequestStatus.PENDING, pendingRequest.getStatus(),
+                "Precondition: fixture phải ở trạng thái PENDING");
+
+        // ============================================================
+        // ACT + ASSERT: Submit từ PENDING phải ném exception
+        // ============================================================
+        
+        assertThrows(IllegalStateException.class,
                 () -> recruitmentRequestService.submit(pendingRequest.getId(), OWNER_ID, TOKEN),
-                "BUG: Cho phép submit khi đang PENDING → tạo tracking sai luồng");
+                "BUG: Không ném exception khi submit PENDING request → cho submit lại sai logic");
 
-        assertTrue(ex.getMessage().contains("DRAFT") || ex.getMessage().contains("RETURNED"),
-                "BUG: Message không đề cập đến trạng thái hợp lệ (DRAFT/RETURNED)");
-
-        // CHECK DB: không thay đổi
-        assertEquals(RecruitmentRequestStatus.PENDING,
-                recruitmentRequestRepository.findById(pendingRequest.getId()).orElseThrow().getStatus(),
-                "BUG: Status trong DB bị thay đổi dù submit thất bại");
+        // ============================================================
+        // CHECKDB: Status vẫn PENDING (DB không bị modify)
+        // ============================================================
+        
+        RecruitmentRequest saved = recruitmentRequestRepository.findById(pendingRequest.getId()).orElseThrow();
+        assertEquals(RecruitmentRequestStatus.PENDING, saved.getStatus(),
+                "BUG: Status bị thay đổi sau khi ném exception → transaction không rollback đúng");
     }
+
+    
 
     /**
      * Test Case ID: RR-TC05
@@ -765,13 +880,40 @@ class RecruitmentRequestServiceTest {
     @Test
     @DisplayName("[RR-TC27][N28] findAllWithFilters() - status không hợp lệ → không exception, trả về tất cả")
     void tc27_findAllWithFilters_invalidStatus_ignoresFilterNoException() {
+        // Test Case ID: RR-TC27
+        // Mục tiêu: xác minh status string không hợp lệ → filter bị bỏ qua,
+        //           trả về tất cả record (không phụ thuộc vào filter lạ)
+        //           và không ném exception.
+        //
+        // Bug bị bắt:
+        //   - Ném IllegalArgumentException/EnumConversionException khi status lạ
+        //     → frontend crash khi gửi query tùy ý → FAIL
+        //   - Lọc theo type UNKNOWN → trả về 0 record thay vì tất cả → FAIL
+        //   - Tất cả nội dung bị lọc ra → FAIL
+        //
+        // setUp() đã tạo đúng 2 record (draftRequest + pendingRequest)
+        // → sau khi filter bị bỏ qua, phải trả về đúng 2 record
+
+        // Act: không được ném exception
         List<RecruitmentRequest> result = assertDoesNotThrow(
                 () -> recruitmentRequestService.findAllWithFilters(null, "INVALID_STATUS_XYZ", null, null),
-                "BUG: Ném exception khi status string không hợp lệ");
+                "BUG: Ném exception khi status string không hợp lệ — frontend sẽ crash");
 
-        assertNotNull(result, "BUG: Kết quả null");
-        assertTrue(result.size() >= 2,
-                "BUG: Filter status lạ làm mất kết quả thay vì bỏ qua");
+        // Assert: không null
+        assertNotNull(result, "BUG: Kết quả null — phải trả về list rỗng hoặc đầy đủ");
+
+        // Assert: phải trả về đúng 2 record từ setUp() — không lọc, không bỏ sót
+        // Nếu filter lạ → trả về 0 record → FAIL rõ ràng
+        // Nếu filter thất bại nghiêm trọng → FAIL
+        assertEquals(2, result.size(),
+                "BUG: Filter status lạ không được bỏ qua — " +
+                "trả về " + result.size() + " record thay vì 2 (draftRequest + pendingRequest từ setUp)");
+
+        // Assert: record trả về phải có cả DRAFT lẫn PENDING (filter không loại trừ)
+        boolean hasDraft   = result.stream().anyMatch(r -> r.getStatus() == RecruitmentRequestStatus.DRAFT);
+        boolean hasPending = result.stream().anyMatch(r -> r.getStatus() == RecruitmentRequestStatus.PENDING);
+        assertTrue(hasDraft,   "BUG: Dắt record không có trong kết quả — filter sai");
+        assertTrue(hasPending, "BUG: Pending record không có trong kết quả — filter sai");
     }
 
     /**
@@ -1635,9 +1777,313 @@ class RecruitmentRequestServiceTest {
         }, "BUG: NPE khi requesterId=null trong convertToWithUserDTOList()");
     }
 
-    // ================================================================
-    // HELPER METHODS
-    // ================================================================
+    /**
+     * Test Case ID: RR-TC61
+     * getAllWithFilters(): employee có node "department" nhưng là NullNode
+     * → nhánh `if (dept != null && dept.has("id"))` = FALSE.
+     */
+    @Test
+    @DisplayName("[RR-TC61] getAllWithFilters() - employee có department là NullNode → không crash")
+    void tc61_getAllWithFilters_nullDepartmentNode_noNpe() {
+        com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+        com.fasterxml.jackson.databind.node.ObjectNode employee = mapper.createObjectNode();
+        employee.put("id", REQUESTER_ID);
+        employee.set("department", mapper.nullNode()); // NullNode
+
+        when(userClient.getEmployeesByIds(any(), any()))
+                .thenReturn(Map.of(REQUESTER_ID, employee));
+
+        assertDoesNotThrow(() -> recruitmentRequestService.getAllWithFilters(
+                null, null, null, null, TOKEN, org.springframework.data.domain.PageRequest.of(0, 10)));
+    }
+
+    /**
+     * Test Case ID: RR-TC62
+     * getAllWithFilters(): employee có department nhưng thiếu "id"
+     * → nhánh `if (dept.has("id"))` = FALSE.
+     */
+    @Test
+    @DisplayName("[RR-TC62] getAllWithFilters() - department thiếu id → không crash")
+    void tc62_getAllWithFilters_departmentMissingId_noNpe() {
+        com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+        com.fasterxml.jackson.databind.node.ObjectNode employee = mapper.createObjectNode();
+        employee.put("id", REQUESTER_ID);
+        employee.set("department", mapper.createObjectNode()); // Empty object {}
+
+        when(userClient.getEmployeesByIds(any(), any()))
+                .thenReturn(Map.of(REQUESTER_ID, employee));
+
+        assertDoesNotThrow(() -> recruitmentRequestService.getAllWithFilters(
+                null, null, null, null, TOKEN, org.springframework.data.domain.PageRequest.of(0, 10)));
+    }
+
+    /**
+     * Test Case ID: RR-TC63
+     * getAllWithFilters(): employeeMap không chứa ID của requester
+     * → `employeeMap.get(id)` trả về null → nhánh `if (employee != null)` = FALSE.
+     */
+    @Test
+    @DisplayName("[RR-TC63] getAllWithFilters() - employeeMap thiếu ID → không crash, dto.requester=null")
+    void tc63_getAllWithFilters_missingEmployeeInMap_noNpe() {
+        // Mock map rỗng dù có requesterId
+        when(userClient.getEmployeesByIds(any(), any())).thenReturn(Map.of());
+
+        var result = assertDoesNotThrow(() -> recruitmentRequestService.getAllWithFilters(
+                null, null, null, null, TOKEN, org.springframework.data.domain.PageRequest.of(0, 10)));
+        
+        @SuppressWarnings("unchecked")
+        java.util.List<com.example.job_service.dto.recruitment.RecruitmentRequestAllWithUserDTO> list =
+                (java.util.List<com.example.job_service.dto.recruitment.RecruitmentRequestAllWithUserDTO>) result.getResult();
+        assertTrue(list.stream().anyMatch(d -> d.getRequester() == null));
+    }
+
+    /**
+     * Test Case ID: RR-TC64
+     * submit() - Trạng thái SUBMITTED → IllegalStateException
+     */
+    @Test
+    @DisplayName("[RR-TC64] submit() - SUBMITTED → IllegalStateException")
+    void tc64_submit_fromSubmitted_throwsIllegalStateException() {
+        pendingRequest.setStatus(RecruitmentRequestStatus.SUBMITTED);
+        recruitmentRequestRepository.save(pendingRequest);
+
+        assertThrows(IllegalStateException.class,
+                () -> recruitmentRequestService.submit(pendingRequest.getId(), OWNER_ID, TOKEN));
+    }
+
+    /**
+     * Test Case ID: RR-TC65
+     * approveStep() - Trạng thái REJECTED → IllegalStateException
+     */
+    @Test
+    @DisplayName("[RR-TC65] approveStep() - REJECTED → IllegalStateException")
+    void tc65_approveStep_fromRejected_throwsIllegalStateException() {
+        pendingRequest.setStatus(RecruitmentRequestStatus.REJECTED);
+        recruitmentRequestRepository.save(pendingRequest);
+
+        assertThrows(IllegalStateException.class,
+                () -> recruitmentRequestService.approveStep(pendingRequest.getId(), new ApproveRecruitmentRequestDTO(), OWNER_ID, TOKEN));
+    }
+
+    /**
+     * Test Case ID: RR-TC66
+     * rejectStep() - Trạng thái APPROVED → IllegalStateException
+     */
+    @Test
+    @DisplayName("[RR-TC66] rejectStep() - APPROVED → IllegalStateException")
+    void tc66_rejectStep_fromApproved_throwsIllegalStateException() {
+        pendingRequest.setStatus(RecruitmentRequestStatus.APPROVED);
+        recruitmentRequestRepository.save(pendingRequest);
+
+        assertThrows(IllegalStateException.class,
+                () -> recruitmentRequestService.rejectStep(pendingRequest.getId(), new RejectRecruitmentRequestDTO(), OWNER_ID, TOKEN));
+    }
+
+    /**
+     * Test Case ID: RR-TC67
+     * returnRequest() - Trạng thái CANCELLED → IllegalStateException
+     */
+    @Test
+    @DisplayName("[RR-TC67] returnRequest() - CANCELLED → IllegalStateException")
+    void tc67_returnRequest_fromCancelled_throwsIllegalStateException() {
+        pendingRequest.setStatus(RecruitmentRequestStatus.CANCELLED);
+        recruitmentRequestRepository.save(pendingRequest);
+
+        assertThrows(IllegalStateException.class,
+                () -> recruitmentRequestService.returnRequest(pendingRequest.getId(), new ReturnRecruitmentRequestDTO(), OWNER_ID, TOKEN));
+    }
+
+    /**
+     * Test Case ID: RR-TC68
+     * findAllWithFilters() - status="   " (khoảng trắng) → bỏ qua filter
+     */
+    @Test
+    @DisplayName("[RR-TC68] findAllWithFilters() - status=\"   \" → bỏ qua filter")
+    void tc68_findAllWithFilters_whitespaceStatus_ignoresFilter() {
+        List<RecruitmentRequest> result = recruitmentRequestService.findAllWithFilters(null, "   ", null, null);
+        assertTrue(result.size() >= 2);
+    }
+
+    /**
+     * Test Case ID: RR-TC69
+     * getByIdWithUser() - getDepartmentById() 500 → UserClientException
+     */
+    @Test
+    @DisplayName("[RR-TC69] getByIdWithUser() - getDepartmentById() 500 → UserClientException")
+    void tc69_getByIdWithUser_department500_throwsUserClientException() {
+        com.fasterxml.jackson.databind.node.ObjectNode fakeEmployee =
+                new com.fasterxml.jackson.databind.ObjectMapper().createObjectNode();
+        fakeEmployee.put("id", REQUESTER_ID);
+
+        when(userClient.getEmployeeById(eq(REQUESTER_ID), eq(TOKEN)))
+                .thenReturn(org.springframework.http.ResponseEntity.ok(fakeEmployee));
+        when(userClient.getDepartmentById(any(), eq(TOKEN)))
+                .thenReturn(org.springframework.http.ResponseEntity.status(500).build());
+
+        assertThrows(com.example.job_service.exception.UserClientException.class,
+                () -> recruitmentRequestService.getByIdWithUser(draftRequest.getId(), TOKEN));
+    }
+
+    private com.example.job_service.service.RecruitmentRequestService getTargetService() throws Exception {
+        if (org.springframework.aop.support.AopUtils.isAopProxy(recruitmentRequestService)) {
+            return (com.example.job_service.service.RecruitmentRequestService) 
+                org.springframework.test.util.AopTestUtils.getTargetObject(recruitmentRequestService);
+        }
+        return recruitmentRequestService;
+    }
+
+    /**
+     * Test Case ID: RR-TC70
+     * Phủ nhánh includeWorkflow = false
+     */
+    @Test
+    @DisplayName("[RR-TC70] convertToWithUserDTO - includeWorkflow=false")
+    void tc70_convertToWithUserDTO_noWorkflow() throws Exception {
+        var service = getTargetService();
+        var mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+
+        // Mock UserClient để tránh NPE
+        when(userClient.getEmployeeById(any(), any()))
+                .thenReturn(org.springframework.http.ResponseEntity.ok(mapper.createObjectNode()));
+        when(userClient.getDepartmentById(any(), any()))
+                .thenReturn(org.springframework.http.ResponseEntity.ok(mapper.createObjectNode()));
+
+        var method = org.springframework.util.ReflectionUtils.findMethod(
+                com.example.job_service.service.RecruitmentRequestService.class,
+                "convertToWithUserDTO",
+                com.example.job_service.model.RecruitmentRequest.class,
+                String.class,
+                boolean.class,
+                boolean.class
+        );
+        org.springframework.util.ReflectionUtils.makeAccessible(method);
+
+        // Tham số: request, token, truncateText=true, includeWorkflow=false
+        var result = (com.example.job_service.dto.recruitment.RecruitmentRequestWithUserDTO) 
+                org.springframework.util.ReflectionUtils.invokeMethod(method, service, draftRequest, TOKEN, true, false);
+
+        assertNotNull(result);
+        assertNull(result.getWorkflowInfo()); 
+    }
+
+    /**
+     * Test Case ID: RR-TC71
+     * Phủ nhánh includeEmployee = false
+     */
+    @Test
+    @DisplayName("[RR-TC71] convertToWithUserDTO - truncateText=false")
+    void tc71_convertToWithUserDTO_noTruncate() throws Exception {
+        var service = getTargetService();
+        var mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+
+        // Mock đầy đủ để tránh NPE
+        when(userClient.getEmployeeById(any(), any()))
+                .thenReturn(org.springframework.http.ResponseEntity.ok(mapper.createObjectNode()));
+        when(userClient.getDepartmentById(any(), any()))
+                .thenReturn(org.springframework.http.ResponseEntity.ok(mapper.createObjectNode()));
+
+        var method = org.springframework.util.ReflectionUtils.findMethod(
+                com.example.job_service.service.RecruitmentRequestService.class,
+                "convertToWithUserDTO",
+                com.example.job_service.model.RecruitmentRequest.class,
+                String.class,
+                boolean.class,
+                boolean.class
+        );
+        org.springframework.util.ReflectionUtils.makeAccessible(method);
+
+        // Tham số: request, token, truncateText=false, includeWorkflow=true
+        var result = (com.example.job_service.dto.recruitment.RecruitmentRequestWithUserDTO) 
+                org.springframework.util.ReflectionUtils.invokeMethod(method, service, draftRequest, TOKEN, false, true);
+
+        assertNotNull(result);
+        assertNotNull(result.getRequester());
+    }
+
+    /**
+     * Test Case ID: RR-TC72
+     * changeStatus() - Phủ nhánh Repository trả về null
+     */
+    @Test
+    @DisplayName("[RR-TC72] changeStatus() - Repository trả null")
+    void tc72_changeStatus_repoReturnsNull() throws Exception {
+        var service = getTargetService();
+        var mockRepo = mock(com.example.job_service.repository.RecruitmentRequestRepository.class);
+        when(mockRepo.findById(any())).thenReturn(java.util.Optional.of(draftRequest));
+        when(mockRepo.save(any())).thenReturn(null);
+
+        var field = com.example.job_service.service.RecruitmentRequestService.class.getDeclaredField("recruitmentRequestRepository");
+        field.setAccessible(true);
+        var originalRepo = field.get(service);
+        field.set(service, mockRepo);
+
+        try {
+            boolean result = service.changeStatus(draftRequest.getId(), RecruitmentRequestStatus.PENDING);
+            assertFalse(result);
+        } finally {
+            field.set(service, originalRepo);
+        }
+    }
+
+    /**
+     * Test Case ID: RR-TC73
+     * getAllWithFilters() - Phủ nhánh status rỗng
+     */
+    @Test
+    @DisplayName("[RR-TC73] getAllWithFilters() - status hợp lệ")
+    void tc73_getAllWithFilters_validStatus() {
+        // Phủ dòng 171: gọi valueOf với status hợp lệ
+        assertDoesNotThrow(() -> recruitmentRequestService.getAllWithFilters(
+                null, "DRAFT", null, null, TOKEN, org.springframework.data.domain.PageRequest.of(0, 10)));
+    }
+
+    /**
+     * Test Case ID: RR-TC74
+     * convertToWithUserDTOList - Phủ nhánh tổ hợp logic A && B (NullNode)
+     */
+    @Test
+    @DisplayName("[RR-TC74] convertToWithUserDTOList - JSON logic coverage (NullNode vs Missing)")
+    void tc74_convertToWithUserDTOList_jsonBranches() throws Exception {
+        var service = getTargetService();
+        var mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+        
+        // Trường hợp 1: employee có department nhưng department là NullNode (dept != null nhưng dept.has("id") là false)
+        var employee1 = mapper.createObjectNode();
+        employee1.set("department", com.fasterxml.jackson.databind.node.NullNode.getInstance());
+        
+        // Trường hợp 2: employee có department, department có id nhưng id là NullNode
+        var employee2 = mapper.createObjectNode();
+        var dept2 = mapper.createObjectNode();
+        dept2.set("id", com.fasterxml.jackson.databind.node.NullNode.getInstance());
+        employee2.set("department", dept2);
+
+        when(userClient.getEmployeeById(any(), any()))
+                .thenReturn(org.springframework.http.ResponseEntity.ok(employee1))
+                .thenReturn(org.springframework.http.ResponseEntity.ok(employee2));
+
+        org.springframework.data.domain.Page<com.example.job_service.model.RecruitmentRequest> page = 
+                new org.springframework.data.domain.PageImpl<>(java.util.List.of(draftRequest, draftRequest));
+
+        var method = org.springframework.util.ReflectionUtils.findMethod(
+                com.example.job_service.service.RecruitmentRequestService.class, "convertToWithUserDTOList",
+                org.springframework.data.domain.Page.class, String.class);
+        org.springframework.util.ReflectionUtils.makeAccessible(method);
+        
+        var result = org.springframework.util.ReflectionUtils.invokeMethod(method, service, page, TOKEN);
+        assertNotNull(result);
+    }
+
+    /**
+     * Test Case ID: RR-TC75
+     * getAllWithFilters() - Phủ nhánh Pageable.unpaged()
+     */
+    @Test
+    @DisplayName("[RR-TC75] getAllWithFilters() - Pageable.unpaged()")
+    void tc75_getAllWithFilters_unpaged() {
+        // Phủ nhánh pageable.isPaged() = false
+        assertDoesNotThrow(() -> recruitmentRequestService.getAllWithFilters(
+                null, null, null, null, TOKEN, org.springframework.data.domain.Pageable.unpaged()));
+    }
 
     private RecruitmentRequest buildRequest(String title, RecruitmentRequestStatus status,
                                              Long requesterId, Long ownerId, Long deptId, Long workflowId) {

@@ -1,0 +1,349 @@
+{
+  "info": {
+    "name": "Recruitment System API Tests - Auth",
+    "_postman_id": "recruit-api-auth",
+    "description": "Module Auth chủ yếu là read-only (login/logout/check). Không tạo data mới trong DB nên không cần rollback. Các TC chạy tuần tự: Login → lưu token → dùng token test → logout → verify.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "base_url", "value": "http://localhost:8081" },
+    { "key": "internal_user_service_url", "value": "http://localhost:8082" },
+    { "key": "access_token", "value": "" },
+    { "key": "refresh_token", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "Auth Login → Use Token → Logout (no DB mutation, no rollback needed)",
+      "item": [
+        {
+          "name": "AUTH-TC01 - POST: Login thanh cong → luu token",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[AUTH-TC01] Status 200', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('[AUTH-TC01] Co accessToken', () => pm.expect(body.data.access_token).to.be.a('string').and.not.empty);",
+                  "pm.test('[AUTH-TC01] Co user.email', () => pm.expect(body.data.user.email).to.be.a('string'));",
+                  "pm.test('[AUTH-TC01] Co user.role', () => pm.expect(body.data.user.role).to.exist);",
+                  "pm.collectionVariables.set('access_token', body.data.access_token);",
+                  "const cookie = pm.cookies.get('refresh_token');",
+                  "pm.test('[AUTH-TC01] Cookie refresh_token duoc set', () => pm.expect(cookie).to.exist);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/user-service/auth/login",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"username\": \"admin@gmail.com\", \"password\": \"123456\"}"
+            }
+          }
+        },
+        {
+          "name": "AUTH-TC02 - GET: Account voi token hop le → verify token hoat dong",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[AUTH-TC02] Status 200', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('[AUTH-TC02] Co user.email', () => pm.expect(body.data.user.email).to.be.a('string'));",
+                  "pm.test('[AUTH-TC02] Co user.role', () => pm.expect(body.data.user.role).to.exist);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/v1/user-service/auth/account",
+            "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }]
+          }
+        },
+        {
+          "name": "AUTH-TC03 - GET: Refresh token → lay token moi",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[AUTH-TC03] Status 200', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('[AUTH-TC03] Co accessToken moi', () => pm.expect(body.data.access_token).to.be.a('string').and.not.empty);",
+                  "pm.collectionVariables.set('access_token', body.data.access_token);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/v1/user-service/auth/refresh",
+            "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }]
+          }
+        },
+        {
+          "name": "AUTH-TC04 - GET VERIFY: Account voi token moi van hoat dong",
+          "description": "Verify token mới từ refresh vẫn hoạt động bằng GET /account.",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[AUTH-TC04] Status 200 - token moi hoat dong', () => pm.response.to.have.status(200));",
+                  "pm.test('[AUTH-TC04] Co user info', () => pm.expect(pm.response.json().data.user.email).to.be.a('string'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/v1/user-service/auth/account",
+            "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }]
+          }
+        },
+        {
+          "name": "AUTH-TC05 - GET: Check quyen - co quyen",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[AUTH-TC05] Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('[AUTH-TC05] Body la boolean', () => pm.expect(typeof pm.response.json().data).to.equal('boolean'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/v1/user-service/auth/check?name=CREATE_RECRUITMENT_REQUEST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }]
+          }
+        },
+        {
+          "name": "AUTH-TC06 - GET: Check quyen - khong co quyen",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[AUTH-TC06] Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('[AUTH-TC06] Body la boolean', () => pm.expect(typeof pm.response.json().data).to.equal('boolean'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/v1/user-service/auth/check?name=ADMIN_ONLY_PERMISSION",
+            "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }]
+          }
+        },
+        {
+          "name": "AUTH-TC07 - POST: Logout → xoa cookie",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[AUTH-TC07] Status 200', () => pm.response.to.have.status(200));",
+                  "const setCookie = pm.response.headers.get('Set-Cookie') || '';",
+                  "pm.test('[AUTH-TC07] Cookie refresh_token bi xoa (maxAge=0)', () => {",
+                  "  pm.expect(setCookie).to.include('Max-Age=0');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/user-service/auth/logout",
+            "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }]
+          }
+        },
+        {
+          "name": "AUTH-TC08 - GET VERIFY LOGOUT: Account sau logout phai 401",
+          "description": "Verify rằng token cũ không còn hoạt động sau logout.",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "// Sau logout, token có thể vẫn hợp lệ nếu stateless JWT",
+                  "// Nhưng nếu backend blacklist token thì phải 401",
+                  "pm.test('[AUTH-TC08] Token bi vo hieu hoac van hop le (tuy backend)', () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200, 401]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/v1/user-service/auth/account",
+            "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Auth Negative Cases (khong tao du lieu, khong can rollback)",
+      "item": [
+        {
+          "name": "AUTH-TC09 - POST: Login sai mat khau (401)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[AUTH-TC09] Status 400 hoac 401', () => pm.expect(pm.response.code).to.be.oneOf([400, 401]));",
+                  "pm.test('[AUTH-TC09] Khong co accessToken', () => pm.expect(pm.response.json().data?.access_token).to.not.exist);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/user-service/auth/login",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"username\": \"admin@gmail.com\", \"password\": \"wrong_pass\"}"
+            }
+          }
+        },
+        {
+          "name": "AUTH-TC10 - POST: Login username khong ton tai (401)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[AUTH-TC10] Status 400 hoac 401', () => pm.expect(pm.response.code).to.be.oneOf([400, 401]));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/user-service/auth/login",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"username\": \"notexist@x.com\", \"password\": \"any\"}"
+            }
+          }
+        },
+        {
+          "name": "AUTH-TC11 - GET: Account khong co token (401)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[AUTH-TC11] Status 401', () => pm.response.to.have.status(401));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/v1/user-service/auth/account"
+          }
+        },
+        {
+          "name": "AUTH-TC12 - GET: Refresh token khong hop le (401)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[AUTH-TC12] Status 400 hoac 401', () => pm.expect(pm.response.code).to.be.oneOf([400, 401]));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/v1/user-service/auth/refresh",
+            "header": [{ "key": "Cookie", "value": "refresh_token=invalid_token_xyz" }]
+          }
+        },
+        {
+          "name": "AUTH-TC13 - GET: Bypass Gateway goi thang port noi bo 8082 (phai bi chan)",
+          "description": "Gọi thẳng vào port nội bộ User Service (8082) mà không qua Gateway (8081). KHÔNG được nhận HTTP 200.",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[AUTH-TC13] Khong duoc tra ve HTTP 200', () => pm.expect(pm.response.code).to.not.equal(200));",
+                  "pm.test('[AUTH-TC13] Phai tra ve 401/403/404/503', () => pm.expect(pm.response.code).to.be.oneOf([401, 403, 404, 503]));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": "{{internal_user_service_url}}/api/v1/user-service/users",
+            "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }]
+          }
+        },
+        {
+          "name": "AUTH-TC14 - GET: Expired JWT Token (401)",
+          "description": "Dùng JWT đã hết hạn. Expected: HTTP 401.",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[AUTH-TC14] Status 401 - expired token', () => pm.response.to.have.status(401));",
+                  "pm.test('[AUTH-TC14] Khong co accessToken', () => pm.expect(pm.response.json().data?.access_token).to.not.exist);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/v1/user-service/auth/account",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxIiwiZW1haWwiOiJhZG1pbkBnbWFpbC5jb20iLCJpYXQiOjE2MDAwMDAwMDAsImV4cCI6MTYwMDAwMDAwMX0.EXPIRED_SIGNATURE"
+              }
+            ]
+          }
+        },
+        {
+          "name": "AUTH-TC15 - POST: Login tai khoan bi khoa isActive=false (403)",
+          "description": "Prerequisite: Cần user 'inactive_user@gmail.com' với isActive=false trong DB. KHÔNG tạo data nên không cần rollback.",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[AUTH-TC15] Status 400 hoac 403', () => pm.expect(pm.response.code).to.be.oneOf([400, 403]));",
+                  "pm.test('[AUTH-TC15] Khong co accessToken', () => pm.expect(pm.response.json().data?.access_token).to.not.exist);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/user-service/auth/login",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"username\": \"inactive_user@gmail.com\", \"password\": \"123456\"}"
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

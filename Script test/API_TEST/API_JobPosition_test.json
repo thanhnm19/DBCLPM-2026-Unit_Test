@@ -1,0 +1,866 @@
+{
+  "info": {
+    "name": "Recruitment System API Tests - JobPosition",
+    "_postman_id": "recruit-api-jp",
+    "description": "Luồng CRUD tự rollback: GET baseline → POST tạo → GET verify → PUT sửa → GET verify → POST publish → GET verify → POST close → GET verify → DELETE → GET verify xóa.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "base_url", "value": "http://localhost:8081" },
+    { "key": "access_token", "value": "" },
+    { "key": "rrId", "value": "" },
+    { "key": "draftRrId", "value": "" },
+    { "key": "rejectedRrId", "value": "" },
+    { "key": "jpId", "value": "" },
+    { "key": "publishedJpId", "value": "" },
+    { "key": "closedJpId", "value": "" },
+    { "key": "workflowId", "value": "" },
+    { "key": "initialTotalJP", "value": "0" }
+  ],
+  "item": [
+    {
+      "name": "JobPosition CRUD Lifecycle (tự rollback)",
+      "item": [
+        {
+          "name": "STEP 0 - Login lay token",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[STEP-0] Status 200', () => pm.response.to.have.status(200));",
+                  "pm.collectionVariables.set('access_token', pm.response.json().data.access_token);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/user-service/auth/login",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"username\": \"bich.tran@company.com\", \"password\": \"123456\"}"
+            }
+          }
+        },
+        {
+          "name": "JP-TC01 - GET BASELINE: Dem tong job position ban dau",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[JP-TC01] Status 200', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "const total = body.data.meta.total || body.data.result.length;",
+                  "pm.collectionVariables.set('initialTotalJP', total);",
+                  "console.log('[BASELINE] Tong JP ban dau: ' + total);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/v1/job-service/job-positions?page=1&limit=100",
+            "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }]
+          }
+        },
+        {
+          "name": "JP-TC02 - POST: Tao vi tri tuyen dung moi",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "const token = pm.collectionVariables.get('access_token');",
+                  "const baseUrl = pm.variables.get('base_url') || 'http://localhost:8081';",
+                  "pm.sendRequest({",
+                  "  url: baseUrl + '/api/v1/job-service/recruitment-requests?status=APPROVED&page=1&limit=1',",
+                  "  method: 'GET',",
+                  "  header: { 'Authorization': 'Bearer ' + token }",
+                  "}, function(err, res) {",
+                  "  if (!err && res && res.code === 200) {",
+                  "    const result = res.json().data && res.json().data.result ? res.json().data.result : [];",
+                  "    if (result.length > 0) pm.collectionVariables.set('rrId', result[0].id);",
+                  "  }",
+                  "});"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[JP-TC02] Status 200', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('[JP-TC02] Co id', () => pm.expect(body.data.id).to.be.a('number'));",
+                  "pm.collectionVariables.set('jpId', body.data.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/job-service/job-positions",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{access_token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"title\": \"Java Developer\", \"recruitmentRequestId\": {{rrId}}, \"departmentId\": 5, \"description\": \"Mo ta vi tri\"}"
+            }
+          }
+        },
+        {
+          "name": "JP-TC03 - GET VERIFY TAO: Lay JP vua tao bang ID",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[JP-TC03] Status 200', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "const expectedId = parseInt(pm.collectionVariables.get('jpId'));",
+                  "pm.test('[JP-TC03] ID dung', () => pm.expect(body.data.id).to.equal(expectedId));",
+                  "pm.test('[JP-TC03] Title dung', () => pm.expect(body.data.title).to.equal('Java Developer'));",
+                  "pm.test('[JP-TC03] Co departmentName', () => pm.expect(body.data.departmentName).to.be.a('string'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/v1/job-service/job-positions/{{jpId}}",
+            "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }]
+          }
+        },
+        {
+          "name": "JP-TC04 - GET VERIFY TAO: Simple view",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[JP-TC04] Status 200', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('[JP-TC04] Co id va title', () => {",
+                  "  pm.expect(body.data.id).to.be.a('number');",
+                  "  pm.expect(body.data.title).to.equal('Java Developer');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/v1/job-service/job-positions/simple/{{jpId}}",
+            "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }]
+          }
+        },
+        {
+          "name": "JP-TC05 - PUT: Cap nhat vi tri",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[JP-TC05] Status 200', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('[JP-TC05] Title da cap nhat', () => pm.expect(body.data.title).to.equal('Senior Java Dev'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PUT",
+            "url": "{{base_url}}/api/v1/job-service/job-positions/{{jpId}}",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{access_token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"title\": \"Senior Java Dev\", \"description\": \"Updated description\"}"
+            }
+          }
+        },
+        {
+          "name": "JP-TC06 - GET VERIFY SUA: Kiem tra title da doi trong DB",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[JP-TC06] Status 200', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('[JP-TC06] Title = Senior Java Dev', () => pm.expect(body.data.title).to.equal('Senior Java Dev'));",
+                  "pm.test('[JP-TC06] Description = Updated description', () => pm.expect(body.data.description).to.include('Updated'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/v1/job-service/job-positions/{{jpId}}",
+            "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }]
+          }
+        },
+        {
+          "name": "JP-TC07 - POST: Publish vi tri -> PUBLISHED",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[JP-TC07] Status 200', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('[JP-TC07] Status PUBLISHED', () => pm.expect(body.data.status).to.equal('PUBLISHED'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/job-service/job-positions/{{jpId}}/publish",
+            "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }]
+          }
+        },
+        {
+          "name": "JP-TC08 - GET VERIFY: Status = PUBLISHED trong DB",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[JP-TC08] Status 200', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('[JP-TC08] Status PUBLISHED trong DB', () => pm.expect(body.data.status).to.equal('PUBLISHED'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/v1/job-service/job-positions/{{jpId}}",
+            "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }]
+          }
+        },
+        {
+          "name": "JP-TC09 - POST: Close vi tri -> CLOSED",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[JP-TC09] Status 200', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('[JP-TC09] Status CLOSED', () => pm.expect(body.data.status).to.equal('CLOSED'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/job-service/job-positions/{{jpId}}/close",
+            "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }]
+          }
+        },
+        {
+          "name": "JP-TC10 - GET VERIFY: Status = CLOSED trong DB",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[JP-TC10] Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('[JP-TC10] Status CLOSED trong DB', () => pm.expect(pm.response.json().data.status).to.equal('CLOSED'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/v1/job-service/job-positions/{{jpId}}",
+            "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }]
+          }
+        },
+        {
+          "name": "JP-TC11 - POST: Reopen vi tri -> PUBLISHED",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[JP-TC11] Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('[JP-TC11] Status PUBLISHED', () => pm.expect(pm.response.json().data.status).to.equal('PUBLISHED'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/job-service/job-positions/{{jpId}}/reopen",
+            "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }]
+          }
+        },
+        {
+          "name": "JP-TC12 - DELETE (ROLLBACK): Xoa JP vua tao",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[JP-TC12] Status 200 hoac 204', () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200, 204]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "url": "{{base_url}}/api/v1/job-service/job-positions/{{jpId}}",
+            "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }]
+          }
+        },
+        {
+          "name": "JP-TC13 - GET VERIFY XOA: JP da bi xoa/inactive",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  pm.test('[JP-TC13] Soft deleted: isActive = false', () => {",
+                  "    pm.expect(pm.response.json().data.active).to.be.false;",
+                  "  });",
+                  "} else {",
+                  "  pm.test('[JP-TC13] Deleted: Status 400 hoac 404', () => {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([400, 404]);",
+                  "  });",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/v1/job-service/job-positions/{{jpId}}",
+            "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }]
+          }
+        }
+      ]
+    },
+    {
+      "name": "JobPosition Negative Cases (khong tao du lieu, khong can rollback)",
+      "item": [
+        {
+          "name": "JP-TC14 - GET: List phan trang",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[JP-TC14] Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('[JP-TC14] Co meta va result', () => {",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(body.data.meta).to.exist;",
+                  "  pm.expect(body.data.result).to.be.an('array');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/v1/job-service/job-positions?page=1&limit=10",
+            "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }]
+          }
+        },
+        {
+          "name": "JP-TC15 - GET: Filter status=PUBLISHED",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[JP-TC15] Status 200', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('[JP-TC15] Tat ca status PUBLISHED', () => {",
+                  "  body.data.result.forEach(j => pm.expect(j.status).to.equal('PUBLISHED'));",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/v1/job-service/job-positions?status=PUBLISHED",
+            "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }]
+          }
+        },
+        {
+          "name": "JP-TC16 - GET: Published list",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[JP-TC16] Status 200', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('[JP-TC16] Tat ca status PUBLISHED', () => {",
+                  "  body.data.result.forEach(j => pm.expect(j.status).to.equal('PUBLISHED'));",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/v1/job-service/job-positions/published",
+            "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }]
+          }
+        },
+        {
+          "name": "JP-TC17 - POST: Tao Job tu RR chua duyet (DRAFT) - phai 400",
+          "description": "Prerequisite: draftRrId = ID phiếu DRAFT. Bị reject nên KHÔNG tạo data.",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "const token = pm.collectionVariables.get('access_token');",
+                  "const baseUrl = pm.variables.get('base_url') || 'http://localhost:8081';",
+                  "pm.sendRequest({",
+                  "  url: baseUrl + '/api/v1/job-service/recruitment-requests?status=DRAFT&page=1&limit=1',",
+                  "  method: 'GET',",
+                  "  header: { 'Authorization': 'Bearer ' + token }",
+                  "}, function(err, res) {",
+                  "  if (!err && res && res.code === 200) {",
+                  "    const result = res.json().data && res.json().data.result ? res.json().data.result : [];",
+                  "    if (result.length > 0) pm.collectionVariables.set('draftRrId', result[0].id);",
+                  "  }",
+                  "});"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[JP-TC17] Status 400 - RR chua duoc duyet', () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/job-service/job-positions",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{access_token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"title\": \"Job Tu RR Chua Duyet\", \"recruitmentRequestId\": {{draftRrId}}, \"departmentId\": 5, \"description\": \"Test\"}"
+            }
+          }
+        },
+        {
+          "name": "JP-TC18 - POST: Tao Job tu RR REJECTED - phai 400",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "const token = pm.collectionVariables.get('access_token');",
+                  "const baseUrl = pm.variables.get('base_url') || 'http://localhost:8081';",
+                  "pm.sendRequest({",
+                  "  url: baseUrl + '/api/v1/job-service/recruitment-requests?status=REJECTED&page=1&limit=1',",
+                  "  method: 'GET',",
+                  "  header: { 'Authorization': 'Bearer ' + token }",
+                  "}, function(err, res) {",
+                  "  if (!err && res && res.code === 200) {",
+                  "    const result = res.json().data && res.json().data.result ? res.json().data.result : [];",
+                  "    if (result.length > 0) pm.collectionVariables.set('rejectedRrId', result[0].id);",
+                  "  }",
+                  "});"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[JP-TC18] Status 400 - RR bi REJECTED', () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/job-service/job-positions",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{access_token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"title\": \"Job Tu RR Rejected\", \"recruitmentRequestId\": {{rejectedRrId}}, \"departmentId\": 5, \"description\": \"Test\"}"
+            }
+          }
+        },
+        {
+          "name": "JP-TC19 - POST: salaryMin > salaryMax - phai 400",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[JP-TC19] Status 400 - Validation luong', () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/job-service/job-positions",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{access_token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"title\": \"Job Luong Sai\", \"recruitmentRequestId\": {{rrId}}, \"departmentId\": 5, \"salaryMin\": 50000000, \"salaryMax\": 10000000, \"description\": \"salaryMin > salaryMax\"}"
+            }
+          }
+        },
+        {
+          "name": "JP-TC20 - PUT: Sua Job dang PUBLISHED - phai 400",
+          "description": "Prerequisite: publishedJpId = ID job PUBLISHED. Bị reject nên KHÔNG thay đổi data.",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "const token = pm.collectionVariables.get('access_token');",
+                  "const baseUrl = pm.variables.get('base_url') || 'http://localhost:8081';",
+                  "pm.sendRequest({",
+                  "  url: baseUrl + '/api/v1/job-service/job-positions?status=PUBLISHED&page=1&limit=1',",
+                  "  method: 'GET',",
+                  "  header: { 'Authorization': 'Bearer ' + token }",
+                  "}, function(err, res) {",
+                  "  if (!err && res && res.code === 200) {",
+                  "    const result = res.json().data && res.json().data.result ? res.json().data.result : [];",
+                  "    if (result.length > 0) pm.collectionVariables.set('publishedJpId', result[0].id);",
+                  "  }",
+                  "});"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[JP-TC20] Status 400 - khong sua Job PUBLISHED', () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PUT",
+            "url": "{{base_url}}/api/v1/job-service/job-positions/{{publishedJpId}}",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{access_token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"title\": \"Sua JP Published\", \"description\": \"Test\"}"
+            }
+          }
+        },
+        {
+          "name": "JP-TC21 - GET VERIFY: Job PUBLISHED khong bi thay doi",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[JP-TC21] Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('[JP-TC21] Title KHONG bi thay doi', () => {",
+                  "  pm.expect(pm.response.json().data.title).to.not.equal('Sua JP Published');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/v1/job-service/job-positions/{{publishedJpId}}",
+            "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }]
+          }
+        },
+        {
+          "name": "JP-TC22 - PUT: Sua Job da CLOSED - phai 400",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "const token = pm.collectionVariables.get('access_token');",
+                  "const baseUrl = pm.variables.get('base_url') || 'http://localhost:8081';",
+                  "pm.sendRequest({",
+                  "  url: baseUrl + '/api/v1/job-service/job-positions?status=CLOSED&page=1&limit=1',",
+                  "  method: 'GET',",
+                  "  header: { 'Authorization': 'Bearer ' + token }",
+                  "}, function(err, res) {",
+                  "  if (!err && res && res.code === 200) {",
+                  "    const result = res.json().data && res.json().data.result ? res.json().data.result : [];",
+                  "    if (result.length > 0) pm.collectionVariables.set('closedJpId', result[0].id);",
+                  "  }",
+                  "});"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[JP-TC22] Status 400 - khong sua Job CLOSED', () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PUT",
+            "url": "{{base_url}}/api/v1/job-service/job-positions/{{closedJpId}}",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{access_token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"title\": \"Sua JP Closed\", \"description\": \"Test\"}"
+            }
+          }
+        },
+        {
+          "name": "JP-TC23 - POST: Tao Job voi deadline trong qua khu",
+          "description": "Lỗi System Test TC_JOB_01_005. Không được tạo job đã hết hạn.",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[JP-TC23] Status 400 - Validation loi thoi gian', () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/job-service/job-positions",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{access_token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"title\": \"Job Qua Khu\", \"recruitmentRequestId\": {{rrId}}, \"departmentId\": 5, \"deadline\": \"2020-01-01\", \"description\": \"Test\"}"
+            }
+          }
+        },
+        {
+          "name": "JP-TC24 - POST: Tao Job voi title qua dai (>255 ky tu)",
+          "description": "Kiểm tra giới hạn ký tự thay vì văng exception SQL.",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[JP-TC24] Status 400 - Validation loi do dai', () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/job-service/job-positions",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{access_token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"title\": \"TieudeTieuDeTieuDeTieuDeTieuDeTieuDeTieuDeTieuDeTieuDeTieuDeTieuDeTieuDeTieuDeTieuDeTieuDeTieuDeTieuDeTieuDeTieuDeTieuDeTieuDeTieuDeTieuDeTieuDeTieuDeTieuDeTieuDeTieuDeTieuDeTieuDeTieuDeTieuDeTieuDeTieuDeTieuDeTieuDeTieuDeTieuDeTieuDeTieuDeTieuDeTieuDeTieuDeTieuDe\", \"recruitmentRequestId\": {{rrId}}, \"departmentId\": 5, \"description\": \"Test\"}"
+            }
+          }
+        },
+        {
+          "name": "JP-TC25 - POST: Publish Job da CLOSED (State Machine Violation)",
+          "description": "Cố tình nhảy cóc trạng thái từ CLOSED sang PUBLISHED.",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[JP-TC25] Status 400 - State machine conflict', () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/job-service/job-positions/{{closedJpId}}/publish",
+            "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }]
+          }
+        },
+        {
+          "name": "JP-TC26 - POST: Tao Job thieu title (validation 400)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[JP-TC26] Status 400 - Validation loi thieu title', () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/job-service/job-positions",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{access_token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"recruitmentRequestId\": {{rrId}}, \"departmentId\": 5, \"description\": \"Test\"}"
+            }
+          }
+        },
+        {
+          "name": "JP-TC27 - POST: Tao Job thieu recruitmentRequestId (validation 400)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[JP-TC27] Status 400 - Validation loi thieu recruitmentRequestId', () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/job-service/job-positions",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{access_token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"title\": \"Missing RR ID\", \"departmentId\": 5, \"description\": \"Test\"}"
+            }
+          }
+        },
+        {
+          "name": "JP-TC28 - PUT: Cap nhat Job voi ID khong ton tai (404)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[JP-TC28] Status 404', () => pm.response.to.have.status(404));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PUT",
+            "url": "{{base_url}}/api/v1/job-service/job-positions/999999",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{access_token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"title\": \"Update Fake Job\", \"description\": \"Test\"}"
+            }
+          }
+        },
+        {
+          "name": "JP-TC29 - DELETE: Xoa Job voi ID khong ton tai (404)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[JP-TC29] Status 404', () => pm.response.to.have.status(404));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "url": "{{base_url}}/api/v1/job-service/job-positions/999999",
+            "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }]
+          }
+        },
+        {
+          "name": "JP-TC30 - POST: Tao Job khong co Access Token (401)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[JP-TC30] Status 401', () => pm.response.to.have.status(401));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/job-service/job-positions",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"title\": \"No Token Job\", \"recruitmentRequestId\": {{rrId}}, \"departmentId\": 5, \"description\": \"Test\"}"
+            }
+          }
+        },
+        {
+          "name": "JP-TC31 - POST: Tao Job voi Access Token khong hop le (401)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[JP-TC31] Status 401', () => pm.response.to.have.status(401));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/job-service/job-positions",
+            "header": [
+              { "key": "Authorization", "value": "Bearer invalid_token_xyz" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"title\": \"Invalid Token Job\", \"recruitmentRequestId\": {{rrId}}, \"departmentId\": 5, \"description\": \"Test\"}"
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

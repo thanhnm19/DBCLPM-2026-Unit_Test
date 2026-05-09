@@ -43,58 +43,63 @@ import static org.mockito.Mockito.*;
  * Unit Test: ApprovalTrackingService — Quy trình Phê duyệt
  * =============================================================
  *
- * Mục tiêu:
- *   - Phủ Branch Coverage cấp 2 (mọi nhánh if/else trong source code)
- *   - Mỗi test bắt một lỗi cụ thể nếu implementation sai
- *   - Expected output từ ĐẶC TẢ, không từ source code
+ * PHẠM VI TEST:
+ *   - initializeApproval(): Tạo tracking PENDING cho bước đầu tiên workflow
+ *   - approve(): Duyệt (PENDING → APPROVED/REJECTED), create tracking bước tiếp
+ *   - getById(): Lấy tracking theo id
+ *   - getAll(): Lấy danh sách tracking có filter + phân trang
+ *   - getPendingApprovalsForUser(): Lấy các bước chờ duyệt của user
+ *   - handleWorkflowEvent(): Xử lý event từ job-service
+ *     • REQUEST_APPROVED: tracking PENDING → APPROVED + create tracking bước tiếp
+ *     • REQUEST_REJECTED: tracking PENDING → REJECTED
+ *     • REQUEST_CANCELLED: tracking PENDING → CANCELLED
+ *     • REQUEST_WITHDRAWN: tracking PENDING → CANCELLED (actionType=WITHDRAW)
+ *     • REQUEST_RETURNED: tracking PENDING → RETURNED + returnedToStepId
  *
- * Sơ đồ nhánh chính cần phủ:
+ * KIẾN TRÚC WORKFLOW:
+ *   Workflow có nhiều Step (e.g., Dept Manager → HR Manager → Executive)
+ *   Mỗi step có approverPositionId (vị trí người duyệt)
+ *   Mỗi lần submit request → create tracking cho step đầu tiên
+ *   Approver duyệt bước n → tạo tracking mới cho bước n+1 (nếu tồn tại)
  *
- * approve(id, dto):
- *   [B1] ID không tồn tại → IdInvalidException
- *   [B2] approverPositionId != currentUserId → CustomException, DB không đổi
- *   [B3] status = APPROVED (đã xử lý) → CustomException, DB không đổi
- *   [B4] status = REJECTED (đã xử lý) → CustomException, DB không đổi
- *   [B5] approved=true → status=APPROVED, actionUserId, actionAt, notes cập nhật vào DB
- *   [B6] approved=false → status=REJECTED, DB cập nhật đúng
- *   [B7] approved=true + nextStep tồn tại → tạo thêm tracking PENDING cho bước tiếp
- *   [B8] approved=true + không có nextStep → không tạo thêm tracking
+ *   Flow ví dụ:
+ *   User tạo request (DRAFT) → submit() → job-service publish REQUEST_SUBMITTED event
+ *   ↓
+ *   job-service emit event → workflow-service nhận
+ *   ↓
+ *   initializeApproval() → create tracking PENDING ở step 1
+ *   ↓
+ *   Approver step 1 duyệt → approve(trackingId, approved=true)
+ *     • tracking → APPROVED
+ *     • event publish → job-service nhận
+ *     • nếu step 2 tồn tại → create tracking mới ở step 2
+ *   ↓
+ *   Approver step 2 duyệt (or reject) → ...
  *
- * getById(id):
- *   [B9]  ID tồn tại → DTO đủ trường
- *   [B10] ID không tồn tại → IdInvalidException
+ * CHIẾN LƯỢC TEST:
+ *   - @SpringBootTest: Load full Spring context + H2 DB
+ *   - @Transactional: Auto rollback → DB sạch
+ *   - @ActiveProfiles("test"): Test config
+ *   - MockedStatic SecurityUtil: Fake current user ID
+ *   - Mock Kafka producers: không gửi message thật
+ *   - Mock HTTP clients: không gọi HTTP thật
+ *   - Kiểm tra DB change (tracking status, actionUserId, actionAt, notes)
  *
- * getAll(requestId, status, approverPositionId, pageable):
- *   [B11] filter=null → trả về tất cả
- *   [B12] filter requestId → chỉ trả về tracking của request đó
- *   [B13] filter status=PENDING → chỉ trả về PENDING
+ * MOCK STRATEGY:
+ *   - @MockitoBean UserService: không gọi user-service HTTP API
+ *   - @MockitoBean CandidateService: không gọi candidate-service HTTP API
+ *   - @MockitoBean RecruitmentWorkflowProducer: không publish Kafka event
+ *   - @MockitoBean NotificationProducer: không gửi notification
+ *   - MockedStatic SecurityUtil: fake user ID + JWT token
+ *   - doNothing().when(producer).publishEvent(any()): skip kafka gửi
  *
- * getPendingApprovalsForUser(userId):
- *   [B14] có PENDING → danh sách không rỗng, tất cả là PENDING
- *   [B15] không có PENDING → danh sách rỗng
- *
- * getWorkflowInfoByRequestId(requestId, workflowId, requestType):
- *   [B16] requestType=null → không lọc type, trả về tất cả
- *   [B17] requestType="REQUEST" → chỉ trả về tracking của workflow REQUEST
- *   [B18] requestType="OFFER" → chỉ trả về tracking của workflow OFFER
- *   [B19] requestId không có tracking → danh sách rỗng
- *
- * handleWorkflowEvent(event):
- *   [B20] event=null → early return, không thay đổi DB
- *   [B21] eventType=null → early return, không thay đổi DB
- *   [B22] REQUEST_CANCELLED → tất cả PENDING → CANCELLED, actionType=CANCEL
- *   [B23] REQUEST_CANCELLED + request không có PENDING → DB không đổi
- *   [B24] REQUEST_WITHDRAWN → tất cả PENDING → CANCELLED, actionType=WITHDRAW
- *         (phân biệt CANCEL vs WITHDRAW bằng actionType)
- *   [B25] REQUEST_RETURNED + có returnedToStepId → RETURNED, actionType=RETURN, returnedToStepId được ghi
- *   [B26] REQUEST_RETURNED + returnedToStepId=null → trả về bước đầu tiên (stepOrder=1)
- *   [B27] REQUEST_APPROVED + có bước tiếp → tracking hiện tại APPROVED + tạo tracking mới bước tiếp
- *   [B28] REQUEST_APPROVED + không có bước tiếp → tracking APPROVED, không tạo thêm
- *   [B29] REQUEST_REJECTED → tracking PENDING → REJECTED, actionType=REJECT
- *   [B30] eventType unknown → bỏ qua, DB không đổi
- *
- * CheckDB: Sau mỗi thao tác thay đổi DB, truy vấn lại repository để xác minh
- * Rollback: @Transactional đảm bảo DB sạch sau mỗi test
+ * LƯU Ý:
+ *   - ApprovalTracking khác Job-Service tracking
+ *     • ApprovalTracking: theo dõi workflow approval step
+ *     • RecruitmentRequest: theo dõi overall request status
+ *   - Event-driven: một approve() có thể trigger tạo tracking bước tiếp
+ *     → test phải kiểm tra DB có tracking mới
+ *   - Xác nhân quyền duyệt: approverPositionId must match SecurityUtil.extractEmployeeId()
  * =============================================================
  */
 @SpringBootTest
@@ -109,52 +114,103 @@ class ApprovalTrackingServiceTest {
     @Autowired private WorkflowRepository workflowRepository;
     @Autowired private WorkflowStepRepository workflowStepRepository;
 
-    // --- Mock external dependencies ---
+    // ============================================================
+    // MOCK DEPENDENCIES (không thực thi logic thực)
+    // ============================================================
+    
+    /**
+     * Mock UserService
+     * 
+     * Lý do mock:
+     *   - UserService gọi HTTP user-service API
+     *   - Test ApprovalTrackingService độc lập (không phụ thuộc HTTP)
+     *   - Mock: return Map.of() (không user data thực)
+     */
     @MockitoBean private UserService userService;
+    
     @MockitoBean private CandidateService candidateService;
+    
+    /**
+     * Mock RecruitmentWorkflowProducer
+     * 
+     * Lý do mock:
+     *   - Producer publish event vào Kafka
+     *   - Test không nên gửi message thật vào Kafka
+     *   - Mock: doNothing() → skip publish, vẫn test logic approve()
+     */
     @MockitoBean private RecruitmentWorkflowProducer workflowProducer;
+    
     @MockitoBean private NotificationProducer notificationProducer;
     @MockitoBean private org.springframework.kafka.core.KafkaTemplate<String, String> kafkaTemplate;
     @MockitoBean private org.springframework.web.client.RestTemplate restTemplate;
 
     private MockedStatic<SecurityUtil> mockedSecurityUtil;
 
-    // Người dùng giả lập đang đăng nhập (= approver hợp lệ)
+    // ============================================================
+    // TEST CONSTANTS
+    // ============================================================
+    
+    // Người dùng giả lập đang đăng nhập (= approver hợp lệ ở bước 1)
     private static final Long APPROVER_USER_ID = 100L;
-    // Người dùng khác (không có quyền duyệt)
+    // Người dùng khác (approver ở bước 2)
     private static final Long OTHER_USER_ID    = 999L;
     // Request ID dùng chung
     private static final Long REQUEST_ID       = 1L;
 
-    /** Workflow có 2 bước dùng chung */
+    /**
+     * Workflow có 2 bước dùng chung cho tất cả test
+     * - Step 1: approver=APPROVER_USER_ID=100
+     * - Step 2: approver=OTHER_USER_ID=999
+     */
     private Workflow workflow2Steps;
+    
     /** Bước 1 của workflow */
     private WorkflowStep step1;
+    
     /** Bước 2 của workflow */
     private WorkflowStep step2;
+    
     /** Tracking PENDING tại bước 1 cho REQUEST_ID */
     private ApprovalTracking pendingTracking;
 
     @BeforeEach
     void setUp() {
-        // Giả lập người dùng ID=100 đang đăng nhập
+        /**
+         * SETUP: Chuẩn bị dữ liệu chung cho tất cả test
+         * 
+         * BƯỚC 1: Mock external dependencies (không gọi HTTP/Kafka thật)
+         */
+        
+        // Mock SecurityUtil: fake user ID = APPROVER_USER_ID (100)
+        // → SecurityUtil.extractEmployeeId() sẽ return 100
         mockedSecurityUtil = Mockito.mockStatic(SecurityUtil.class);
         mockedSecurityUtil.when(SecurityUtil::extractEmployeeId).thenReturn(APPROVER_USER_ID);
         mockedSecurityUtil.when(SecurityUtil::getCurrentUserJWT).thenReturn(Optional.of("test-token"));
 
-        // Mock UserService: trả về rỗng (không gọi HTTP thật)
+        // Mock UserService: không gọi user-service HTTP API
+        // → Trả về Map.of() thay vì data thực
         when(userService.getUserNamesByIds(anyList(), anyString())).thenReturn(Map.of());
         when(userService.getPositionNamesByIds(anyList(), anyString())).thenReturn(Map.of());
         when(userService.findUserByPositionIdAndDepartmentId(anyLong(), anyLong(), anyString()))
                 .thenReturn(OTHER_USER_ID);
 
         // Mock Kafka producers: không gửi message thật
+        // → doNothing(): gọi method nhưng skip logic
         doNothing().when(workflowProducer).publishEvent(any());
         doNothing().when(notificationProducer).sendNotification(anyLong(), anyString(), anyString(), anyString());
         doNothing().when(notificationProducer).sendNotificationToDepartment(
                 anyLong(), anyLong(), anyString(), anyString(), anyString());
 
-        // Tạo workflow 2 bước trong H2 DB
+        /**
+         * BƯỚC 2: Tạo Workflow 2 bước trong H2 test DB
+         * 
+         * Sơ đồ:
+         *   Workflow (REQUEST type)
+         *   ├─ Step 1: order=1, approver=APPROVER_USER_ID (100)
+         *   └─ Step 2: order=2, approver=OTHER_USER_ID (999)
+         * 
+         * Dùng cho tất cả test để mô phỏng workflow thực tế
+         */
         workflow2Steps = new Workflow();
         workflow2Steps.setName("Workflow Test 2 Bước");
         workflow2Steps.setType(WorkflowType.REQUEST);
@@ -162,13 +218,15 @@ class ApprovalTrackingServiceTest {
         workflow2Steps.setIsActive(true);
         workflow2Steps = workflowRepository.save(workflow2Steps);
 
+        // Step 1: Approver = user ID 100 (người đang test)
         step1 = new WorkflowStep();
         step1.setWorkflow(workflow2Steps);
         step1.setStepOrder(1);
-        step1.setApproverPositionId(APPROVER_USER_ID); // approver = người đang đăng nhập
+        step1.setApproverPositionId(APPROVER_USER_ID);
         step1.setIsActive(true);
         step1 = workflowStepRepository.save(step1);
 
+        // Step 2: Approver = user ID 999 (người khác)
         step2 = new WorkflowStep();
         step2.setWorkflow(workflow2Steps);
         step2.setStepOrder(2);
@@ -176,13 +234,29 @@ class ApprovalTrackingServiceTest {
         step2.setIsActive(true);
         step2 = workflowStepRepository.save(step2);
 
-        // Tracking PENDING tại bước 1 cho request REQUEST_ID
+        /**
+         * BƯỚC 3: Tạo Tracking PENDING tại Step 1 cho REQUEST_ID
+         * 
+         * Mô phỏng scenario: request được tạo, workflow initialized
+         * → tracking PENDING tại step 1 chờ APPROVER_USER_ID duyệt
+         */
         pendingTracking = buildTracking(REQUEST_ID, step1, ApprovalStatus.PENDING, APPROVER_USER_ID);
         pendingTracking = approvalTrackingRepository.save(pendingTracking);
     }
 
     @AfterEach
     void tearDown() {
+        /**
+         * CLEANUP: Dọn sạch sau mỗi test
+         * 
+         * Làm gì:
+         *   - Đóng MockedStatic SecurityUtil
+         *   - Xóa security context (trong test khác không dùng nhầm)
+         * 
+         * Tại sao:
+         *   - MockedStatic nếu không close → side effect sang test khác
+         *   - @Transactional tự rollback DB → không cần cleanup DB
+         */
         mockedSecurityUtil.close();
     }
 
@@ -242,33 +316,41 @@ class ApprovalTrackingServiceTest {
 
     /**
      * Test Case ID: AT-TC03
-     * assignedUserId = null (người duyệt không tìm thấy) → exception/early return
+         * assignedUserId = null (người duyệt không tìm thấy) → service vẫn tạo tracking,
+         * nhưng actionUserId trong DB phải là null.
      *
-     * Bug bị bắt: Ghi null vào DB thay vì throw exception
+         * Mục tiêu branch: cover nhánh false của if (tracking.getActionUserId() != null)
+         * trong initializeApproval().
      */
     @Test
-    @DisplayName("[AT-TC03] initializeApproval() - assignedUserId = null → exception hoặc early return")
-    void tc03_initializeApproval_assignedUserIdNull_throwsException() {
-        // Arrange: mock findUserByPositionId để trả null
-        // Tạo new instance để mock findUserByPositionId logic
+        @DisplayName("[AT-TC03] initializeApproval() - assignedUserId=null → tracking vẫn được tạo và actionUserId=null")
+        void tc03_initializeApproval_assignedUserIdNull_savesTrackingWithNullActionUserId() {
+        when(userService.findUserByPositionIdAndDepartmentId(anyLong(), eq(10L), anyString()))
+                .thenReturn(null);
+
+        when(restTemplate.exchange(
+                anyString(),
+                eq(org.springframework.http.HttpMethod.GET),
+                any(org.springframework.http.HttpEntity.class),
+                any(org.springframework.core.ParameterizedTypeReference.class)))
+                .thenAnswer(invocation -> buildUserPositionResponse(APPROVER_USER_ID));
+
         CreateApprovalTrackingDTO dto = new CreateApprovalTrackingDTO();
-        dto.setDepartmentId(10L); // workflow2Steps.departmentId
+        dto.setDepartmentId(10L); // workflow2Steps.departmentId = 10L
         dto.setRequestId(3L);
         dto.setLevelId(1L);
 
-        // Act + Assert: phương thức sẽ gọi findUserByPositionId
-        // Nếu logic bên trong handleUserNotFound, nó sẽ throw exception
-        // Nếu không, nó sẽ tiếp tục với assignedUserId=null
-        // Hành vi phụ thuộc vào implementation, nhưng thường sẽ throw exception
-        try {
-            ApprovalTrackingResponseDTO result = approvalTrackingService.initializeApproval(dto);
-            assertNull(result.getApproverPositionId(),
-                    "BUG: approverPositionId phải null khi assignedUserId=null");
-        } catch (Exception e) {
-            // Nếu throw exception, đó cũng là hành vi hợp lệ
-            assertTrue(e instanceof CustomException || e instanceof IdInvalidException,
-                    "BUG: Exception loại không đúng");
-        }
+        long countBefore = approvalTrackingRepository.count();
+
+        ApprovalTrackingResponseDTO result = approvalTrackingService.initializeApproval(dto);
+
+        assertNotNull(result, "BUG: initializeApproval() trả về null dù tracking vẫn được tạo");
+        assertEquals(countBefore + 1, approvalTrackingRepository.count(),
+                "BUG: Tracking không được tạo khi actionUserId=null");
+
+        ApprovalTracking saved = approvalTrackingRepository.findById(result.getId()).orElseThrow();
+        assertNull(saved.getActionUserId(), "BUG: actionUserId phải null khi user-service không tìm được người theo levelId");
+        verify(userService, never()).getUserNamesByIds(anyList(), anyString());
     }
 
     /**
@@ -283,6 +365,13 @@ class ApprovalTrackingServiceTest {
         // Arrange
         when(userService.findUserByPositionIdAndDepartmentId(anyLong(), eq(10L), anyString()))
                 .thenReturn(OTHER_USER_ID); // actionUserId = OTHER_USER_ID
+
+        when(restTemplate.exchange(
+                anyString(),
+                eq(org.springframework.http.HttpMethod.GET),
+                any(org.springframework.http.HttpEntity.class),
+                any(org.springframework.core.ParameterizedTypeReference.class)))
+                .thenAnswer(invocation -> buildUserPositionResponse(APPROVER_USER_ID));
 
         CreateApprovalTrackingDTO dto = new CreateApprovalTrackingDTO();
         dto.setDepartmentId(10L);
@@ -319,6 +408,13 @@ class ApprovalTrackingServiceTest {
     @DisplayName("[AT-TC05] initializeApproval() - notifyNextApprovers được gọi")
     void tc05_initializeApproval_notifiesNextApprovers() {
         // Arrange
+        when(restTemplate.exchange(
+                anyString(),
+                eq(org.springframework.http.HttpMethod.GET),
+                any(org.springframework.http.HttpEntity.class),
+                any(org.springframework.core.ParameterizedTypeReference.class)))
+                .thenAnswer(invocation -> buildUserPositionResponse(APPROVER_USER_ID));
+
         CreateApprovalTrackingDTO dto = new CreateApprovalTrackingDTO();
         dto.setDepartmentId(10L);
         dto.setRequestId(5L);
@@ -329,7 +425,7 @@ class ApprovalTrackingServiceTest {
 
         // Assert: notificationProducer phải được gọi
         verify(notificationProducer, times(1))
-                .sendNotificationToDepartment(eq(10L), anyLong(), anyString(), anyString(), anyString());
+                .sendNotificationToDepartment(eq(10L), eq(APPROVER_USER_ID), anyString(), anyString(), isNull());
     }
 
     // ================================================================
@@ -731,27 +827,35 @@ class ApprovalTrackingServiceTest {
      * Bug bị bắt: Filter type không đúng → lẫn tracking của OFFER
      */
     @Test
-    @SuppressWarnings("unchecked") // cast an toàn: approvalTrackingService.getAll() luôn trả về List<ApprovalTrackingResponseDTO>
     @DisplayName("[AT-TC18][B17] getWorkflowInfoByRequestId() - requestType=REQUEST → chỉ cho REQUEST tracking")
     void tc18_getWorkflowInfoByRequestId_typeRequest_returnsOnlyRequestTrackings() {
-        // Tạo workflow OFFER và tracking OFFER cùng REQUEST_ID để kiểm tra filter loại trừ
+        // Arrange: tạo thêm 1 tracking OFFER cùng REQUEST_ID → tổng = 2 trackings
+        // Setup đã có 1 tracking REQUEST → sau khi filter chỉ còn 1
         Workflow offerWf = saveWorkflow("Offer Workflow", WorkflowType.OFFER, 10L);
         WorkflowStep offerStep = saveStep(offerWf, 1, APPROVER_USER_ID);
         approvalTrackingRepository.save(buildTracking(REQUEST_ID, offerStep, ApprovalStatus.PENDING, APPROVER_USER_ID));
 
+        // Act: lọc với type=REQUEST
         var result = approvalTrackingService.getWorkflowInfoByRequestId(REQUEST_ID, null, "REQUEST");
 
-        assertFalse(result.getApprovalTrackings().isEmpty(), "BUG: Không tìm thấy tracking REQUEST");
-        // Tất cả tracking phải thuộc workflow REQUEST
-        boolean allRequest = result.getApprovalTrackings().stream().allMatch(dto ->
-                result.getWorkflow() == null
-                || dto.getStepId() == null
-                || isStepBelongsToRequestWorkflow(dto.getStepId()));
-        // Đảm bảo tracking của OFFER bị loại ra (tổng phải < tổng tất cả)
-        var allResult = approvalTrackingService.getWorkflowInfoByRequestId(REQUEST_ID, null, null);
-        assertTrue(result.getApprovalTrackings().size() < allResult.getApprovalTrackings().size()
-                || result.getApprovalTrackings().size() == 1,
-                "BUG: Filter type=REQUEST không loại được tracking OFFER");
+        // Assert 1: phải có tracking (không rỗng)
+        assertFalse(result.getApprovalTrackings().isEmpty(),
+                "BUG: Không tìm thấy tracking REQUEST nào");
+
+        // Assert 2: số lượng phải chính xác là 1 (chỉ REQUEST, OFFER bị loại)
+        // Nếu filter không hoạt động → trả về 2 (cả REQUEST lẫn OFFER) → FAIL rõ ràng
+        assertEquals(1, result.getApprovalTrackings().size(),
+                "BUG: Filter type=REQUEST không loại được tracking OFFER " +
+                "— trả về " + result.getApprovalTrackings().size() + " thay vì 1");
+
+        // Assert 3: tracking duy nhất phải thuộc workflow REQUEST (không phải OFFER)
+        // Nếu code filter ngược lại (giữ OFFER, loại REQUEST) → type kiểm tra FAIL
+        Long returnedStepId = result.getApprovalTrackings().get(0).getStepId();
+        assertNotNull(returnedStepId, "BUG: stepId null trong tracking trả về");
+        WorkflowStep returnedStep = workflowStepRepository.findById(returnedStepId).orElseThrow();
+        assertEquals(WorkflowType.REQUEST, returnedStep.getWorkflow().getType(),
+                "BUG: Tracking được trả về thuộc workflow OFFER, không phải REQUEST " +
+                "— filter đang giữ nhầm bản ghi");
     }
 
     /**
@@ -800,16 +904,41 @@ class ApprovalTrackingServiceTest {
     @Test
     @DisplayName("[AT-TC25][B19] getWorkflowInfoByRequestId() - requestType unknown → không filter, trả tất cả")
     void tc25_getWorkflowInfoByRequestId_unknownType_returnsAllTrackings() {
-        // Act: requestType không khớp bất kỳ giá trị nào → workflowType=null → không filter
+        // Test Case ID: AT-TC25
+        // Mục tiêu: requestType "SOMETHING_ELSE" không khớp enum nào
+        //           → xử lý như null: không filter, trả tất cả.
+        //
+        // Bug bị bắt:
+        //   - requestType lạ gây exception → FAIL
+        //   - requestType lạ được filter vào UNKNOWN type → kết quả rỗng → FAIL
+        //   - Kết quả có id khác so với gọi null (filter chọn nhầm record) → content check FAIL
+
+        // Act
         var resultUnknown = approvalTrackingService.getWorkflowInfoByRequestId(REQUEST_ID, null, "SOMETHING_ELSE");
         var resultNull    = approvalTrackingService.getWorkflowInfoByRequestId(REQUEST_ID, null, null);
 
-        // Assert: kết quả giống nhau (cả hai không filter)
+        // Assert 1: không rỗng — tracking từ setUp vẫn phải có
+        assertFalse(resultUnknown.getApprovalTrackings().isEmpty(),
+                "BUG: Kết quả rỗng dù có tracking — có thể đang filter nhầm type SOMETHING_ELSE");
+
+        // Assert 2: size bằng nhau — cả hai đều không filter
         assertEquals(resultNull.getApprovalTrackings().size(),
                 resultUnknown.getApprovalTrackings().size(),
                 "BUG: requestType unknown phải giống requestType=null (không filter)");
-        assertFalse(resultUnknown.getApprovalTrackings().isEmpty(),
-                "BUG: Kết quả rỗng dù có tracking - có thể đang filter nhầm type SOMETHING_ELSE");
+
+        // Assert 3: content giống nhau (cùng tracking ID)
+        // Nếu chỉ check size mà không check content → có thể trả record khác với cùng số lượng
+        List<Long> idsNull = resultNull.getApprovalTrackings().stream()
+                .map(dto -> dto.getId())
+                .sorted()
+                .collect(java.util.stream.Collectors.toList());
+        List<Long> idsUnknown = resultUnknown.getApprovalTrackings().stream()
+                .map(dto -> dto.getId())
+                .sorted()
+                .collect(java.util.stream.Collectors.toList());
+        assertEquals(idsNull, idsUnknown,
+                "BUG: Nội dung khác nhau dù size bằng nhau — " +
+                "filter 'SOMETHING_ELSE' đang chọn nhầm bản ghi khác so với null");
     }
 
     /**
@@ -828,6 +957,39 @@ class ApprovalTrackingServiceTest {
         assertTrue(result.getApprovalTrackings().isEmpty(),
                 "BUG: Trả về tracking dù requestId không tồn tại");
     }
+
+        /**
+         * Test Case ID: AT-TC27
+         * requestType chỉ chứa khoảng trắng → không filter, workflowId truyền sẵn,
+         * workflow không có steps.
+         */
+        @Test
+        @DisplayName("[AT-TC27] getWorkflowInfoByRequestId() - requestType blank + workflowId explicit + workflow không có steps")
+        void tc27_getWorkflowInfoByRequestId_blankType_explicitWorkflowId_emptyWorkflowSteps() {
+                Workflow emptyWorkflow = saveWorkflow("Empty Workflow", WorkflowType.REQUEST, 10L);
+
+                var result = approvalTrackingService.getWorkflowInfoByRequestId(
+                                REQUEST_ID, emptyWorkflow.getId(), "   ");
+
+                assertNotNull(result, "BUG: Kết quả null khi requestType chỉ chứa khoảng trắng");
+                assertNotNull(result.getWorkflow(), "BUG: workflow DTO null");
+                assertNull(result.getWorkflow().getSteps(), "BUG: workflow không có steps phải trả về steps=null");
+                assertFalse(result.getApprovalTrackings().isEmpty(), "BUG: Không trả về tracking khi requestType blank");
+        }
+
+        /**
+         * Test Case ID: AT-TC28
+         * requestType=OFFER nhưng request hiện tại không có OFFER tracking → filter rỗng.
+         */
+        @Test
+        @DisplayName("[AT-TC28] getWorkflowInfoByRequestId() - OFFER filter không match → trả list rỗng")
+        void tc28_getWorkflowInfoByRequestId_offerFilterNoMatch_returnsEmptyList() {
+                var result = approvalTrackingService.getWorkflowInfoByRequestId(REQUEST_ID, null, "OFFER");
+
+                assertNotNull(result, "BUG: Kết quả null khi filter OFFER không match");
+                assertTrue(result.getApprovalTrackings().isEmpty(), "BUG: Filter OFFER không match nhưng vẫn có kết quả");
+                assertNull(result.getWorkflow(), "BUG: Không có tracking OFFER thì workflow phải null");
+        }
 
     // ================================================================
     // NHÓM 7: handleWorkflowEvent() — các nhánh switch-case
@@ -958,6 +1120,26 @@ class ApprovalTrackingServiceTest {
                         "BUG: actionType phải là WITHDRAW, không phải CANCEL - không thể phân biệt 2 hành động")
         );
     }
+
+        /**
+         * Test Case ID: AT-TC31B
+         * REQUEST_WITHDRAWN với reason=null → dùng message mặc định.
+         */
+        @Test
+        @DisplayName("[AT-TC31B] REQUEST_WITHDRAWN reason=null → dùng message mặc định")
+        void tc31b_handleWorkflowEvent_requestWithdrawn_nullReason_usesDefaultMessage() {
+                RecruitmentWorkflowEvent event = buildEvent("REQUEST_WITHDRAWN", "REQUEST", REQUEST_ID);
+                event.setActorUserId(APPROVER_USER_ID);
+                event.setReason(null);
+
+                approvalTrackingService.handleWorkflowEvent(event);
+
+                ApprovalTracking updated = approvalTrackingRepository.findById(pendingTracking.getId()).orElseThrow();
+                assertEquals(ApprovalStatus.CANCELLED, updated.getStatus(), "BUG: Withdraw null reason vẫn phải cancel tracking");
+                assertEquals("WITHDRAW", updated.getActionType(), "BUG: actionType phải là WITHDRAW");
+                verify(notificationProducer, times(1))
+                        .sendNotification(eq(APPROVER_USER_ID), anyString(), anyString(), isNull());
+        }
 
     /**
      * Test Case ID: AT-TC32
@@ -1580,6 +1762,90 @@ class ApprovalTrackingServiceTest {
                 "BUG: Notes phải chứa 'Đã chỉnh sửa' khi resubmit sau return");
     }
 
+    /**
+     * Test Case ID: AT-TC42
+     * Các pending tracking đều là placeholder return → phải cancel placeholder và tạo tracking mới.
+     */
+    @Test
+    @DisplayName("[AT-TC42] handleRequestSubmitted() - placeholder pending → cancel placeholder và tạo tracking mới")
+    void tc42_handleRequestSubmitted_allPendingAreReturnPlaceholders_resubmitsAndCancelsPlaceholder() {
+        Long newRequestId = 140L;
+
+        ApprovalTracking placeholder = buildTracking(newRequestId, step1, ApprovalStatus.PENDING, APPROVER_USER_ID);
+        placeholder.setNotes("Waiting for update after return - placeholder");
+        approvalTrackingRepository.save(placeholder);
+
+        long countBefore = approvalTrackingRepository.count();
+
+        RecruitmentWorkflowEvent event = buildEvent("REQUEST_SUBMITTED", "REQUEST", newRequestId);
+        event.setWorkflowId(workflow2Steps.getId());
+        event.setDepartmentId(10L);
+        event.setActorUserId(APPROVER_USER_ID);
+        event.setRequesterId(null);
+
+        assertDoesNotThrow(() -> approvalTrackingService.handleWorkflowEvent(event));
+
+        assertEquals(countBefore + 1, approvalTrackingRepository.count(),
+                "BUG: Không tạo tracking mới khi resubmit placeholder return");
+
+        ApprovalTracking updated = approvalTrackingRepository.findById(placeholder.getId()).orElseThrow();
+        assertEquals(ApprovalStatus.CANCELLED, updated.getStatus(), "BUG: Placeholder không bị cancel khi resubmit");
+        assertEquals("RESUBMIT", updated.getActionType(), "BUG: actionType phải là RESUBMIT cho placeholder");
+        assertEquals("Placeholder cancelled due to resubmit", updated.getNotes(),
+                "BUG: Placeholder phải được ghi chú là cancelled due to resubmit");
+    }
+
+    /**
+     * Test Case ID: AT-TC43
+     * Workflow chỉ có 1 bước, requester trùng approver step1 → auto-approve step1 và gửi WORKFLOW_COMPLETED.
+     */
+    @Test
+    @DisplayName("[AT-TC43] handleRequestSubmitted() - auto-approve step1 của workflow 1 bước → gửi WORKFLOW_COMPLETED")
+    void tc43_handleRequestSubmitted_singleStepWorkflow_autoApproveAndComplete() {
+        Workflow singleStepWorkflow = saveWorkflow("Single Step Workflow", WorkflowType.REQUEST, 10L);
+        saveStep(singleStepWorkflow, 1, APPROVER_USER_ID);
+
+        com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+        com.fasterxml.jackson.databind.node.ObjectNode positionNode = mapper.createObjectNode();
+        positionNode.put("id", APPROVER_USER_ID);
+        com.fasterxml.jackson.databind.node.ObjectNode deptNode = mapper.createObjectNode();
+        deptNode.put("id", 10L);
+        com.fasterxml.jackson.databind.node.ObjectNode employeeNode = mapper.createObjectNode();
+        employeeNode.set("position", positionNode);
+        employeeNode.set("department", deptNode);
+
+        Response<com.fasterxml.jackson.databind.JsonNode> body = new Response<>();
+        body.setData(employeeNode);
+        org.springframework.http.ResponseEntity<Response<com.fasterxml.jackson.databind.JsonNode>> mockResp =
+                org.springframework.http.ResponseEntity.ok(body);
+
+        when(restTemplate.exchange(
+                anyString(),
+                eq(org.springframework.http.HttpMethod.GET),
+                any(),
+                any(org.springframework.core.ParameterizedTypeReference.class)))
+        .thenReturn(mockResp);
+
+        long countBefore = approvalTrackingRepository.count();
+
+        RecruitmentWorkflowEvent event = buildEvent("REQUEST_SUBMITTED", "REQUEST", 150L);
+        event.setWorkflowId(singleStepWorkflow.getId());
+        event.setDepartmentId(10L);
+        event.setRequesterId(APPROVER_USER_ID);
+
+        assertDoesNotThrow(() -> approvalTrackingService.handleWorkflowEvent(event));
+
+        assertEquals(countBefore + 1, approvalTrackingRepository.count(),
+                "BUG: Workflow 1 bước phải tạo đúng 1 tracking khi auto-approve step1");
+        ApprovalTracking created = approvalTrackingRepository.findByRequestId(150L).stream()
+                .findFirst()
+                .orElseThrow();
+        assertEquals(ApprovalStatus.APPROVED, created.getStatus(), "BUG: Step1 phải được auto-approve");
+        assertEquals(singleStepWorkflow.getId(), created.getStep().getWorkflow().getId(),
+                "BUG: Tracking phải gắn đúng workflow");
+        verify(workflowProducer, times(1)).publishEvent(any(RecruitmentWorkflowEvent.class));
+    }
+
     // ================================================================
     // NHÓM 11: handleStepApproved() / handleStepRejected() / handleRequestReturned()
     //           — các nhánh "không tìm thấy pending tracking"
@@ -1670,6 +1936,27 @@ class ApprovalTrackingServiceTest {
         assertEquals(countBefore, approvalTrackingRepository.count(),
                 "BUG: DB bị thay đổi dù không có tracking để return");
     }
+
+        /**
+         * Test Case ID: AT-TC44B
+         * REQUEST_RETURNED với reason=null và returnedToStepId=null → tự resolve step 1.
+         */
+        @Test
+        @DisplayName("[AT-TC44B] REQUEST_RETURNED reason=null + returnedToStepId=null → tự resolve step 1")
+        void tc44b_handleRequestReturned_nullReason_defaultMessageAndAutoResolve() {
+                RecruitmentWorkflowEvent event = buildEvent("REQUEST_RETURNED", "REQUEST", REQUEST_ID);
+                event.setActorUserId(APPROVER_USER_ID);
+                event.setWorkflowId(workflow2Steps.getId());
+                event.setReturnedToStepId(null);
+                event.setReason(null);
+
+                approvalTrackingService.handleWorkflowEvent(event);
+
+                ApprovalTracking updated = approvalTrackingRepository.findById(pendingTracking.getId()).orElseThrow();
+                assertEquals(ApprovalStatus.RETURNED, updated.getStatus(), "BUG: Return null reason vẫn phải set RETURNED");
+                assertEquals(step1.getId(), updated.getReturnedToStepId(), "BUG: returnedToStepId phải tự resolve về step1");
+                assertNull(updated.getNotes(), "BUG: notes từ reason=null phải là null trước khi persist");
+        }
 
     /**
      * Test Case ID: AT-TC45
@@ -1792,6 +2079,444 @@ class ApprovalTrackingServiceTest {
         verify(notificationProducer, never()).sendNotification(anyLong(), anyString(), anyString(), anyString());
     }
 
+    /**
+     * Test Case ID: AT-TC51
+     * Dùng reflection để cover các helper private:
+     * - convertWorkflowToDTO(Workflow)
+     * - convertWorkflowToDTO(Workflow, Map) với steps=null
+     * - convertStepToDTO(WorkflowStep)
+     * - convertStepToDTO(WorkflowStep, Map) với positionNamesMap=null và approverPositionId=null
+     */
+    @Test
+    @DisplayName("[AT-TC51] private convert helpers - cover null branches")
+    void tc51_privateConvertHelpers_coverNullBranches() throws Exception {
+        Workflow workflow = new Workflow();
+        workflow.setId(900L);
+        workflow.setName("WF Private Convert");
+        workflow.setType(WorkflowType.REQUEST);
+        workflow.setDepartmentId(10L);
+        workflow.setIsActive(true);
+
+        java.lang.reflect.Method workflowMethod = ApprovalTrackingService.class
+                .getDeclaredMethod("convertWorkflowToDTO", Workflow.class);
+        workflowMethod.setAccessible(true);
+        com.example.workflow_service.dto.workflow.WorkflowResponseDTO workflowDto =
+                (com.example.workflow_service.dto.workflow.WorkflowResponseDTO) workflowMethod.invoke(approvalTrackingService, workflow);
+
+        assertNotNull(workflowDto, "BUG: convertWorkflowToDTO(Workflow) trả về null");
+        assertEquals(900L, workflowDto.getId(), "BUG: workflow id sai");
+
+        java.lang.reflect.Method workflowMapMethod = ApprovalTrackingService.class
+                .getDeclaredMethod("convertWorkflowToDTO", Workflow.class, Map.class);
+        workflowMapMethod.setAccessible(true);
+        com.example.workflow_service.dto.workflow.WorkflowResponseDTO workflowDtoWithMap =
+                (com.example.workflow_service.dto.workflow.WorkflowResponseDTO) workflowMapMethod.invoke(
+                approvalTrackingService, workflow, null);
+        assertNotNull(workflowDtoWithMap, "BUG: convertWorkflowToDTO(Workflow, Map) trả về null");
+        assertNull(workflowDtoWithMap.getSteps(), "BUG: steps phải null khi workflow.getSteps() null");
+
+        WorkflowStep transientStep = new WorkflowStep();
+        transientStep.setId(901L);
+        transientStep.setStepOrder(1);
+        transientStep.setApproverPositionId(null);
+        transientStep.setIsActive(true);
+
+        java.lang.reflect.Method stepMethod = ApprovalTrackingService.class
+                .getDeclaredMethod("convertStepToDTO", WorkflowStep.class);
+        stepMethod.setAccessible(true);
+        com.example.workflow_service.dto.workflow.WorkflowStepResponseDTO stepDto =
+                (com.example.workflow_service.dto.workflow.WorkflowStepResponseDTO) stepMethod.invoke(approvalTrackingService, transientStep);
+        assertNotNull(stepDto, "BUG: convertStepToDTO(WorkflowStep) trả về null");
+        assertNull(stepDto.getApproverPositionName(), "BUG: approverPositionName phải null khi approverPositionId null");
+
+        java.lang.reflect.Method stepMapMethod = ApprovalTrackingService.class
+                .getDeclaredMethod("convertStepToDTO", WorkflowStep.class, Map.class);
+        stepMapMethod.setAccessible(true);
+        com.example.workflow_service.dto.workflow.WorkflowStepResponseDTO stepDtoWithMap =
+                (com.example.workflow_service.dto.workflow.WorkflowStepResponseDTO) stepMapMethod.invoke(
+                approvalTrackingService, transientStep, null);
+        assertNotNull(stepDtoWithMap, "BUG: convertStepToDTO(WorkflowStep, Map) trả về null");
+        assertNull(stepDtoWithMap.getApproverPositionName(), "BUG: position name phải null khi map/position null");
+    }
+
+    /**
+     * Test Case ID: AT-TC52
+     * Cover helper createTrackingForReturnedStep() và nhánh isReturned=true/false.
+     */
+    @Test
+    @DisplayName("[AT-TC52] createTrackingForReturnedStep() - cover isReturned branches")
+    void tc52_createTrackingForReturnedStep_coverIsReturnedBranches() throws Exception {
+        Workflow workflow = saveWorkflow("WF Returned Helper", WorkflowType.REQUEST, 20L);
+        WorkflowStep returnedStep = saveStep(workflow, 1, APPROVER_USER_ID);
+
+        RecruitmentWorkflowEvent event = buildEvent("REQUEST_RETURNED", "REQUEST", 800L);
+        event.setDepartmentId(20L);
+        event.setAuthToken("helper-token");
+
+        ApprovalTrackingService targetService = org.springframework.test.util.AopTestUtils.getTargetObject(approvalTrackingService);
+        java.lang.reflect.Method method = ApprovalTrackingService.class
+                .getDeclaredMethod("createTrackingForReturnedStep", RecruitmentWorkflowEvent.class, Long.class, boolean.class);
+        method.setAccessible(true);
+
+        long countBefore = approvalTrackingRepository.count();
+        method.invoke(targetService, event, returnedStep.getId(), false);
+
+        assertEquals(countBefore + 1, approvalTrackingRepository.count(),
+                "BUG: createTrackingForReturnedStep(false) không tạo tracking");
+        verify(notificationProducer, times(1))
+                .sendNotificationToDepartment(eq(20L), eq(APPROVER_USER_ID), anyString(), anyString(), eq("helper-token"));
+
+        reset(notificationProducer);
+        method.invoke(targetService, event, returnedStep.getId(), true);
+        assertEquals(countBefore + 2, approvalTrackingRepository.count(),
+                "BUG: createTrackingForReturnedStep(true) không tạo tracking");
+        verify(notificationProducer, never()).sendNotificationToDepartment(anyLong(), anyLong(), anyString(), anyString(), anyString());
+    }
+
+    /**
+     * Test Case ID: AT-TC53
+     * Cover getRequesterPositionId() và getRequesterDepartmentId() cho các nhánh
+     * null/không có field/có field department.id và departmentId.
+     */
+    @Test
+    @DisplayName("[AT-TC53] requester resolution helpers - cover all branches")
+    void tc53_requesterResolutionHelpers_coverBranches() throws Exception {
+        com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+        ApprovalTrackingService targetService = org.springframework.test.util.AopTestUtils.getTargetObject(approvalTrackingService);
+        java.lang.reflect.Method positionMethod = ApprovalTrackingService.class
+                .getDeclaredMethod("getRequesterPositionId", Long.class, String.class);
+        java.lang.reflect.Method departmentMethod = ApprovalTrackingService.class
+                .getDeclaredMethod("getRequesterDepartmentId", Long.class, String.class);
+        positionMethod.setAccessible(true);
+        departmentMethod.setAccessible(true);
+
+        com.fasterxml.jackson.databind.node.ObjectNode employeeFull = mapper.createObjectNode();
+        com.fasterxml.jackson.databind.node.ObjectNode positionNode = mapper.createObjectNode();
+        positionNode.put("id", 777L);
+        com.fasterxml.jackson.databind.node.ObjectNode departmentNode = mapper.createObjectNode();
+        departmentNode.put("id", 88L);
+        employeeFull.set("position", positionNode);
+        employeeFull.set("department", departmentNode);
+
+        doReturn(buildEmployeeResponse(employeeFull)).when(restTemplate).exchange(
+                anyString(),
+                eq(org.springframework.http.HttpMethod.GET),
+                any(org.springframework.http.HttpEntity.class),
+                any(org.springframework.core.ParameterizedTypeReference.class));
+
+        assertEquals(777L, positionMethod.invoke(targetService, 123L, "token"));
+        assertEquals(88L, departmentMethod.invoke(targetService, 123L, "token"));
+
+        com.fasterxml.jackson.databind.node.ObjectNode employeeFallback = mapper.createObjectNode();
+        employeeFallback.put("departmentId", 99L);
+        doReturn(buildEmployeeResponse(employeeFallback)).when(restTemplate).exchange(
+                anyString(),
+                eq(org.springframework.http.HttpMethod.GET),
+                any(org.springframework.http.HttpEntity.class),
+                any(org.springframework.core.ParameterizedTypeReference.class));
+
+        assertNull(positionMethod.invoke(targetService, 456L, "token"));
+        assertEquals(99L, departmentMethod.invoke(targetService, 456L, "token"));
+
+        Response<com.fasterxml.jackson.databind.JsonNode> emptyBody = new Response<>();
+        doReturn(org.springframework.http.ResponseEntity.ok(emptyBody)).when(restTemplate).exchange(
+                anyString(),
+                eq(org.springframework.http.HttpMethod.GET),
+                any(org.springframework.http.HttpEntity.class),
+                any(org.springframework.core.ParameterizedTypeReference.class));
+        assertNull(positionMethod.invoke(targetService, 789L, null));
+        assertNull(departmentMethod.invoke(targetService, 789L, ""));
+
+        doThrow(new RuntimeException("boom")).when(restTemplate).exchange(
+                anyString(),
+                eq(org.springframework.http.HttpMethod.GET),
+                any(org.springframework.http.HttpEntity.class),
+                any(org.springframework.core.ParameterizedTypeReference.class));
+        assertNull(positionMethod.invoke(targetService, 999L, "token"));
+        assertNull(departmentMethod.invoke(targetService, 999L, "token"));
+
+        assertNull(positionMethod.invoke(targetService, null, "token"));
+        assertNull(departmentMethod.invoke(targetService, null, "token"));
+    }
+
+    /**
+     * Test Case ID: AT-TC54
+     * initializeApproval(): findUserByPositionId() trả empty list -> approverPositionId=null.
+     * Mục tiêu: cover nhánh false của userPositions.isEmpty() và nhánh
+     * tracking.getApproverPositionId() == null trong initializeApproval().
+     */
+    @Test
+    @DisplayName("[AT-TC54] initializeApproval() - empty user position list -> approverPositionId=null")
+    void tc54_initializeApproval_emptyUserPositionList_coversNullApproverBranch() {
+        Response<java.util.List<Object>> emptyUserPositions = new Response<>();
+        emptyUserPositions.setData(java.util.List.of());
+        doReturn(org.springframework.http.ResponseEntity.ok(emptyUserPositions)).when(restTemplate).exchange(
+                anyString(),
+                eq(org.springframework.http.HttpMethod.GET),
+                any(org.springframework.http.HttpEntity.class),
+                any(org.springframework.core.ParameterizedTypeReference.class));
+        when(userService.findUserByPositionIdAndDepartmentId(anyLong(), eq(10L), anyString()))
+                .thenReturn(null);
+
+        CreateApprovalTrackingDTO dto = new CreateApprovalTrackingDTO();
+        dto.setDepartmentId(10L);
+        dto.setRequestId(9054L);
+        dto.setLevelId(1L);
+
+        assertThrows(CustomException.class, () -> approvalTrackingService.initializeApproval(dto),
+                "BUG: phải báo lỗi khi user-position list rỗng");
+    }
+
+    /**
+     * Test Case ID: AT-TC55
+     * getById()/DTO mapping với tracking có các field nullable.
+     * Mục tiêu: cover các nhánh actionUserId=null, approverPositionId=null và step=null
+     * trong toResponseDTO()/getById().
+     */
+    @Test
+    @DisplayName("[AT-TC55] private toResponseDTO - nullable tracking fields")
+    void tc55_toResponseDTO_nullableTrackingFields_coverBranches() throws Exception {
+        ApprovalTrackingService targetService = org.springframework.test.util.AopTestUtils.getTargetObject(approvalTrackingService);
+        java.lang.reflect.Method toResponse = ApprovalTrackingService.class
+                .getDeclaredMethod("toResponseDTO", ApprovalTracking.class, Map.class, Map.class, Map.class);
+        toResponse.setAccessible(true);
+
+        ApprovalTracking tracking = new ApprovalTracking();
+        tracking.setId(9055L);
+        tracking.setRequestId(9055L);
+        tracking.setStep(null);
+        tracking.setStatus(ApprovalStatus.PENDING);
+        tracking.setApproverPositionId(null);
+        tracking.setActionUserId(null);
+
+        ApprovalTrackingResponseDTO dto = (ApprovalTrackingResponseDTO) toResponse.invoke(
+                targetService, tracking, Map.of(1L, "Manager"), Map.of(2L, "User"), Map.of());
+
+        assertNull(dto.getStepId(), "BUG: stepId phải null khi tracking.step null");
+        assertNull(dto.getApproverPositionName(), "BUG: approverPositionName phải null khi approverPositionId null");
+        assertNull(dto.getActionUserName(), "BUG: actionUserName phải null khi actionUserId null");
+    }
+
+    /**
+     * Test Case ID: AT-TC56
+     * getAll()/getPendingApprovalsForUser(): danh sách có tracking null action/approver IDs.
+     * Mục tiêu: cover nhánh false của các filter(id -> id != null).
+     */
+    @Test
+    @DisplayName("[AT-TC56] getAll/pending - null action and approver ids")
+    void tc56_getAllAndPending_nullIds_coverFilterFalseBranches() {
+        ApprovalTracking nullableIds = buildTracking(9056L, step1, ApprovalStatus.PENDING, null);
+        nullableIds.setActionUserId(null);
+        approvalTrackingRepository.save(nullableIds);
+
+        PaginationDTO all = approvalTrackingService.getAll(
+                9056L, null, null, PageRequest.of(0, 10));
+        assertNotNull(all.getResult(), "BUG: getAll result null");
+
+        List<ApprovalTrackingResponseDTO> pending = approvalTrackingService.getPendingApprovalsForUser(null);
+        assertNotNull(pending, "BUG: pending approvals null khi userId null");
+    }
+
+    /**
+     * Test Case ID: AT-TC57
+     * getWorkflowInfoByRequestId(): cover các nhánh workflow.steps != null,
+     * requestType="REQUEST", tracking.step=null và tracking.step.workflow=null.
+     */
+    @Test
+    @DisplayName("[AT-TC57] getWorkflowInfoByRequestId - edge branches")
+    void tc57_getWorkflowInfoByRequestId_edgeBranches() {
+        Workflow workflow = saveWorkflow("WF Info Edge", WorkflowType.REQUEST, 57L);
+        WorkflowStep realStep = saveStep(workflow, 1, APPROVER_USER_ID);
+        WorkflowStep secondStep = saveStep(workflow, 2, OTHER_USER_ID);
+        workflow.setSteps(new java.util.LinkedHashSet<>(java.util.List.of(realStep, secondStep)));
+
+        ApprovalTracking trackingWithStep = buildTracking(9057L, realStep, ApprovalStatus.APPROVED, APPROVER_USER_ID);
+        trackingWithStep.setActionUserId(null);
+        approvalTrackingRepository.save(trackingWithStep);
+
+        var result = approvalTrackingService.getWorkflowInfoByRequestId(9057L, workflow.getId(), "REQUEST");
+
+        assertNotNull(result.getWorkflow(), "BUG: workflow info null");
+        assertNotNull(result.getWorkflow().getSteps(), "BUG: workflow steps null");
+        assertFalse(result.getWorkflow().getSteps().isEmpty(), "BUG: workflow steps rỗng");
+    }
+
+    /**
+     * Test Case ID: AT-TC58
+     * Private helpers: filter/getWorkflowType/notify/moveToNextStep/createTrackingForStep.
+     */
+    @Test
+    @DisplayName("[AT-TC58] private helpers - remaining null/empty branches")
+    void tc58_privateHelpers_remainingBranches() throws Exception {
+        ApprovalTrackingService targetService = org.springframework.test.util.AopTestUtils.getTargetObject(approvalTrackingService);
+
+        java.lang.reflect.Method workflowTypeMethod = ApprovalTrackingService.class
+                .getDeclaredMethod("getWorkflowTypeFromRequestType", String.class);
+        workflowTypeMethod.setAccessible(true);
+        assertNull(workflowTypeMethod.invoke(targetService, (String) null));
+        assertNull(workflowTypeMethod.invoke(targetService, "   "));
+        assertEquals(WorkflowType.REQUEST, workflowTypeMethod.invoke(targetService, "REQUEST"));
+        assertEquals(WorkflowType.REQUEST, workflowTypeMethod.invoke(targetService, "RECRUITMENT_REQUEST"));
+        assertEquals(WorkflowType.OFFER, workflowTypeMethod.invoke(targetService, "OFFER"));
+        assertNull(workflowTypeMethod.invoke(targetService, "UNKNOWN"));
+
+        java.lang.reflect.Method filterMethod = ApprovalTrackingService.class
+                .getDeclaredMethod("filterByWorkflowType", List.class, WorkflowType.class);
+        filterMethod.setAccessible(true);
+        Workflow offerWorkflow = saveWorkflow("WF Filter Offer", WorkflowType.OFFER, 58L);
+        WorkflowStep offerStep = saveStep(offerWorkflow, 1, APPROVER_USER_ID);
+        ApprovalTracking requestTracking = buildTracking(9058L, step1, ApprovalStatus.PENDING, APPROVER_USER_ID);
+        ApprovalTracking offerTracking = buildTracking(9058L, offerStep, ApprovalStatus.PENDING, APPROVER_USER_ID);
+        @SuppressWarnings("unchecked")
+        List<ApprovalTracking> noFilter = (List<ApprovalTracking>) filterMethod.invoke(
+                targetService, List.of(requestTracking, offerTracking), (WorkflowType) null);
+        assertEquals(2, noFilter.size(), "BUG: workflowType null phải trả nguyên danh sách");
+
+        java.lang.reflect.Method notifyMethod = ApprovalTrackingService.class
+                .getDeclaredMethod("notifyNextApprovers", Long.class, WorkflowStep.class, Long.class, String.class);
+        notifyMethod.setAccessible(true);
+        notifyMethod.invoke(targetService, 10L, null, 9058L, "token");
+        notifyMethod.invoke(targetService, null, step1, 9058L, "token");
+
+        java.lang.reflect.Method createStepMethod = ApprovalTrackingService.class
+                .getDeclaredMethod("createTrackingForStep", Long.class, WorkflowStep.class, Long.class, String.class);
+        createStepMethod.setAccessible(true);
+        WorkflowStep noApproverStep = saveStep(workflow2Steps, 9, APPROVER_USER_ID);
+        noApproverStep.setApproverPositionId(null);
+        ApprovalTracking createdNoDept = (ApprovalTracking) createStepMethod.invoke(
+                targetService, 9058L, noApproverStep, null, "token");
+        assertNull(createdNoDept.getActionUserId(), "BUG: actionUserId phải null khi department/approver null");
+
+        java.lang.reflect.Method moveMethod = ApprovalTrackingService.class
+                .getDeclaredMethod("moveToNextStep", ApprovalTracking.class, Long.class, String.class);
+        moveMethod.setAccessible(true);
+        ApprovalTracking noStepTracking = new ApprovalTracking();
+        noStepTracking.setId(905803L);
+        noStepTracking.setRequestId(9058L);
+        noStepTracking.setStep(null);
+        noStepTracking.setStatus(ApprovalStatus.PENDING);
+        assertThrows(java.lang.reflect.InvocationTargetException.class,
+                () -> moveMethod.invoke(targetService, noStepTracking, 10L, "token"));
+    }
+
+    /**
+     * Test Case ID: AT-TC59
+     * handleWorkflowEvent(): event guards, OFFER department resolution null và submit guards.
+     */
+    @Test
+    @DisplayName("[AT-TC59] handleWorkflowEvent - guard branches")
+    void tc59_handleWorkflowEvent_guardBranches() {
+        assertDoesNotThrow(() -> approvalTrackingService.handleWorkflowEvent(null));
+
+        RecruitmentWorkflowEvent nullType = buildEvent(null, "REQUEST", 9059L);
+        assertDoesNotThrow(() -> approvalTrackingService.handleWorkflowEvent(nullType));
+
+        RecruitmentWorkflowEvent nullRequest = buildEvent("REQUEST_SUBMITTED", "REQUEST", null);
+        assertDoesNotThrow(() -> approvalTrackingService.handleWorkflowEvent(nullRequest));
+
+        RecruitmentWorkflowEvent offerNoCandidate = buildEvent("REQUEST_SUBMITTED", "OFFER", 9059L);
+        offerNoCandidate.setWorkflowId(workflow2Steps.getId());
+        offerNoCandidate.setDepartmentId(null);
+        offerNoCandidate.setCandidateId(null);
+        assertDoesNotThrow(() -> approvalTrackingService.handleWorkflowEvent(offerNoCandidate));
+
+        RecruitmentWorkflowEvent offerNoDepartment = buildEvent("REQUEST_SUBMITTED", "OFFER", 9060L);
+        offerNoDepartment.setWorkflowId(workflow2Steps.getId());
+        offerNoDepartment.setDepartmentId(null);
+        offerNoDepartment.setCandidateId(123L);
+        when(candidateService.getDepartmentIdFromCandidate(eq(123L), any())).thenReturn(null);
+        assertDoesNotThrow(() -> approvalTrackingService.handleWorkflowEvent(offerNoDepartment));
+
+        RecruitmentWorkflowEvent missingWorkflow = buildEvent("REQUEST_SUBMITTED", "REQUEST", 9061L);
+        missingWorkflow.setWorkflowId(null);
+        assertDoesNotThrow(() -> approvalTrackingService.handleWorkflowEvent(missingWorkflow));
+    }
+
+    /**
+     * Test Case ID: AT-TC60
+     * handleRequestSubmitted(): requester auto-approve edge branches and resubmit note append.
+     */
+    @Test
+    @DisplayName("[AT-TC60] handleRequestSubmitted - auto approve and resubmit branches")
+    void tc60_handleRequestSubmitted_autoApproveAndResubmitBranches() {
+        com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+        com.fasterxml.jackson.databind.node.ObjectNode employee = mapper.createObjectNode();
+        com.fasterxml.jackson.databind.node.ObjectNode position = mapper.createObjectNode();
+        position.put("id", APPROVER_USER_ID);
+        employee.set("position", position);
+        employee.put("departmentId", 10L);
+        doReturn(buildEmployeeResponse(employee)).when(restTemplate).exchange(
+                anyString(),
+                eq(org.springframework.http.HttpMethod.GET),
+                any(org.springframework.http.HttpEntity.class),
+                any(org.springframework.core.ParameterizedTypeReference.class));
+
+        RecruitmentWorkflowEvent autoApprove = buildEvent("REQUEST_SUBMITTED", "REQUEST", 9060L);
+        autoApprove.setWorkflowId(workflow2Steps.getId());
+        autoApprove.setDepartmentId(10L);
+        autoApprove.setRequesterId(APPROVER_USER_ID);
+        autoApprove.setActorUserId(APPROVER_USER_ID);
+        autoApprove.setAuthToken("token");
+        approvalTrackingService.handleWorkflowEvent(autoApprove);
+
+        List<ApprovalTracking> autoCreated = approvalTrackingRepository.findByRequestId(9060L);
+        assertTrue(autoCreated.stream().anyMatch(t -> t.getStatus() == ApprovalStatus.APPROVED),
+                "BUG: auto-approve không tạo tracking APPROVED cho step 1");
+
+        Long requestId = 9061L;
+        ApprovalTracking returned = buildTracking(requestId, step1, ApprovalStatus.RETURNED, APPROVER_USER_ID);
+        returned.setReturnedToStepId(step1.getId());
+        approvalTrackingRepository.save(returned);
+
+        RecruitmentWorkflowEvent resubmit = buildEvent("REQUEST_SUBMITTED", "REQUEST", requestId);
+        resubmit.setWorkflowId(workflow2Steps.getId());
+        resubmit.setDepartmentId(10L);
+        resubmit.setActorUserId(APPROVER_USER_ID);
+        approvalTrackingService.handleWorkflowEvent(resubmit);
+
+        assertTrue(approvalTrackingRepository.findByRequestId(requestId).stream()
+                        .anyMatch(t -> t.getStatus() == ApprovalStatus.PENDING
+                                && t.getNotes() != null
+                                && t.getNotes().contains("Đã chỉnh sửa")),
+                "BUG: resubmit sau return không ghi chú đã chỉnh sửa");
+    }
+
+    /**
+     * Test Case ID: AT-TC61
+     * handleStepRejected()/return()/invalidateFutureSteps(): null step and future pending branches.
+     */
+    @Test
+    @DisplayName("[AT-TC61] reject/return/invalidate - remaining branches")
+    void tc61_rejectReturnInvalidate_remainingBranches() throws Exception {
+        Long requestId = 9062L;
+        ApprovalTracking current = buildTracking(requestId, step1, ApprovalStatus.PENDING, APPROVER_USER_ID);
+        approvalTrackingRepository.save(current);
+        ApprovalTracking future = buildTracking(requestId, step2, ApprovalStatus.PENDING, OTHER_USER_ID);
+        approvalTrackingRepository.save(future);
+
+        RecruitmentWorkflowEvent reject = buildEvent("REQUEST_REJECTED", "REQUEST", requestId);
+        reject.setActorUserId(APPROVER_USER_ID);
+        reject.setNotes(null);
+        approvalTrackingService.handleWorkflowEvent(reject);
+
+        ApprovalTracking updatedFuture = approvalTrackingRepository.findById(future.getId()).orElseThrow();
+        assertEquals(ApprovalStatus.CANCELLED, updatedFuture.getStatus(),
+                "BUG: future PENDING tracking không bị cancel khi reject");
+
+        Long returnRequestId = 9063L;
+        ApprovalTracking returnCurrent = buildTracking(returnRequestId, step1, ApprovalStatus.PENDING, APPROVER_USER_ID);
+        approvalTrackingRepository.save(returnCurrent);
+        RecruitmentWorkflowEvent returned = buildEvent("REQUEST_RETURNED", "REQUEST", returnRequestId);
+        returned.setWorkflowId(workflow2Steps.getId());
+        returned.setActorUserId(APPROVER_USER_ID);
+        returned.setReturnedToStepId(step1.getId());
+        approvalTrackingService.handleWorkflowEvent(returned);
+
+        assertEquals(ApprovalStatus.RETURNED,
+                approvalTrackingRepository.findById(returnCurrent.getId()).orElseThrow().getStatus(),
+                "BUG: return không đổi current tracking thành RETURNED");
+    }
+
     // ================================================================
     // HELPER METHODS
     // ================================================================
@@ -1812,6 +2537,36 @@ class ApprovalTrackingServiceTest {
         t.setApproverPositionId(approverPositionId);
         return t;
     }
+
+        private org.springframework.http.ResponseEntity<Response<java.util.List<Object>>> buildUserPositionResponse(Long userId) {
+                Response<java.util.List<Object>> response = new Response<>();
+                response.setData(java.util.List.of(createUserPositionDto(userId)));
+                return org.springframework.http.ResponseEntity.ok(response);
+        }
+
+        private Object createUserPositionDto(Long userId) {
+                try {
+                        Class<?> dtoClass = Class.forName("com.example.workflow_service.service.ApprovalTrackingService$UserPositionDTO");
+                        java.lang.reflect.Constructor<?> constructor = dtoClass.getDeclaredConstructor();
+                        constructor.setAccessible(true);
+                        Object dto = constructor.newInstance();
+
+                        java.lang.reflect.Field userIdField = dtoClass.getDeclaredField("userId");
+                        userIdField.setAccessible(true);
+                        userIdField.set(dto, userId);
+
+                        return dto;
+                } catch (Exception exception) {
+                        throw new IllegalStateException("Không tạo được UserPositionDTO test double", exception);
+                }
+        }
+
+        private org.springframework.http.ResponseEntity<Response<com.fasterxml.jackson.databind.JsonNode>> buildEmployeeResponse(
+                        com.fasterxml.jackson.databind.JsonNode employeeNode) {
+                Response<com.fasterxml.jackson.databind.JsonNode> response = new Response<>();
+                response.setData(employeeNode);
+                return org.springframework.http.ResponseEntity.ok(response);
+        }
 
     private RecruitmentWorkflowEvent buildEvent(String eventType, String requestType, Long requestId) {
         RecruitmentWorkflowEvent e = new RecruitmentWorkflowEvent();
