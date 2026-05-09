@@ -117,6 +117,7 @@ class CommentServiceTest {
         @SuppressWarnings("unchecked")
         ArgumentCaptor<List<Long>> idsCaptor = (ArgumentCaptor<List<Long>>) (ArgumentCaptor<?>) ArgumentCaptor
                 .forClass(List.class);
+        // Tạo ra một cái lưới (idsCaptor) chuyên dùng để hứng các dữ liệu có kiểu là List (Danh sách).
         verify(userService, times(1)).getEmployeeNames(idsCaptor.capture(), eq(token));
         List<Long> capturedIds = idsCaptor.getValue();
         assertNotNull(capturedIds);
@@ -124,6 +125,7 @@ class CommentServiceTest {
         assertTrue(capturedIds.containsAll(Arrays.asList(5L, 6L)));
 
         verifyNoMoreInteractions(candidateRepository, commentRepository, userService);
+        // Ngoài những hàm tôi đã gọi tên điểm mặt nãy giờ (hàm lấy comment, hàm kiểm tra tồn tại, hàm lấy tên), CẤM bất kỳ hàm nào khác của 3 kho dữ liệu này được kích hoạt
     }
 
     @Test
@@ -334,6 +336,161 @@ class CommentServiceTest {
 
         verify(commentRepository, times(1)).existsById(id);
         verify(commentRepository, never()).deleteById(anyLong());
+        verifyNoMoreInteractions(commentRepository, candidateRepository, userService);
+    }
+
+    @Test
+    @DisplayName("CS-TC-038: create - candidate không tồn tại ném IdInvalidException")
+    void testCreate_CandidateNotFound_CS_TC_038() {
+        // Testcase ID: CS-TC-038
+        // Objective: Xác nhận lỗi khi tạo bình luận cho candidate không tồn tại
+
+        CreateCommentDTO dto = new CreateCommentDTO();
+        dto.setCandidateId(999L);
+        dto.setContent("Should fail");
+
+        when(candidateRepository.findById(dto.getCandidateId())).thenReturn(Optional.empty());
+
+        IdInvalidException ex = assertThrows(IdInvalidException.class,
+                () -> commentService.create(dto, 1L));
+
+        assertEquals("Ứng viên không tồn tại", ex.getMessage());
+
+        verify(candidateRepository, times(1)).findById(dto.getCandidateId());
+        verify(commentRepository, never()).save(any(Comment.class));
+        verifyNoMoreInteractions(candidateRepository, commentRepository, userService);
+    }
+
+    @Test
+    @DisplayName("CS-TC-039: update - comment không tồn tại ném IdInvalidException")
+    void testUpdate_NotFound_CS_TC_039() {
+        // Testcase ID: CS-TC-039
+        // Objective: Xác nhận lỗi khi cập nhật comment không tồn tại
+
+        Long id = 999L;
+        UpdateCommentDTO dto = new UpdateCommentDTO();
+        dto.setContent("x");
+
+        when(commentRepository.findById(id)).thenReturn(Optional.empty());
+
+        IdInvalidException ex = assertThrows(IdInvalidException.class,
+                () -> commentService.update(id, dto, 1L));
+
+        assertEquals("Bình luận không tồn tại", ex.getMessage());
+
+        verify(commentRepository, times(1)).findById(id);
+        verify(commentRepository, never()).save(any(Comment.class));
+        verifyNoMoreInteractions(commentRepository, candidateRepository, userService);
+    }
+
+    @Test
+    @DisplayName("CS-TC-040: getByCandidateId - comments có employeeId null không gọi userService")
+    void testGetByCandidateId_WithNullEmployeeIds_CS_TC_040() throws Exception {
+        // Testcase ID: CS-TC-040
+        // Objective: Khi tất cả comment có employeeId null, không gọi userService và
+        // employeeName là null
+
+        Long candidateId = 2L;
+        String token = "Bearer t";
+
+        when(candidateRepository.existsById(candidateId)).thenReturn(true);
+
+        Comment c = new Comment();
+        c.setId(20L);
+        c.setEmployeeId(null);
+        c.setContent("No employee");
+
+        when(commentRepository.findByCandidate_Id(candidateId)).thenReturn(Arrays.asList(c));
+
+        List<CommentResponseDTO> result = commentService.getByCandidateId(candidateId, token);
+
+        assertNotNull(result);
+        assertEquals(1, result.size());
+        CommentResponseDTO d = result.get(0);
+        assertEquals(20L, d.getId());
+        assertNull(d.getEmployeeName());
+
+        verify(candidateRepository, times(1)).existsById(candidateId);
+        verify(commentRepository, times(1)).findByCandidate_Id(candidateId);
+        verify(userService, never()).getEmployeeNames(anyList(), anyString());
+        verifyNoMoreInteractions(candidateRepository, commentRepository, userService);
+    }
+
+    @Test
+    @DisplayName("CS-TC-041: getByCandidateId - tất cả employeeName có trong idToName")
+    void testGetByCandidateId_AllNamesPresent_CS_TC_041() throws Exception {
+        // Testcase ID: CS-TC-041
+        // Objective: Khi tất cả employeeId có tên trong idToName, employeeName được set
+
+        Long candidateId = 3L;
+        String token = "Bearer t";
+        when(candidateRepository.existsById(candidateId)).thenReturn(true);
+
+        Comment c1 = new Comment();
+        c1.setId(30L);
+        c1.setEmployeeId(7L);
+        c1.setContent("A");
+
+        Comment c2 = new Comment();
+        c2.setId(31L);
+        c2.setEmployeeId(8L);
+        c2.setContent("B");
+
+        when(commentRepository.findByCandidate_Id(candidateId)).thenReturn(Arrays.asList(c1, c2));
+
+        ObjectNode idToName = objectMapper.createObjectNode();
+        idToName.put("7", "E7");
+        idToName.put("8", "E8");
+        when(userService.getEmployeeNames(anyList(), eq(token))).thenReturn(ResponseEntity.ok(idToName));
+
+        List<CommentResponseDTO> result = commentService.getByCandidateId(candidateId, token);
+
+        assertNotNull(result);
+        assertEquals(2, result.size());
+        assertEquals("E7", result.get(0).getEmployeeName());
+        assertEquals("E8", result.get(1).getEmployeeName());
+
+        verify(candidateRepository, times(1)).existsById(candidateId);
+        verify(commentRepository, times(1)).findByCandidate_Id(candidateId);
+        verify(userService, times(1)).getEmployeeNames(anyList(), eq(token));
+        verifyNoMoreInteractions(candidateRepository, commentRepository, userService);
+    }
+
+    @Test
+    @DisplayName("CS-TC-042: update - khi dto.content null, nội dung giữ nguyên")
+    void testUpdate_WithNullContent_CS_TC_042() throws Exception {
+        // Testcase ID: CS-TC-042
+        // Objective: Khi dto.content = null, update không thay đổi content
+
+        Long id = 2L;
+        Long employeeId = 5L;
+
+        UpdateCommentDTO dto = new UpdateCommentDTO();
+        dto.setContent(null);
+
+        LocalDateTime t = LocalDateTime.of(2026, 4, 19, 0, 0, 0);
+
+        Comment existing = new Comment();
+        existing.setId(id);
+        existing.setEmployeeId(employeeId);
+        existing.setContent("Original");
+        existing.setCreatedAt(t);
+
+        when(commentRepository.findById(id)).thenReturn(Optional.of(existing));
+        when(commentRepository.save(any(Comment.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0, Comment.class));
+
+        CommentResponseDTO result = commentService.update(id, dto, employeeId);
+
+        assertNotNull(result);
+        assertEquals("Original", result.getContent());
+
+        ArgumentCaptor<Comment> commentCaptor = ArgumentCaptor.forClass(Comment.class);
+        verify(commentRepository, times(1)).save(commentCaptor.capture());
+        Comment saved = commentCaptor.getValue();
+        assertEquals("Original", saved.getContent());
+
+        verify(commentRepository, times(1)).findById(id);
         verifyNoMoreInteractions(commentRepository, candidateRepository, userService);
     }
 }
