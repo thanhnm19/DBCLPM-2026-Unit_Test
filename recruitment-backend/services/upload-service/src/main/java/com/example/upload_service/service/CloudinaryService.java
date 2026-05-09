@@ -48,7 +48,11 @@ public class CloudinaryService {
                             "resource_type", "auto",
                             "type", "upload"));
 
-            return (String) uploadResult.get("secure_url"); // Lấy URL an toàn (https)
+            Object secureUrl = uploadResult.get("secure_url");
+            if (secureUrl == null) {
+                return null;
+            }
+            return (String) secureUrl;
         } catch (IOException e) {
             throw new RuntimeException("Không thể upload file", e);
         }
