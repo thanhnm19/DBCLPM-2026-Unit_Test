@@ -6,7 +6,7 @@
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
-    { "key": "base_url", "value": "http://localhost:8080" },
+    { "key": "base_url", "value": "http://localhost:8081" },
     { "key": "access_token", "value": "" },
     { "key": "rrId", "value": "" },
     { "key": "jpId", "value": "" },
@@ -26,14 +26,14 @@
               "script": {
                 "exec": [
                   "pm.test('[STEP-0] Status 200', () => pm.response.to.have.status(200));",
-                  "pm.collectionVariables.set('access_token', pm.response.json().data.accessToken);"
+                  "pm.collectionVariables.set('access_token', pm.response.json().data.access_token);"
                 ]
               }
             }
           ],
           "request": {
             "method": "POST",
-            "url": "http://localhost:8081/api/v1/user-service/auth/login",
+            "url": "{{base_url}}/api/v1/user-service/auth/login",
             "header": [{ "key": "Content-Type", "value": "application/json" }],
             "body": {
               "mode": "raw",
@@ -59,13 +59,7 @@
           ],
           "request": {
             "method": "GET",
-            "url": {
-              "raw": "{{base_url}}/api/v1/job-service/offers?page=1&limit=100",
-              "query": [
-                { "key": "page", "value": "1" },
-                { "key": "limit", "value": "100" }
-              ]
-            },
+            "url": "{{base_url}}/api/v1/job-service/offers?page=1&limit=100",
             "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }]
           }
         },
@@ -351,13 +345,7 @@
           ],
           "request": {
             "method": "GET",
-            "url": {
-              "raw": "{{base_url}}/api/v1/job-service/offers?page=1&limit=10",
-              "query": [
-                { "key": "page", "value": "1" },
-                { "key": "limit", "value": "10" }
-              ]
-            },
+            "url": "{{base_url}}/api/v1/job-service/offers?page=1&limit=10",
             "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }]
           }
         },
@@ -379,10 +367,7 @@
           ],
           "request": {
             "method": "GET",
-            "url": {
-              "raw": "{{base_url}}/api/v1/job-service/offers?status=PENDING",
-              "query": [{ "key": "status", "value": "PENDING" }]
-            },
+            "url": "{{base_url}}/api/v1/job-service/offers?status=PENDING",
             "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }]
           }
         },
