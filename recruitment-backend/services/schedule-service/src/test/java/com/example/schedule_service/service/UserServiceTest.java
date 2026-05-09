@@ -462,4 +462,523 @@ class UserServiceTest {
                 verify(spyService, times(1)).getEmployeeIdsByFilters(null, null, "t");
                 verifyNoInteractions(restTemplate);
         }
+
+        @Test
+        @DisplayName("SCH-USER-TC-003: getEmployeeName - response body null -> notFound")
+        void testGetEmployeeName_ResponseBodyNull_NotFound_SCH_USER_TC_003() {
+                // arrange
+                Long employeeId = 999L;
+                when(restTemplate.exchange(
+                                eq("http://mock-user-service/api/v1/user-service/employees/" + employeeId),
+                                eq(HttpMethod.GET),
+                                any(HttpEntity.class),
+                                any(ParameterizedTypeReference.class))).thenReturn(ResponseEntity.ok(null));
+
+                // act
+                ResponseEntity<JsonNode> result = userService.getEmployeeName(employeeId, null);
+
+                // assert
+                assertEquals(HttpStatus.NOT_FOUND, result.getStatusCode());
+                assertNull(result.getBody());
+        }
+
+        @Test
+        @DisplayName("SCH-USER-TC-004: getEmployeeName - JSON thiếu name -> notFound")
+        void testGetEmployeeName_MissingName_NotFound_SCH_USER_TC_004() {
+                // arrange
+                Long employeeId = 1L;
+                Response<Map<String, Object>> body = new Response<>();
+                body.setData(new HashMap<>()); // no "name"
+
+                when(restTemplate.exchange(
+                                eq("http://mock-user-service/api/v1/user-service/employees/" + employeeId),
+                                eq(HttpMethod.GET),
+                                any(HttpEntity.class),
+                                any(ParameterizedTypeReference.class))).thenReturn(ResponseEntity.ok(body));
+
+                // act
+                ResponseEntity<JsonNode> result = userService.getEmployeeName(employeeId, "t");
+
+                // assert
+                assertEquals(HttpStatus.NOT_FOUND, result.getStatusCode());
+                assertNull(result.getBody());
+        }
+
+        @Test
+        @DisplayName("SCH-USER-TC-004B: getEmployeeName - exception -> trả 500")
+        void testGetEmployeeName_Exception_Return500_SCH_USER_TC_004B() {
+                // arrange
+                when(restTemplate.exchange(
+                                anyString(),
+                                eq(HttpMethod.GET),
+                                any(HttpEntity.class),
+                                any(ParameterizedTypeReference.class))).thenThrow(new RuntimeException("boom"));
+
+                // act
+                ResponseEntity<JsonNode> result = userService.getEmployeeName(1L, "t");
+
+                // assert
+                assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, result.getStatusCode());
+                assertNotNull(result.getBody());
+                assertEquals(500, result.getBody().path("statusCode").asInt());
+        }
+
+        @Test
+        @DisplayName("SCH-USER-TC-005: getEmployeeNames - employeeIds rỗng -> trả map rỗng")
+        void testGetEmployeeNames_EmptyIds_ReturnEmptyMap_SCH_USER_TC_005() {
+                // arrange
+                Response<List<Map<String, Object>>> body = new Response<>();
+                body.setData(List.of());
+                when(restTemplate.exchange(
+                                eq("http://mock-user-service/api/v1/user-service/employees?ids="),
+                                eq(HttpMethod.GET),
+                                any(HttpEntity.class),
+                                any(ParameterizedTypeReference.class))).thenReturn(ResponseEntity.ok(body));
+
+                // act
+                ResponseEntity<JsonNode> result = userService.getEmployeeNames(List.of(), "");
+
+                // assert
+                assertEquals(HttpStatus.OK, result.getStatusCode());
+                assertNotNull(result.getBody());
+                assertEquals(0, result.getBody().size());
+        }
+
+        @Test
+        @DisplayName("SCH-USER-TC-008: getEmployeeNames - user-service lỗi -> trả 500")
+        void testGetEmployeeNames_Exception_Return500_SCH_USER_TC_008() {
+                // arrange
+                when(restTemplate.exchange(
+                                anyString(),
+                                eq(HttpMethod.GET),
+                                any(HttpEntity.class),
+                                any(ParameterizedTypeReference.class))).thenThrow(new RuntimeException("boom"));
+
+                // act
+                ResponseEntity<JsonNode> result = userService.getEmployeeNames(List.of(1L), null);
+
+                // assert
+                assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, result.getStatusCode());
+                assertNotNull(result.getBody());
+                assertEquals(500, result.getBody().path("statusCode").asInt());
+        }
+
+        @Test
+        @DisplayName("SCH-USER-TC-008B: getEmployeeNames - response body null -> trả map rỗng")
+        void testGetEmployeeNames_ResponseBodyNull_ReturnEmptyMap_SCH_USER_TC_008B() {
+                // arrange
+                when(restTemplate.exchange(
+                                anyString(),
+                                eq(HttpMethod.GET),
+                                any(HttpEntity.class),
+                                any(ParameterizedTypeReference.class))).thenReturn(ResponseEntity.ok(null));
+
+                // act
+                ResponseEntity<JsonNode> result = userService.getEmployeeNames(List.of(1L), null);
+
+                // assert
+                assertEquals(HttpStatus.OK, result.getStatusCode());
+                assertNotNull(result.getBody());
+                assertEquals(0, result.getBody().size());
+        }
+
+        @Test
+        @DisplayName("SCH-USER-TC-008D: getEmployeeNames - response data null -> trả map rỗng")
+        void testGetEmployeeNames_ResponseDataNull_ReturnEmptyMap_SCH_USER_TC_008D() {
+                // arrange
+                Response<List<Map<String, Object>>> body = new Response<>();
+                body.setData(null);
+                when(restTemplate.exchange(
+                                anyString(),
+                                eq(HttpMethod.GET),
+                                any(HttpEntity.class),
+                                any(ParameterizedTypeReference.class))).thenReturn(ResponseEntity.ok(body));
+
+                // act
+                ResponseEntity<JsonNode> result = userService.getEmployeeNames(List.of(1L), null);
+
+                // assert
+                assertEquals(HttpStatus.OK, result.getStatusCode());
+                assertNotNull(result.getBody());
+                assertEquals(0, result.getBody().size());
+        }
+
+        @Test
+        @DisplayName("SCH-USER-TC-008C: getEmployeeNames - có item thiếu id/name -> bỏ qua item đó")
+        void testGetEmployeeNames_ItemMissingIdOrName_Skip_SCH_USER_TC_008C() {
+                // arrange
+                List<Long> employeeIds = List.of(1L, 2L);
+                List<Map<String, Object>> employees = new ArrayList<>();
+                employees.add(new HashMap<>(Map.of("id", 1, "name", "A")));
+                employees.add(new HashMap<>(Map.of("id", 2))); // missing name
+                employees.add(new HashMap<>(Map.of("name", "C"))); // missing id
+
+                Response<List<Map<String, Object>>> body = new Response<>();
+                body.setData(employees);
+
+                when(restTemplate.exchange(
+                                eq("http://mock-user-service/api/v1/user-service/employees?ids=1,2"),
+                                eq(HttpMethod.GET),
+                                any(HttpEntity.class),
+                                any(ParameterizedTypeReference.class))).thenReturn(ResponseEntity.ok(body));
+
+                // act
+                ResponseEntity<JsonNode> result = userService.getEmployeeNames(employeeIds, null);
+
+                // assert
+                assertEquals(HttpStatus.OK, result.getStatusCode());
+                assertNotNull(result.getBody());
+                assertEquals("A", result.getBody().get("1").asText());
+                assertNull(result.getBody().get("2"));
+        }
+
+        @Test
+        @DisplayName("SCH-USER-TC-006: getEmployeeNamesAndDepartmentNames - employeeIds rỗng -> trả object rỗng")
+        void testGetEmployeeNamesAndDepartmentNames_EmptyIds_ReturnEmptyObject_SCH_USER_TC_006() {
+                // arrange
+                Response<List<Map<String, Object>>> body = new Response<>();
+                body.setData(List.of());
+                when(restTemplate.exchange(
+                                eq("http://mock-user-service/api/v1/user-service/employees?ids="),
+                                eq(HttpMethod.GET),
+                                any(HttpEntity.class),
+                                any(ParameterizedTypeReference.class))).thenReturn(ResponseEntity.ok(body));
+
+                // act
+                ResponseEntity<JsonNode> result = userService.getEmployeeNamesAndDepartmentNames(List.of(), null);
+
+                // assert
+                assertEquals(HttpStatus.OK, result.getStatusCode());
+                assertNotNull(result.getBody());
+                assertEquals(0, result.getBody().size());
+        }
+
+        @Test
+        @DisplayName("SCH-USER-TC-009: getEmployeeNamesAndDepartmentNames - thiếu name -> fallback Unknown")
+        void testGetEmployeeNamesAndDepartmentNames_MissingName_FallbackUnknown_SCH_USER_TC_009() {
+                // arrange
+                List<Map<String, Object>> employees = List.of(new HashMap<>(Map.of("id", 1, "department", Map.of("name", "HR"))));
+                Response<List<Map<String, Object>>> body = new Response<>();
+                body.setData(employees);
+                when(restTemplate.exchange(
+                                eq("http://mock-user-service/api/v1/user-service/employees?ids=1"),
+                                eq(HttpMethod.GET),
+                                any(HttpEntity.class),
+                                any(ParameterizedTypeReference.class))).thenReturn(ResponseEntity.ok(body));
+
+                // act
+                ResponseEntity<JsonNode> result = userService.getEmployeeNamesAndDepartmentNames(List.of(1L), "t");
+
+                // assert
+                assertEquals("Unknown", result.getBody().get("1").get("name").asText());
+                assertEquals("HR", result.getBody().get("1").get("departmentName").asText());
+        }
+
+        @Test
+        @DisplayName("SCH-USER-TC-009B: getEmployeeNamesAndDepartmentNames - response body null -> object rỗng")
+        void testGetEmployeeNamesAndDepartmentNames_ResponseBodyNull_ReturnEmpty_SCH_USER_TC_009B() {
+                // arrange
+                when(restTemplate.exchange(
+                                anyString(),
+                                eq(HttpMethod.GET),
+                                any(HttpEntity.class),
+                                any(ParameterizedTypeReference.class))).thenReturn(ResponseEntity.ok(null));
+
+                // act
+                ResponseEntity<JsonNode> result = userService.getEmployeeNamesAndDepartmentNames(List.of(1L), null);
+
+                // assert
+                assertEquals(HttpStatus.OK, result.getStatusCode());
+                assertNotNull(result.getBody());
+                assertEquals(0, result.getBody().size());
+        }
+
+        @Test
+        @DisplayName("SCH-USER-TC-009E: getEmployeeNamesAndDepartmentNames - response data null -> object rỗng")
+        void testGetEmployeeNamesAndDepartmentNames_ResponseDataNull_ReturnEmpty_SCH_USER_TC_009E() {
+                // arrange
+                Response<List<Map<String, Object>>> body = new Response<>();
+                body.setData(null);
+                when(restTemplate.exchange(
+                                anyString(),
+                                eq(HttpMethod.GET),
+                                any(HttpEntity.class),
+                                any(ParameterizedTypeReference.class))).thenReturn(ResponseEntity.ok(body));
+
+                // act
+                ResponseEntity<JsonNode> result = userService.getEmployeeNamesAndDepartmentNames(List.of(1L), null);
+
+                // assert
+                assertEquals(HttpStatus.OK, result.getStatusCode());
+                assertNotNull(result.getBody());
+                assertEquals(0, result.getBody().size());
+        }
+
+        @Test
+        @DisplayName("SCH-USER-TC-009C: getEmployeeNamesAndDepartmentNames - item id null -> skip item")
+        void testGetEmployeeNamesAndDepartmentNames_IdNull_SkipItem_SCH_USER_TC_009C() {
+                // arrange
+                List<Map<String, Object>> employees = new ArrayList<>();
+                employees.add(new HashMap<>(Map.of("id", 1, "name", "A", "department", Map.of("name", "HR"))));
+                Map<String, Object> idNull = new HashMap<>();
+                idNull.put("id", null);
+                idNull.put("name", "B");
+                employees.add(idNull); // id null
+
+                Response<List<Map<String, Object>>> body = new Response<>();
+                body.setData(employees);
+
+                when(restTemplate.exchange(
+                                eq("http://mock-user-service/api/v1/user-service/employees?ids=1"),
+                                eq(HttpMethod.GET),
+                                any(HttpEntity.class),
+                                any(ParameterizedTypeReference.class))).thenReturn(ResponseEntity.ok(body));
+
+                // act
+                ResponseEntity<JsonNode> result = userService.getEmployeeNamesAndDepartmentNames(List.of(1L), null);
+
+                // assert
+                assertNotNull(result.getBody().get("1"));
+        }
+
+        @Test
+        @DisplayName("SCH-USER-TC-009D: getEmployeeNamesAndDepartmentNames - deptMap có name null -> departmentName Unknown")
+        void testGetEmployeeNamesAndDepartmentNames_DepartmentNameNull_Unknown_SCH_USER_TC_009D() {
+                // arrange
+                Map<String, Object> dept = new HashMap<>();
+                dept.put("name", null);
+                List<Map<String, Object>> employees = List.of(new HashMap<>(Map.of("id", 1, "name", "A", "department", dept)));
+
+                Response<List<Map<String, Object>>> body = new Response<>();
+                body.setData(employees);
+
+                when(restTemplate.exchange(
+                                eq("http://mock-user-service/api/v1/user-service/employees?ids=1"),
+                                eq(HttpMethod.GET),
+                                any(HttpEntity.class),
+                                any(ParameterizedTypeReference.class))).thenReturn(ResponseEntity.ok(body));
+
+                // act
+                ResponseEntity<JsonNode> result = userService.getEmployeeNamesAndDepartmentNames(List.of(1L), null);
+
+                // assert
+                assertEquals("Unknown", result.getBody().get("1").get("departmentName").asText());
+        }
+
+        @Test
+        @DisplayName("SCH-USER-TC-010: getEmployeeNamesAndDepartmentNames - user-service lỗi -> trả 500")
+        void testGetEmployeeNamesAndDepartmentNames_Exception_Return500_SCH_USER_TC_010() {
+                // arrange
+                when(restTemplate.exchange(
+                                anyString(),
+                                eq(HttpMethod.GET),
+                                any(HttpEntity.class),
+                                any(ParameterizedTypeReference.class))).thenThrow(new RuntimeException("boom"));
+
+                // act
+                ResponseEntity<JsonNode> result = userService.getEmployeeNamesAndDepartmentNames(List.of(1L), "");
+
+                // assert
+                assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, result.getStatusCode());
+                assertNotNull(result.getBody());
+                assertEquals(500, result.getBody().path("statusCode").asInt());
+        }
+
+        @Test
+        @DisplayName("SCH-USER-TC-012: getUserIdByEmail - employeeId và id đều null -> null")
+        void testGetUserIdByEmail_EmployeeIdAndIdNull_ReturnNull_SCH_USER_TC_012() {
+                // arrange
+                String email = "u@gmail.com";
+                Response<Map<String, Object>> body = new Response<>();
+                body.setData(new HashMap<>());
+                when(restTemplate.exchange(
+                                eq("http://mock-user-service/api/v1/user-service/users/email/" + email),
+                                eq(HttpMethod.GET),
+                                any(HttpEntity.class),
+                                any(ParameterizedTypeReference.class))).thenReturn(ResponseEntity.ok(body));
+
+                // act
+                Long result = userService.getUserIdByEmail(email);
+
+                // assert
+                assertNull(result);
+        }
+
+        @Test
+        @DisplayName("SCH-USER-TC-013: getUserIdByEmail - response body null -> null")
+        void testGetUserIdByEmail_ResponseBodyNull_ReturnNull_SCH_USER_TC_013() {
+                // arrange
+                String email = "u@gmail.com";
+                when(restTemplate.exchange(
+                                eq("http://mock-user-service/api/v1/user-service/users/email/" + email),
+                                eq(HttpMethod.GET),
+                                any(HttpEntity.class),
+                                any(ParameterizedTypeReference.class))).thenReturn(ResponseEntity.ok(null));
+
+                // act
+                Long result = userService.getUserIdByEmail(email);
+
+                // assert
+                assertNull(result);
+        }
+
+        @Test
+        @DisplayName("SCH-USER-TC-013B: getUserIdByEmail - response data null -> null")
+        void testGetUserIdByEmail_ResponseDataNull_ReturnNull_SCH_USER_TC_013B() {
+                // arrange
+                String email = "u@gmail.com";
+                Response<Map<String, Object>> body = new Response<>();
+                body.setData(null);
+                when(restTemplate.exchange(
+                                eq("http://mock-user-service/api/v1/user-service/users/email/" + email),
+                                eq(HttpMethod.GET),
+                                any(HttpEntity.class),
+                                any(ParameterizedTypeReference.class))).thenReturn(ResponseEntity.ok(body));
+
+                // act
+                Long result = userService.getUserIdByEmail(email);
+
+                // assert
+                assertNull(result);
+        }
+
+        @Test
+        @DisplayName("SCH-USER-TC-014: getEmployeeIdsByFilters - chỉ truyền departmentId -> URL chỉ có departmentId")
+        void testGetEmployeeIdsByFilters_DepartmentOnly_UrlContainsDepartment_SCH_USER_TC_014() {
+                // arrange
+                Response<PaginationDTO> body = new Response<>();
+                PaginationDTO pagination = new PaginationDTO();
+                pagination.setResult(List.of());
+                body.setData(pagination);
+                when(restTemplate.exchange(anyString(), eq(HttpMethod.GET), any(HttpEntity.class), any(ParameterizedTypeReference.class)))
+                                .thenReturn(ResponseEntity.ok(body));
+
+                // act
+                userService.getEmployeeIdsByFilters(2L, null, "t");
+
+                // assert
+                ArgumentCaptor<String> urlCaptor = ArgumentCaptor.forClass(String.class);
+                verify(restTemplate).exchange(urlCaptor.capture(), eq(HttpMethod.GET), any(HttpEntity.class), any(ParameterizedTypeReference.class));
+                String url = urlCaptor.getValue();
+                assertTrue(url.contains("departmentId=2"));
+                assertFalse(url.contains("positionId="));
+        }
+
+        @Test
+        @DisplayName("SCH-USER-TC-015: getEmployeeIdsByFilters - chỉ truyền positionId -> URL chỉ có positionId")
+        void testGetEmployeeIdsByFilters_PositionOnly_UrlContainsPosition_SCH_USER_TC_015() {
+                // arrange
+                Response<PaginationDTO> body = new Response<>();
+                PaginationDTO pagination = new PaginationDTO();
+                pagination.setResult(List.of());
+                body.setData(pagination);
+                when(restTemplate.exchange(anyString(), eq(HttpMethod.GET), any(HttpEntity.class), any(ParameterizedTypeReference.class)))
+                                .thenReturn(ResponseEntity.ok(body));
+
+                // act
+                userService.getEmployeeIdsByFilters(null, 3L, "t");
+
+                // assert
+                ArgumentCaptor<String> urlCaptor = ArgumentCaptor.forClass(String.class);
+                verify(restTemplate).exchange(urlCaptor.capture(), eq(HttpMethod.GET), any(HttpEntity.class), any(ParameterizedTypeReference.class));
+                String url = urlCaptor.getValue();
+                assertTrue(url.contains("positionId=3"));
+                assertFalse(url.contains("departmentId="));
+        }
+
+        @Test
+        @DisplayName("SCH-USER-TC-016: getEmployeeIdsByFilters - không truyền filter nào -> URL không có departmentId/positionId")
+        void testGetEmployeeIdsByFilters_NoFilters_UrlNoDepartmentNoPosition_SCH_USER_TC_016() {
+                // arrange
+                Response<PaginationDTO> body = new Response<>();
+                PaginationDTO pagination = new PaginationDTO();
+                pagination.setResult(List.of());
+                body.setData(pagination);
+                when(restTemplate.exchange(anyString(), eq(HttpMethod.GET), any(HttpEntity.class), any(ParameterizedTypeReference.class)))
+                                .thenReturn(ResponseEntity.ok(body));
+
+                // act
+                userService.getEmployeeIdsByFilters(null, null, "t");
+
+                // assert
+                ArgumentCaptor<String> urlCaptor = ArgumentCaptor.forClass(String.class);
+                verify(restTemplate).exchange(urlCaptor.capture(), eq(HttpMethod.GET), any(HttpEntity.class), any(ParameterizedTypeReference.class));
+                String url = urlCaptor.getValue();
+                assertFalse(url.contains("departmentId="));
+                assertFalse(url.contains("positionId="));
+        }
+
+        @Test
+        @DisplayName("SCH-USER-TC-017: getEmployeeIdsByFilters - response body null -> list rỗng")
+        void testGetEmployeeIdsByFilters_ResponseBodyNull_ReturnEmpty_SCH_USER_TC_017() {
+                // arrange
+                when(restTemplate.exchange(anyString(), eq(HttpMethod.GET), any(HttpEntity.class), any(ParameterizedTypeReference.class)))
+                                .thenReturn(ResponseEntity.ok(null));
+
+                // act
+                List<Long> result = userService.getEmployeeIdsByFilters(2L, 3L, "t");
+
+                // assert
+                assertEquals(List.of(), result);
+        }
+
+        @Test
+        @DisplayName("SCH-USER-TC-018: getEmployeeIdsByFilters - response data null -> list rỗng")
+        void testGetEmployeeIdsByFilters_ResponseDataNull_ReturnEmpty_SCH_USER_TC_018() {
+                // arrange
+                Response<PaginationDTO> body = new Response<>();
+                body.setData(null);
+                when(restTemplate.exchange(anyString(), eq(HttpMethod.GET), any(HttpEntity.class), any(ParameterizedTypeReference.class)))
+                                .thenReturn(ResponseEntity.ok(body));
+
+                // act
+                List<Long> result = userService.getEmployeeIdsByFilters(2L, 3L, "t");
+
+                // assert
+                assertEquals(List.of(), result);
+        }
+
+        @Test
+        @DisplayName("SCH-USER-TC-019: getEmployeeIdsByFilters - pagination.result không phải List -> list rỗng")
+        void testGetEmployeeIdsByFilters_ResultNotList_ReturnEmpty_SCH_USER_TC_019() {
+                // arrange
+                PaginationDTO paginationDTO = new PaginationDTO();
+                paginationDTO.setResult("not-a-list");
+                Response<PaginationDTO> body = new Response<>();
+                body.setData(paginationDTO);
+
+                when(restTemplate.exchange(anyString(), eq(HttpMethod.GET), any(HttpEntity.class), any(ParameterizedTypeReference.class)))
+                                .thenReturn(ResponseEntity.ok(body));
+
+                // act
+                List<Long> result = userService.getEmployeeIdsByFilters(null, null, null);
+
+                // assert
+                assertEquals(List.of(), result);
+        }
+
+        @Test
+        @DisplayName("SCH-USER-TC-020: getEmployeeIdsByFilters - item thiếu id hoặc id không phải Number -> bỏ qua")
+        void testGetEmployeeIdsByFilters_ItemMissingIdOrIdNotNumber_Skip_SCH_USER_TC_020() {
+                // arrange
+                List<Object> items = new ArrayList<>();
+                items.add(new HashMap<>(Map.of("id", 1)));
+                items.add(new HashMap<>()); // missing id
+                items.add(new HashMap<>(Map.of("id", "x"))); // id not number
+                items.add("not-a-map");
+
+                PaginationDTO paginationDTO = new PaginationDTO();
+                paginationDTO.setResult(items);
+                Response<PaginationDTO> body = new Response<>();
+                body.setData(paginationDTO);
+
+                when(restTemplate.exchange(anyString(), eq(HttpMethod.GET), any(HttpEntity.class), any(ParameterizedTypeReference.class)))
+                                .thenReturn(ResponseEntity.ok(body));
+
+                // act
+                List<Long> result = userService.getEmployeeIdsByFilters(null, null, "");
+
+                // assert
+                assertEquals(List.of(1L), result);
+        }
 }
