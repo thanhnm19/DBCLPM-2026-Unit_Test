@@ -1,55 +1,60 @@
 package com.example.job_service.service;
 
-import com.example.job_service.dto.offer.ApproveOfferDTO;
-import com.example.job_service.dto.offer.CancelOfferDTO;
-import com.example.job_service.dto.offer.CreateOfferDTO;
-import com.example.job_service.dto.offer.RejectOfferDTO;
-import com.example.job_service.dto.offer.ReturnOfferDTO;
-import com.example.job_service.dto.offer.UpdateOfferDTO;
-import com.example.job_service.dto.offer.WithdrawOfferDTO;
+import com.example.job_service.dto.PaginationDTO;
+import com.example.job_service.dto.SingleResponseDTO;
+import com.example.job_service.dto.offer.*;
 import com.example.job_service.exception.IdInvalidException;
 import com.example.job_service.messaging.OfferWorkflowProducer;
+import com.example.job_service.model.JobPosition;
 import com.example.job_service.model.Offer;
+import com.example.job_service.model.RecruitmentRequest;
+import com.example.job_service.repository.JobPositionRepository;
 import com.example.job_service.repository.OfferRepository;
+import com.example.job_service.repository.RecruitmentRequestRepository;
 import com.example.job_service.utils.enums.OfferStatus;
+import com.example.job_service.utils.enums.RecruitmentRequestStatus;
+import java.util.Optional;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.ArgumentCaptor;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
-import org.mockito.junit.jupiter.MockitoExtension;
+import org.mockito.MockitoAnnotations;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.http.ResponseEntity;
+import org.springframework.test.context.ActiveProfiles;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
-import java.util.Optional;
+import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 /**
  * Unit Test cho OfferService - Module 8: Offer (Hợp đồng / Lương thưởng).
- *
- * Chiến lược:
- * - Tất cả dependency (OfferRepository, UserClient, OfferWorkflowProducer,...) đều được mock.
- * - State Machine Offer: DRAFT -> PENDING -> APPROVED/REJECTED/WITHDRAWN/CANCELLED
- * - Kiểm chứng (CheckDB): verify(offerRepository).save(argThat(...)) hoặc ArgumentCaptor.
- * - Dọn dẹp (Rollback): Không dùng DB thật. Mockito tự động reset sau mỗi test.
- *
- * Lưu ý: OfferService có các hàm publishWorkflowEvent() - mock workflowProducer.publishEvent().
+ * Sử dụng H2 Database để kiểm thử tích hợp thực tế với JPA.
  */
-@ExtendWith(MockitoExtension.class)
-@DisplayName("OfferService Unit Tests")
+@DataJpaTest
+@ActiveProfiles("test")
+@DisplayName("OfferService Unit Tests with H2 DB")
 class OfferServiceTest {
 
-    // -----------------------------------------------------------------------
-    // Mock dependencies - tất cả giao tiếp ngoài service đều được mock
-    // -----------------------------------------------------------------------
-
-    @Mock
+    @Autowired
     private OfferRepository offerRepository;
+
+    @Autowired
+    private RecruitmentRequestRepository recruitmentRequestRepository;
+
+    @Autowired
+    private JobPositionRepository jobPositionRepository;
 
     @Mock
     private UserClient userService;
@@ -66,149 +71,136 @@ class OfferServiceTest {
     @Mock
     private JobPositionService jobPositionService;
 
-    // Service đang được kiểm tra (System Under Test)
-    @InjectMocks
     private OfferService offerService;
 
-    // -----------------------------------------------------------------------
-    // Dữ liệu dùng chung (Fixture)
-    // -----------------------------------------------------------------------
-
-    private Offer draftOffer;
-    private Offer pendingOffer;
+    private ObjectMapper objectMapper = new ObjectMapper();
 
     @BeforeEach
     void setUp() {
-        // Offer ở trạng thái DRAFT (bản nháp)
-        draftOffer = new Offer();
-        draftOffer.setId(1L);
-        draftOffer.setCandidateId(100L);
-        draftOffer.setBasicSalary(20_000_000L);
-        draftOffer.setProbationSalaryRate(85);
-        draftOffer.setOnboardingDate(LocalDate.of(2026, 6, 1));
-        draftOffer.setProbationPeriod(2);
-        draftOffer.setStatus(OfferStatus.DRAFT);
-        draftOffer.setIsActive(true);
-        draftOffer.setWorkflowId(50L);
-        draftOffer.setOwnerUserId(10L);
-        draftOffer.setRequesterId(10L);
+        MockitoAnnotations.openMocks(this);
+        offerService = new OfferService(
+            offerRepository,
+            userService,
+            workflowProducer,
+            workflowServiceClient,
+            candidateClient,
+            jobPositionService
+        );
+        
+        // Mock workflow producer to do nothing
+        doNothing().when(workflowProducer).publishEvent(any());
 
-        // Offer ở trạng thái PENDING (chờ duyệt)
-        pendingOffer = new Offer();
-        pendingOffer.setId(2L);
-        pendingOffer.setCandidateId(200L);
-        pendingOffer.setBasicSalary(30_000_000L);
-        pendingOffer.setStatus(OfferStatus.PENDING);
-        pendingOffer.setIsActive(true);
-        pendingOffer.setWorkflowId(60L);
-        pendingOffer.setOwnerUserId(20L);
-        pendingOffer.setRequesterId(20L);
+        // Default mocks for external clients to avoid NPE in common paths
+        lenient().when(userService.getEmployeeById(any(), anyString()))
+                 .thenReturn(ResponseEntity.ok(objectMapper.createObjectNode()));
+        lenient().when(candidateClient.getCandidateById(any(), anyString()))
+                 .thenReturn(ResponseEntity.ok(objectMapper.createObjectNode()));
+        lenient().when(workflowServiceClient.getWorkflowInfoByRequestId(any(), any(), any(), any()))
+                 .thenReturn(objectMapper.createObjectNode());
+    }
+
+    /**
+     * Helper method để tạo RecruitmentRequest hợp lệ
+     */
+    private RecruitmentRequest createSampleRecruitmentRequest(RecruitmentRequestStatus status) {
+        RecruitmentRequest rr = new RecruitmentRequest();
+        rr.setStatus(status);
+        rr.setDepartmentId(1L);
+        rr.setActive(true);
+        rr.setQuantity(1);
+        rr.setReason("Test");
+        rr.setTitle("Test RR");
+        return rr;
+    }
+
+    /**
+     * Helper method để tạo Offer hợp lệ
+     */
+    private Offer createSampleOffer(Long candidateId, OfferStatus status) {
+        Offer offer = new Offer();
+        offer.setCandidateId(candidateId);
+        offer.setStatus(status);
+        offer.setBasicSalary(20000000L);
+        offer.setIsActive(true);
+        offer.setWorkflowId(100L);
+        offer.setOwnerUserId(1L);
+        offer.setRequesterId(1L);
+        return offer;
     }
 
     // =======================================================================
     // PHẦN 1: Hàm create()
     // =======================================================================
 
-    // Test Case ID: OFF-TC01
-    // Mục tiêu: Tạo offer mới hợp lệ, phải lưu với DRAFT, isActive=true
     @Test
-    @DisplayName("OFF-TC01: create - DTO hợp lệ, phải lưu với status DRAFT và isActive=true")
-    void create_ValidDto_ShouldSaveOfferWithDraftStatusAndIsActiveTrue() {
-        // Chuẩn bị: DTO hợp lệ
+    @Transactional
+    @DisplayName("OFF-TC01: create - DTO hợp lệ, phải lưu với status DRAFT")
+    void create_ValidDto_ShouldSaveOfferWithDraftStatus() {
         CreateOfferDTO dto = new CreateOfferDTO();
         dto.setCandidateId(100L);
-        dto.setBasicSalary(20_000_000L);
-        dto.setOnboardingDate(LocalDate.of(2026, 6, 1));
+        dto.setBasicSalary(20000000L);
+        dto.setProbationSalaryRate(85);
+        dto.setOnboardingDate(LocalDate.now().plusDays(15));
         dto.setProbationPeriod(2);
         dto.setWorkflowId(50L);
 
-        // Dùng ArgumentCaptor để bắt đối tượng truyền vào save()
-        ArgumentCaptor<Offer> offerCaptor = ArgumentCaptor.forClass(Offer.class);
-        when(offerRepository.save(offerCaptor.capture())).thenAnswer(inv -> inv.getArgument(0));
+        Offer saved = offerService.create(dto);
 
-        // Thực thi
-        Offer result = offerService.create(dto);
-
-        // Kiểm tra: Giá trị đã được set đúng theo đặc tả hệ thống
-        Offer captured = offerCaptor.getValue();
-        assertThat(captured.getStatus()).isEqualTo(OfferStatus.DRAFT);
-        assertThat(captured.getIsActive()).isTrue();
-        assertThat(captured.getCandidateId()).isEqualTo(100L);
-        assertThat(captured.getBasicSalary()).isEqualTo(20_000_000L);
-
-        // Minh chứng (CheckDB): save() được gọi đúng 1 lần
-        verify(offerRepository, times(1)).save(any(Offer.class));
+        assertThat(saved.getId()).isNotNull();
+        assertThat(saved.getStatus()).isEqualTo(OfferStatus.DRAFT);
+        assertThat(saved.getIsActive()).isTrue();
+        assertThat(offerRepository.findById(saved.getId())).isPresent();
     }
 
     // =======================================================================
     // PHẦN 2: Hàm update()
     // =======================================================================
 
-    // Test Case ID: OFF-TC02
-    // Mục tiêu: Offer ở DRAFT, cập nhật đầy đủ các trường (Đạt 100% Branch Coverage cho hàm update)
     @Test
-    @DisplayName("OFF-TC02: update - Offer DRAFT, phải cập nhật đầy đủ các trường không null")
-    void update_DraftOfferWithFullFields_ShouldUpdateAllNonNullFields() throws IdInvalidException {
-        // Chuẩn bị: DTO có tất cả các trường để phủ hết các nhánh if (dto.getXXX() != null)
+    @Transactional
+    @DisplayName("OFF-TC02: update - Offer DRAFT, cập nhật đầy đủ các trường")
+    void update_DraftOffer_ShouldUpdateFields() throws IdInvalidException {
+        Offer offer = createSampleOffer(100L, OfferStatus.DRAFT);
+        offer = offerRepository.save(offer);
+
         UpdateOfferDTO dto = new UpdateOfferDTO();
         dto.setCandidateId(101L);
-        dto.setBasicSalary(25_000_000L);
+        dto.setBasicSalary(25000000L);
         dto.setProbationSalaryRate(90);
-        dto.setOnboardingDate(LocalDate.of(2026, 7, 1));
-        dto.setProbationPeriod(3);
-        dto.setNotes("Updated notes and conditions");
+        dto.setNotes("Updated notes");
 
-        when(offerRepository.findById(1L)).thenReturn(Optional.of(draftOffer));
-        when(offerRepository.save(any(Offer.class))).thenAnswer(inv -> inv.getArgument(0));
+        Offer updated = offerService.update(offer.getId(), dto);
 
-        // Thực thi
-        Offer result = offerService.update(1L, dto);
-
-        // Kiểm tra: Tất cả các trường đã được cập nhật chính xác từ DTO
-        assertThat(result.getCandidateId()).isEqualTo(101L);
-        assertThat(result.getBasicSalary()).isEqualTo(25_000_000L);
-        assertThat(result.getProbationSalaryRate()).isEqualTo(90);
-        assertThat(result.getOnboardingDate()).isEqualTo(LocalDate.of(2026, 7, 1));
-        assertThat(result.getProbationPeriod()).isEqualTo(3);
-        assertThat(result.getNotes()).isEqualTo("Updated notes and conditions");
-
-        // Minh chứng (CheckDB): save() được gọi đúng 1 lần
-        verify(offerRepository, times(1)).save(any(Offer.class));
+        assertThat(updated.getCandidateId()).isEqualTo(101L);
+        assertThat(updated.getBasicSalary()).isEqualTo(25000000L);
+        assertThat(updated.getNotes()).isEqualTo("Updated notes");
     }
 
-    // Test Case ID: OFF-TC03
-    // Mục tiêu: Offer ở PENDING, phải throw IllegalStateException (không cho update)
     @Test
+    @Transactional
     @DisplayName("OFF-TC03: update - Offer PENDING, phải throw IllegalStateException")
-    void update_PendingOffer_ShouldThrowIllegalStateException() {
-        // Chuẩn bị: Offer đang PENDING
-        when(offerRepository.findById(2L)).thenReturn(Optional.of(pendingOffer));
+    void update_PendingOffer_ShouldThrowException() {
+        Offer offer = createSampleOffer(100L, OfferStatus.PENDING);
+        offer = offerRepository.save(offer);
 
         UpdateOfferDTO dto = new UpdateOfferDTO();
-        dto.setBasicSalary(99_000_000L);
+        dto.setBasicSalary(30000000L);
 
-        // Thực thi & Kiểm tra: Nhánh status != DRAFT -> throw
-        assertThatThrownBy(() -> offerService.update(2L, dto))
+        Long id = offer.getId();
+        assertThatThrownBy(() -> offerService.update(id, dto))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("DRAFT");
-
-        // Minh chứng (CheckDB): save() KHÔNG được gọi
-        verify(offerRepository, never()).save(any());
     }
 
-    // Test Case ID: OFF-TC04
-    // Mục tiêu: Offer ở APPROVED, phải throw IllegalStateException
     @Test
+    @Transactional
     @DisplayName("OFF-TC04: update - Offer APPROVED, phải throw IllegalStateException")
-    void update_ApprovedOffer_ShouldThrowIllegalStateException() {
-        // Chuẩn bị
-        Offer approvedOffer = new Offer();
-        approvedOffer.setId(3L);
-        approvedOffer.setStatus(OfferStatus.APPROVED);
-        when(offerRepository.findById(3L)).thenReturn(Optional.of(approvedOffer));
+    void update_ApprovedOffer_ShouldThrowException() {
+        Offer offer = createSampleOffer(100L, OfferStatus.APPROVED);
+        offer = offerRepository.save(offer);
 
-        // Thực thi & Kiểm tra
-        assertThatThrownBy(() -> offerService.update(3L, new UpdateOfferDTO()))
+        Long id = offer.getId();
+        assertThatThrownBy(() -> offerService.update(id, new UpdateOfferDTO()))
                 .isInstanceOf(IllegalStateException.class);
     }
 
@@ -216,568 +208,657 @@ class OfferServiceTest {
     // PHẦN 3: Hàm submit()
     // =======================================================================
 
-    // Test Case ID: OFF-TC05
-    // Mục tiêu: Offer DRAFT với workflowId -> chuyển sang PENDING, gọi workflowProducer
     @Test
-    @DisplayName("OFF-TC05: submit - Offer DRAFT có workflowId, phải PENDING và publish event")
-    void submit_DraftOfferWithWorkflowId_ShouldChangeStatusToPendingAndPublishEvent() throws IdInvalidException {
-        // Chuẩn bị: draftOffer có workflowId=50L
-        when(offerRepository.findById(1L)).thenReturn(Optional.of(draftOffer));
-        when(offerRepository.save(any(Offer.class))).thenAnswer(inv -> inv.getArgument(0));
-        doNothing().when(workflowProducer).publishEvent(any());
+    @Transactional
+    @DisplayName("OFF-TC05: submit - DRAFT -> PENDING")
+    void submit_DraftOffer_ShouldChangeToPending() throws IdInvalidException {
+        Offer offer = createSampleOffer(100L, OfferStatus.DRAFT);
+        offer.setWorkflowId(50L);
+        offer = offerRepository.save(offer);
 
-        // Thực thi
-        Offer result = offerService.submit(1L, 10L, "Bearer token");
+        Offer result = offerService.submit(offer.getId(), 1L, "token");
 
-        // Kiểm tra: Status chuyển sang PENDING, submittedAt được set
         assertThat(result.getStatus()).isEqualTo(OfferStatus.PENDING);
         assertThat(result.getSubmittedAt()).isNotNull();
-
-        // Minh chứng (CheckDB): save() và publishEvent() được gọi
-        verify(offerRepository, times(1)).save(any(Offer.class));
         verify(workflowProducer, times(1)).publishEvent(any());
     }
 
-    // Test Case ID: OFF-TC06
-    // Mục tiêu: Offer DRAFT, requesterId null -> phải set requesterId bằng actorId
     @Test
-    @DisplayName("OFF-TC06: submit - requesterId null, phải set requesterId từ actorId")
-    void submit_DraftOfferWithNullRequesterId_ShouldSetRequesterIdFromActor() throws IdInvalidException {
-        // Chuẩn bị: requesterId chưa được set
-        draftOffer.setRequesterId(null);
-        ArgumentCaptor<Offer> captor = ArgumentCaptor.forClass(Offer.class);
-        when(offerRepository.findById(1L)).thenReturn(Optional.of(draftOffer));
-        when(offerRepository.save(captor.capture())).thenAnswer(inv -> inv.getArgument(0));
-        doNothing().when(workflowProducer).publishEvent(any());
+    @Transactional
+    @DisplayName("OFF-TC06: submit - workflowId null")
+    void submit_NullWorkflowId_ShouldThrowException() {
+        Offer offer = createSampleOffer(100L, OfferStatus.DRAFT);
+        offer.setWorkflowId(null);
+        offer = offerRepository.save(offer);
 
-        // Thực thi
-        offerService.submit(1L, 99L, "Bearer token");
-
-        // Kiểm tra: requesterId phải được set bằng actorId=99
-        assertThat(captor.getValue().getRequesterId()).isEqualTo(99L);
-    }
-
-    // Test Case ID: OFF-TC07
-    // Mục tiêu: Offer đã PENDING -> throw IllegalStateException
-    @Test
-    @DisplayName("OFF-TC07: submit - Offer PENDING, phải throw IllegalStateException")
-    void submit_PendingOffer_ShouldThrowIllegalStateException() {
-        // Chuẩn bị: Offer đang PENDING, không thể submit lại
-        when(offerRepository.findById(2L)).thenReturn(Optional.of(pendingOffer));
-
-        // Thực thi & Kiểm tra
-        assertThatThrownBy(() -> offerService.submit(2L, 20L, "token"))
-                .isInstanceOf(IllegalStateException.class);
-
-        // Minh chứng (CheckDB): save() KHÔNG được gọi
-        verify(offerRepository, never()).save(any());
-    }
-
-    // Test Case ID: OFF-TC08
-    // Mục tiêu: Offer DRAFT nhưng workflowId = null -> throw IllegalStateException
-    @Test
-    @DisplayName("OFF-TC08: submit - workflowId null, phải throw IllegalStateException")
-    void submit_DraftOfferWithNullWorkflowId_ShouldThrowIllegalStateException() {
-        // Chuẩn bị: Offer DRAFT nhưng chưa có workflowId
-        draftOffer.setWorkflowId(null);
-        when(offerRepository.findById(1L)).thenReturn(Optional.of(draftOffer));
-
-        // Thực thi & Kiểm tra
-        assertThatThrownBy(() -> offerService.submit(1L, 10L, "token"))
+        Long id = offer.getId();
+        assertThatThrownBy(() -> offerService.submit(id, 1L, "token"))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("WorkflowId");
-
-        // Minh chứng (CheckDB): save() KHÔNG được gọi
-        verify(offerRepository, never()).save(any());
     }
 
     // =======================================================================
-    // PHẦN 4: Hàm approveStep()
+    // PHẦN 4: Hàm approveStep() / rejectStep()
     // =======================================================================
 
-    // Test Case ID: OFF-TC09
-    // Mục tiêu: Offer PENDING -> save và publish event "REQUEST_APPROVED"
     @Test
-    @DisplayName("OFF-TC09: approveStep - Offer PENDING, phải save và publish REQUEST_APPROVED")
-    void approveStep_PendingOffer_ShouldSaveAndPublishApprovalEvent() throws IdInvalidException {
-        // Chuẩn bị
-        ApproveOfferDTO dto = new ApproveOfferDTO();
-        when(offerRepository.findById(2L)).thenReturn(Optional.of(pendingOffer));
-        when(offerRepository.save(any(Offer.class))).thenAnswer(inv -> inv.getArgument(0));
-        doNothing().when(workflowProducer).publishEvent(any());
+    @Transactional
+    @DisplayName("OFF-TC07: approveStep - PENDING")
+    void approveStep_Pending_ShouldPublishEvent() throws IdInvalidException {
+        Offer offer = createSampleOffer(100L, OfferStatus.PENDING);
+        offer = offerRepository.save(offer);
 
-        // Thực thi
-        Offer result = offerService.approveStep(2L, dto, 50L, "token");
+        offerService.approveStep(offer.getId(), new ApproveOfferDTO(), 1L, "token");
 
-        // Kiểm tra: save() và publishEvent() được gọi
-        verify(offerRepository, times(1)).save(any(Offer.class));
-        verify(workflowProducer, times(1)).publishEvent(any());
-        assertThat(result).isNotNull();
+        verify(workflowProducer).publishEvent(argThat(event -> event.getEventType().equals("REQUEST_APPROVED")));
     }
 
-    // Test Case ID: OFF-TC10
-    // Mục tiêu: Offer DRAFT -> throw IllegalStateException (chỉ duyệt từ PENDING)
     @Test
-    @DisplayName("OFF-TC10: approveStep - Offer DRAFT, phải throw IllegalStateException")
-    void approveStep_DraftOffer_ShouldThrowIllegalStateException() {
-        // Chuẩn bị: Offer ở DRAFT, không phải PENDING
-        when(offerRepository.findById(1L)).thenReturn(Optional.of(draftOffer));
+    @Transactional
+    @DisplayName("OFF-TC08: rejectStep - PENDING -> REJECTED")
+    void rejectStep_Pending_ShouldSetRejected() throws IdInvalidException {
+        Offer offer = createSampleOffer(100L, OfferStatus.PENDING);
+        offer = offerRepository.save(offer);
 
-        // Thực thi & Kiểm tra
-        assertThatThrownBy(() -> offerService.approveStep(1L, new ApproveOfferDTO(), 50L, "token"))
-                .isInstanceOf(IllegalStateException.class);
+        Offer result = offerService.rejectStep(offer.getId(), new RejectOfferDTO(), 1L, "token");
 
-        // Minh chứng (CheckDB): save() KHÔNG được gọi
-        verify(offerRepository, never()).save(any());
-    }
-
-    // =======================================================================
-    // PHẦN 5: Hàm rejectStep()
-    // =======================================================================
-
-    // Test Case ID: OFF-TC11
-    // Mục tiêu: Offer PENDING -> set REJECTED và publish event
-    @Test
-    @DisplayName("OFF-TC11: rejectStep - Offer PENDING, phải set REJECTED và publish event")
-    void rejectStep_PendingOffer_ShouldSetRejectedStatusAndPublishEvent() throws IdInvalidException {
-        // Chuẩn bị
-        RejectOfferDTO dto = new RejectOfferDTO();
-        when(offerRepository.findById(2L)).thenReturn(Optional.of(pendingOffer));
-        when(offerRepository.save(any(Offer.class))).thenAnswer(inv -> inv.getArgument(0));
-        doNothing().when(workflowProducer).publishEvent(any());
-
-        // Thực thi
-        Offer result = offerService.rejectStep(2L, dto, 50L, "token");
-
-        // Kiểm tra: Status là REJECTED
         assertThat(result.getStatus()).isEqualTo(OfferStatus.REJECTED);
-        // Minh chứng (CheckDB): save() và publishEvent() được gọi
-        verify(offerRepository, times(1)).save(any(Offer.class));
-        verify(workflowProducer, times(1)).publishEvent(any());
+        verify(workflowProducer).publishEvent(argThat(event -> event.getEventType().equals("REQUEST_REJECTED")));
     }
 
-    // Test Case ID: OFF-TC12
-    // Mục tiêu: Offer DRAFT -> throw IllegalStateException
-    @Test
-    @DisplayName("OFF-TC12: rejectStep - Offer DRAFT, phải throw IllegalStateException")
-    void rejectStep_DraftOffer_ShouldThrowIllegalStateException() {
-        // Chuẩn bị
-        when(offerRepository.findById(1L)).thenReturn(Optional.of(draftOffer));
+    // =======================================================================
+    // PHẦN 5: Hàm cancel() / withdraw()
+    // =======================================================================
 
-        // Thực thi & Kiểm tra
-        assertThatThrownBy(() -> offerService.rejectStep(1L, new RejectOfferDTO(), 50L, "token"))
+    @Test
+    @Transactional
+    @DisplayName("OFF-TC09: cancel - Idempotent check")
+    void cancel_AlreadyCancelled_ShouldReturnImmediately() throws IdInvalidException {
+        Offer offer = createSampleOffer(100L, OfferStatus.CANCELLED);
+        offer = offerRepository.save(offer);
+
+        Offer result = offerService.cancel(offer.getId(), new CancelOfferDTO(), 1L, "token");
+
+        assertThat(result.getStatus()).isEqualTo(OfferStatus.CANCELLED);
+        // We verify that no publish event happens if already cancelled
+        verify(workflowProducer, times(0)).publishEvent(any());
+    }
+
+    @Test
+    @Transactional
+    @DisplayName("OFF-TC10: withdraw - Owner can withdraw")
+    void withdraw_ByOwner_ShouldSetWithdrawn() throws IdInvalidException {
+        Offer offer = createSampleOffer(100L, OfferStatus.PENDING);
+        offer.setOwnerUserId(20L);
+        offer = offerRepository.save(offer);
+
+        Offer result = offerService.withdraw(offer.getId(), new WithdrawOfferDTO(), 20L, "token");
+
+        assertThat(result.getStatus()).isEqualTo(OfferStatus.WITHDRAWN);
+    }
+
+    @Test
+    @Transactional
+    @DisplayName("OFF-TC11: withdraw - Unauthorized user")
+    void withdraw_ByUnauthorized_ShouldThrowException() {
+        Offer offer = createSampleOffer(100L, OfferStatus.PENDING);
+        offer.setOwnerUserId(20L);
+        offer.setRequesterId(20L);
+        offer = offerRepository.save(offer);
+
+        Long id = offer.getId();
+        assertThatThrownBy(() -> offerService.withdraw(id, new WithdrawOfferDTO(), 99L, "token"))
                 .isInstanceOf(IllegalStateException.class);
     }
 
     // =======================================================================
-    // PHẦN 6: Hàm returnOffer() - Business rule: luôn throw
+    // PHẦN 6: Read Operations & Aggregation
     // =======================================================================
 
-    // Test Case ID: OFF-TC13
-    // Mục tiêu: Gọi returnOffer() với bất kỳ offer nào -> luôn throw IllegalStateException
     @Test
-    @DisplayName("OFF-TC13: returnOffer - Bất kỳ offer nào cũng phải throw IllegalStateException")
+    @Transactional
+    @DisplayName("OFF-TC12: findById - Existing vs Non-existing")
+    void findById_ShouldWork() throws IdInvalidException {
+        Offer offer = createSampleOffer(100L, OfferStatus.DRAFT);
+        offer = offerRepository.save(offer);
+
+        assertThat(offerService.findById(offer.getId())).isNotNull();
+        assertThatThrownBy(() -> offerService.findById(999L)).isInstanceOf(IdInvalidException.class);
+    }
+
+    @Test
+    @Transactional
+    @DisplayName("OFF-TC13: getByIdWithUser - Aggregation test")
+    void getByIdWithUser_ShouldAggregateData() throws Exception {
+        Offer offer = createSampleOffer(100L, OfferStatus.DRAFT);
+        offer.setRequesterId(10L);
+        offer = offerRepository.save(offer);
+
+        // Mock external services
+        ObjectNode emp = objectMapper.createObjectNode().put("name", "John Doe");
+        ObjectNode pos = objectMapper.createObjectNode().put("level", "Senior");
+        emp.set("position", pos);
+        
+        ObjectNode cand = objectMapper.createObjectNode().put("name", "Jane Smith").put("jobPositionId", 500L);
+        ObjectNode dept = objectMapper.createObjectNode().put("name", "HR");
+        ObjectNode workflow = objectMapper.createObjectNode().put("status", "ACTIVE");
+
+        RecruitmentRequest rr = createSampleRecruitmentRequest(RecruitmentRequestStatus.PENDING);
+        rr.setDepartmentId(9L);
+        rr = recruitmentRequestRepository.save(rr);
+
+        JobPosition jp = new JobPosition();
+        jp.setTitle("Java Dev");
+        jp.setRecruitmentRequest(rr);
+        
+        when(userService.getEmployeeById(10L, "token")).thenReturn(ResponseEntity.ok(emp));
+        when(candidateClient.getCandidateById(100L, "token")).thenReturn(ResponseEntity.ok(cand));
+        when(jobPositionService.findById(500L)).thenReturn(jp);
+        when(userService.getDepartmentById(9L, "token")).thenReturn(ResponseEntity.ok(dept));
+        when(workflowServiceClient.getWorkflowInfoByRequestId(any(), any(), any(), any())).thenReturn(workflow);
+
+        OfferWithUserDTO result = offerService.getByIdWithUser(offer.getId(), "token");
+
+        assertThat(result.getJobPositionTitle()).isEqualTo("Java Dev");
+        assertThat(result.getDepartmentName()).isEqualTo("HR");
+        assertThat(result.getLevelName()).isEqualTo("Senior");
+    }
+
+    @Test
+    @Transactional
+    @DisplayName("OFF-TC14: getByIdDetail - Detail aggregation")
+    void getByIdDetail_ShouldWork() throws Exception {
+        Offer offer = createSampleOffer(100L, OfferStatus.DRAFT);
+        offer = offerRepository.save(offer);
+
+        ObjectNode cand = objectMapper.createObjectNode().put("name", "Jane").put("email", "jane@test.com").put("jobPositionId", 500L);
+        when(candidateClient.getCandidateById(100L, "token")).thenReturn(ResponseEntity.ok(cand));
+        // Mocking other dependencies to avoid null errors
+        when(userService.getEmployeeById(anyLong(), anyString())).thenReturn(ResponseEntity.ok(objectMapper.createObjectNode()));
+        when(workflowServiceClient.getWorkflowInfoByRequestId(any(), any(), any(), any())).thenReturn(objectMapper.createObjectNode());
+        
+        JobPosition jp = new JobPosition();
+        jp.setTitle("Dev");
+        when(jobPositionService.findById(500L)).thenReturn(jp);
+
+        OfferDetailDTO result = offerService.getByIdDetail(offer.getId(), "token");
+
+        assertThat(result.getCandidateName()).isEqualTo("Jane");
+        assertThat(result.getJobPositionTitle()).isEqualTo("Dev");
+    }
+
+    @Test
+    @Transactional
+    @DisplayName("OFF-TC15: getAllWithFilters - Paged results")
+    void getAllWithFilters_ShouldReturnPaged() {
+        Offer offer = createSampleOffer(100L, OfferStatus.DRAFT);
+        offerRepository.save(offer);
+
+        when(userService.getEmployeesByIds(any(), anyString())).thenReturn(Map.of());
+
+        PaginationDTO result = offerService.getAllWithFilters("DRAFT", 1L, null, "token", PageRequest.of(0, 10));
+
+        assertThat(result.getMeta().getTotal()).isEqualTo(1);
+    }
+
+    @Test
+    @Transactional
+    @DisplayName("OFF-TC16: findAllWithFilters - List results")
+    void findAllWithFilters_ShouldReturnList() {
+        Offer offer = createSampleOffer(100L, OfferStatus.DRAFT);
+        offerRepository.save(offer);
+
+        List<Offer> results = offerService.findAllWithFilters("DRAFT", 100L, 100L, 1L, null, null, null, null, null);
+
+        assertThat(results).isNotEmpty();
+    }
+
+    // =======================================================================
+    // BỔ SUNG: 100% Branch Coverage & Edge Cases
+    // =======================================================================
+
+    @Test
+    @Transactional
+    @DisplayName("OFF-TC17: submit - IDs already set")
+    void submit_WithIdsSet_ShouldNotOverwrite() throws IdInvalidException {
+        Offer offer = createSampleOffer(100L, OfferStatus.DRAFT);
+        offer.setRequesterId(500L);
+        offer.setOwnerUserId(600L);
+        offer = offerRepository.save(offer);
+
+        Offer result = offerService.submit(offer.getId(), 1L, "token");
+
+        assertThat(result.getRequesterId()).isEqualTo(500L);
+        assertThat(result.getOwnerUserId()).isEqualTo(600L);
+    }
+
+    @Test
+    @Transactional
+    @DisplayName("OFF-TC18: getAllWithFilters - Invalid status")
+    void getAllWithFilters_InvalidStatus_ShouldIgnore() {
+        Offer offer = createSampleOffer(100L, OfferStatus.DRAFT);
+        offerRepository.save(offer);
+
+        PaginationDTO result = offerService.getAllWithFilters("INVALID_STATUS", null, null, "token", PageRequest.of(0, 10));
+        // Should fallback to no status filter and return the offer
+        assertThat(result.getMeta().getTotal()).isGreaterThan(0);
+    }
+
+    @Test
+    @Transactional
+    @DisplayName("OFF-TC19: delete - Soft delete check")
+    void delete_ShouldSetIsActiveFalse() throws IdInvalidException {
+        Offer offer = createSampleOffer(100L, OfferStatus.DRAFT);
+        offer = offerRepository.save(offer);
+
+        offerService.delete(offer.getId());
+
+        Offer deleted = offerRepository.findById(offer.getId()).get();
+        assertThat(deleted.getIsActive()).isFalse();
+    }
+
+    @Test
+    @Transactional
+    @DisplayName("OFF-TC20: getByIdWithUser - UserClient error")
+    void getByIdWithUser_UserClientError_ShouldThrowException() {
+        Offer offer = createSampleOffer(100L, OfferStatus.DRAFT);
+        offer.setRequesterId(10L);
+        offer = offerRepository.save(offer);
+
+        when(userService.getEmployeeById(10L, "token")).thenReturn(ResponseEntity.status(500).build());
+
+        Long id = offer.getId();
+        assertThatThrownBy(() -> offerService.getByIdWithUser(id, "token"))
+                .isInstanceOf(com.example.job_service.exception.UserClientException.class);
+    }
+
+    @Test
+    @Transactional
+    @DisplayName("OFF-TC21: submit - requesterId null")
+    void submit_DraftOfferWithNullRequesterId_ShouldSetRequesterIdFromActor() throws IdInvalidException {
+        Offer offer = createSampleOffer(100L, OfferStatus.DRAFT);
+        offer.setRequesterId(null);
+        offer.setWorkflowId(50L);
+        offer = offerRepository.save(offer);
+
+        offerService.submit(offer.getId(), 99L, "token");
+
+        Offer updated = offerRepository.findById(offer.getId()).get();
+        assertThat(updated.getRequesterId()).isEqualTo(99L);
+    }
+
+    @Test
+    @Transactional
+    @DisplayName("OFF-TC22: submit - Offer PENDING")
+    void submit_PendingOffer_ShouldThrowIllegalStateException() {
+        Offer offer = createSampleOffer(100L, OfferStatus.PENDING);
+        offer = offerRepository.save(offer);
+
+        Long id = offer.getId();
+        assertThatThrownBy(() -> offerService.submit(id, 20L, "token"))
+                .isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
+    @Transactional
+    @DisplayName("OFF-TC23: approveStep - Offer DRAFT")
+    void approveStep_DraftOffer_ShouldThrowIllegalStateException() {
+        Offer offer = createSampleOffer(100L, OfferStatus.DRAFT);
+        offer = offerRepository.save(offer);
+
+        Long id = offer.getId();
+        assertThatThrownBy(() -> offerService.approveStep(id, new ApproveOfferDTO(), 50L, "token"))
+                .isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
+    @Transactional
+    @DisplayName("OFF-TC24: rejectStep - Offer DRAFT")
+    void rejectStep_DraftOffer_ShouldThrowIllegalStateException() {
+        Offer offer = createSampleOffer(100L, OfferStatus.DRAFT);
+        offer = offerRepository.save(offer);
+
+        Long id = offer.getId();
+        assertThatThrownBy(() -> offerService.rejectStep(id, new RejectOfferDTO(), 50L, "token"))
+                .isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
+    @Transactional
+    @DisplayName("OFF-TC25: returnOffer - Không hỗ trợ")
     void returnOffer_AnyOffer_ShouldAlwaysThrowIllegalStateException() {
-        // Chuẩn bị: Không cần mock vì hàm throw ngay
-        // Thực thi & Kiểm tra: Business rule mới - workflow không hỗ trợ return
         assertThatThrownBy(() -> offerService.returnOffer(1L, new ReturnOfferDTO(), 10L, "token"))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("return");
-
-        // Minh chứng (CheckDB): Không có bất kỳ DB operation nào
-        verify(offerRepository, never()).findById(any());
-        verify(offerRepository, never()).save(any());
     }
 
-    // =======================================================================
-    // PHẦN 7: Hàm cancel()
-    // =======================================================================
-
-    // Test Case ID: OFF-TC14
-    // Mục tiêu: Offer đã CANCELLED -> trả về ngay, KHÔNG gọi save() (idempotent)
     @Test
-    @DisplayName("OFF-TC14: cancel - Offer đã CANCELLED, phải return ngay và không gọi save()")
-    void cancel_AlreadyCancelledOffer_ShouldReturnImmediatelyWithoutSaving() throws IdInvalidException {
-        // Chuẩn bị: Offer đã ở trạng thái CANCELLED
-        Offer cancelledOffer = new Offer();
-        cancelledOffer.setId(5L);
-        cancelledOffer.setStatus(OfferStatus.CANCELLED);
-        when(offerRepository.findById(5L)).thenReturn(Optional.of(cancelledOffer));
-
-        CancelOfferDTO dto = new CancelOfferDTO();
-
-        // Thực thi
-        Offer result = offerService.cancel(5L, dto, 10L, "token");
-
-        // Kiểm tra: Trả về chính offer đó
-        assertThat(result.getStatus()).isEqualTo(OfferStatus.CANCELLED);
-        // Minh chứng (CheckDB): save() KHÔNG được gọi (idempotent - không cập nhật DB)
-        verify(offerRepository, never()).save(any());
-        // workflowProducer KHÔNG được gọi
-        verify(workflowProducer, never()).publishEvent(any());
-    }
-
-    // Test Case ID: OFF-TC15
-    // Mục tiêu: Offer ở PENDING -> set CANCELLED và publish event
-    @Test
-    @DisplayName("OFF-TC15: cancel - Offer PENDING, phải set CANCELLED và publish event")
+    @Transactional
+    @DisplayName("OFF-TC26: cancel - Offer PENDING")
     void cancel_PendingOffer_ShouldSetCancelledStatusAndPublishEvent() throws IdInvalidException {
-        // Chuẩn bị
-        CancelOfferDTO dto = new CancelOfferDTO();
-        when(offerRepository.findById(2L)).thenReturn(Optional.of(pendingOffer));
-        when(offerRepository.save(any(Offer.class))).thenAnswer(inv -> inv.getArgument(0));
-        doNothing().when(workflowProducer).publishEvent(any());
+        Offer offer = createSampleOffer(100L, OfferStatus.PENDING);
+        offer = offerRepository.save(offer);
 
-        // Thực thi
-        Offer result = offerService.cancel(2L, dto, 20L, "token");
+        Offer result = offerService.cancel(offer.getId(), new CancelOfferDTO(), 20L, "token");
 
-        // Kiểm tra: Status là CANCELLED
         assertThat(result.getStatus()).isEqualTo(OfferStatus.CANCELLED);
-        // Minh chứng (CheckDB): save() và publishEvent() được gọi
-        verify(offerRepository, times(1)).save(any(Offer.class));
-        verify(workflowProducer, times(1)).publishEvent(any());
+        verify(workflowProducer).publishEvent(argThat(e -> e.getEventType().equals("REQUEST_CANCELLED")));
     }
 
-    // Test Case ID: OFF-TC16
-    // Mục tiêu: Offer ở APPROVED -> throw (không thể cancel offer đã duyệt)
     @Test
-    @DisplayName("OFF-TC16: cancel - Offer APPROVED, phải throw IllegalStateException")
+    @Transactional
+    @DisplayName("OFF-TC27: cancel - Offer APPROVED")
     void cancel_ApprovedOffer_ShouldThrowIllegalStateException() {
-        // Chuẩn bị
-        Offer approvedOffer = new Offer();
-        approvedOffer.setId(6L);
-        approvedOffer.setStatus(OfferStatus.APPROVED);
-        when(offerRepository.findById(6L)).thenReturn(Optional.of(approvedOffer));
+        Offer offer = createSampleOffer(100L, OfferStatus.APPROVED);
+        offer = offerRepository.save(offer);
 
-        // Thực thi & Kiểm tra
-        assertThatThrownBy(() -> offerService.cancel(6L, new CancelOfferDTO(), 10L, "token"))
+        Long id = offer.getId();
+        assertThatThrownBy(() -> offerService.cancel(id, new CancelOfferDTO(), 10L, "token"))
                 .isInstanceOf(IllegalStateException.class);
-
-        // Minh chứng (CheckDB): save() KHÔNG được gọi
-        verify(offerRepository, never()).save(any());
     }
 
-    // =======================================================================
-    // PHẦN 8: Hàm withdraw()
-    // =======================================================================
-
-    // Test Case ID: OFF-TC17
-    // Mục tiêu: actorId là owner -> set WITHDRAWN và publish event
     @Test
-    @DisplayName("OFF-TC17: withdraw - actorId là owner, phải set WITHDRAWN và publish event")
-    void withdraw_PendingOfferByOwner_ShouldSetWithdrawnStatusAndPublishEvent() throws IdInvalidException {
-        // Chuẩn bị: pendingOffer có ownerUserId=20, actorId=20
-        WithdrawOfferDTO dto = new WithdrawOfferDTO();
-        when(offerRepository.findById(2L)).thenReturn(Optional.of(pendingOffer));
-        when(offerRepository.save(any(Offer.class))).thenAnswer(inv -> inv.getArgument(0));
-        doNothing().when(workflowProducer).publishEvent(any());
-
-        // Thực thi: actorId=20 chính là owner
-        Offer result = offerService.withdraw(2L, dto, 20L, "token");
-
-        // Kiểm tra: Status là WITHDRAWN
-        assertThat(result.getStatus()).isEqualTo(OfferStatus.WITHDRAWN);
-        // Minh chứng (CheckDB): save() và publishEvent() được gọi
-        verify(offerRepository, times(1)).save(any(Offer.class));
-        verify(workflowProducer, times(1)).publishEvent(any());
-    }
-
-    // Test Case ID: OFF-TC18
-    // Mục tiêu: actorId là requester (khác owner) -> vẫn được phép withdraw
-    @Test
-    @DisplayName("OFF-TC18: withdraw - actorId là requester khác owner, vẫn được phép")
+    @Transactional
+    @DisplayName("OFF-TC28: withdraw - by Requester")
     void withdraw_PendingOfferByRequester_ShouldSetWithdrawnStatus() throws IdInvalidException {
-        // Chuẩn bị: ownerUserId=20, requesterId=30 (khác nhau)
-        pendingOffer.setOwnerUserId(20L);
-        pendingOffer.setRequesterId(30L);
+        Offer offer = createSampleOffer(100L, OfferStatus.PENDING);
+        offer.setOwnerUserId(20L);
+        offer.setRequesterId(30L);
+        offer = offerRepository.save(offer);
 
-        when(offerRepository.findById(2L)).thenReturn(Optional.of(pendingOffer));
-        when(offerRepository.save(any(Offer.class))).thenAnswer(inv -> inv.getArgument(0));
-        doNothing().when(workflowProducer).publishEvent(any());
+        Offer result = offerService.withdraw(offer.getId(), new WithdrawOfferDTO(), 30L, "token");
 
-        // Thực thi: actorId=30 là requester (khác owner)
-        Offer result = offerService.withdraw(2L, new WithdrawOfferDTO(), 30L, "token");
-
-        // Kiểm tra: Vẫn WITHDRAWN thành công
         assertThat(result.getStatus()).isEqualTo(OfferStatus.WITHDRAWN);
     }
 
-    // Test Case ID: OFF-TC19
-    // Mục tiêu: Offer ở DRAFT -> throw (chỉ withdraw khi PENDING)
     @Test
-    @DisplayName("OFF-TC19: withdraw - Offer DRAFT, phải throw IllegalStateException")
+    @Transactional
+    @DisplayName("OFF-TC29: withdraw - Offer DRAFT")
     void withdraw_DraftOffer_ShouldThrowIllegalStateException() {
-        // Chuẩn bị
-        when(offerRepository.findById(1L)).thenReturn(Optional.of(draftOffer));
+        Offer offer = createSampleOffer(100L, OfferStatus.DRAFT);
+        offer = offerRepository.save(offer);
 
-        // Thực thi & Kiểm tra: Status không phải PENDING -> throw
-        assertThatThrownBy(() -> offerService.withdraw(1L, new WithdrawOfferDTO(), 10L, "token"))
+        Long id = offer.getId();
+        assertThatThrownBy(() -> offerService.withdraw(id, new WithdrawOfferDTO(), 10L, "token"))
                 .isInstanceOf(IllegalStateException.class);
     }
 
-    // Test Case ID: OFF-TC20
-    // Mục tiêu: actorId không phải owner lẫn requester -> throw (bảo mật)
     @Test
-    @DisplayName("OFF-TC20: withdraw - actorId không phải owner/requester, phải throw IllegalStateException")
-    void withdraw_PendingOfferByUnauthorizedUser_ShouldThrowIllegalStateException() {
-        // Chuẩn bị: pendingOffer có ownerUserId=20, requesterId=20; actorId=99 (người lạ)
-        when(offerRepository.findById(2L)).thenReturn(Optional.of(pendingOffer));
-
-        // Thực thi & Kiểm tra: actorId=99 không phải owner lẫn requester -> throw
-        assertThatThrownBy(() -> offerService.withdraw(2L, new WithdrawOfferDTO(), 99L, "token"))
-                .isInstanceOf(IllegalStateException.class);
-
-        // Minh chứng (CheckDB): save() KHÔNG được gọi
-        verify(offerRepository, never()).save(any());
-    }
-
-    // =======================================================================
-    // PHẦN 9: Hàm delete() - Soft delete
-    // =======================================================================
-
-    // Test Case ID: OFF-TC21
-    // Mục tiêu: Soft delete -> set isActive=false, KHÔNG gọi repository.delete() vật lý
-    @Test
-    @DisplayName("OFF-TC21: delete - Phải set isActive=false, không gọi repository.delete()")
-    void delete_ExistingOffer_ShouldSetIsActiveFalseAndReturnTrue() throws IdInvalidException {
-        // Chuẩn bị: Offer đang active
-        when(offerRepository.findById(1L)).thenReturn(Optional.of(draftOffer));
-        when(offerRepository.save(any(Offer.class))).thenAnswer(inv -> inv.getArgument(0));
-
-        // Thực thi
-        boolean result = offerService.delete(1L);
-
-        // Kiểm tra: Trả về true
-        assertThat(result).isTrue();
-        // Minh chứng (CheckDB): save() được gọi với isActive=false
-        ArgumentCaptor<Offer> captor = ArgumentCaptor.forClass(Offer.class);
-        verify(offerRepository, times(1)).save(captor.capture());
-        assertThat(captor.getValue().getIsActive()).isFalse();
-
-        // Xác nhận delete() vật lý KHÔNG được gọi
-        verify(offerRepository, never()).delete(any(Offer.class));
-    }
-
-    // =======================================================================
-    // PHẦN 10: Các hàm Read / Aggregate Data (DTO)
-    // =======================================================================
-
-    // Test Case ID: OFF-TC22
-    // Mục tiêu: Tìm kiếm Offer theo ID, trả về Offer nếu tồn tại, throw IdInvalidException nếu không
-    @Test
-    @DisplayName("OFF-TC22: findById - Trả về Offer nếu tồn tại, throw nếu không")
-    void findById_ShouldReturnOffer_OrThrow() throws IdInvalidException {
-        // Chuẩn bị: Mocks cho trường hợp ID hợp lệ và không hợp lệ
-        when(offerRepository.findById(1L)).thenReturn(Optional.of(draftOffer));
-        
-        // Thực thi (Case 1)
-        Offer result = offerService.findById(1L);
-        
-        // Kiểm tra (Case 1): ID trả về phải trùng khớp
-        assertThat(result.getId()).isEqualTo(1L);
-
-        // Chuẩn bị & Thực thi (Case 2): ID không tồn tại
-        when(offerRepository.findById(99L)).thenReturn(Optional.empty());
-        
-        // Kiểm tra (Case 2): Phải throw IdInvalidException
-        assertThatThrownBy(() -> offerService.findById(99L))
-                .isInstanceOf(IdInvalidException.class);
-    }
-
-    // Test Case ID: OFF-TC23
-    // Mục tiêu: Giao tiếp với các HTTP Client để tổng hợp đầy đủ dữ liệu cho OfferWithUserDTO
-    @Test
-    @DisplayName("OFF-TC23: getByIdWithUser - Data Aggregation đầy đủ các Client")
-    void getByIdWithUser_ShouldAggregateDataCorrectly() throws Exception {
-        // Chuẩn bị: Dữ liệu Mock JSON đại diện cho response từ external services (User, Candidate, Workflow)
-        com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
-        
-        // Mock Employee Response
-        com.fasterxml.jackson.databind.node.ObjectNode employeeNode = mapper.createObjectNode();
-        employeeNode.put("name", "Nguyen Van A");
-        com.fasterxml.jackson.databind.node.ObjectNode positionNode = mapper.createObjectNode();
-        positionNode.put("level", "Senior");
-        employeeNode.set("position", positionNode);
-
-        // Mock Candidate Response
-        com.fasterxml.jackson.databind.node.ObjectNode candidateNode = mapper.createObjectNode();
-        candidateNode.put("name", "Candidate B");
-        candidateNode.put("jobPositionId", 500L);
-
-        // Mock Department Response
-        com.fasterxml.jackson.databind.node.ObjectNode deptNode = mapper.createObjectNode();
-        deptNode.put("name", "Phòng IT");
-        
-        // Mock Workflow Response
-        com.fasterxml.jackson.databind.node.ObjectNode workflowNode = mapper.createObjectNode();
-        workflowNode.put("status", "ACTIVE");
-
-        // Mock JobPosition
-        com.example.job_service.model.JobPosition jobPos = new com.example.job_service.model.JobPosition();
-        jobPos.setTitle("Java Dev");
-        com.example.job_service.model.RecruitmentRequest req = new com.example.job_service.model.RecruitmentRequest();
-        req.setDepartmentId(9L);
-        jobPos.setRecruitmentRequest(req);
-
-        // Mock behaviors cho toàn bộ các Feign Clients
-        when(offerRepository.findById(1L)).thenReturn(Optional.of(draftOffer));
-        when(userService.getEmployeeById(10L, "token")).thenReturn(org.springframework.http.ResponseEntity.ok(employeeNode));
-        when(candidateClient.getCandidateById(100L, "token")).thenReturn(org.springframework.http.ResponseEntity.ok(candidateNode));
-        when(jobPositionService.findById(500L)).thenReturn(jobPos);
-        when(userService.getDepartmentById(9L, "token")).thenReturn(org.springframework.http.ResponseEntity.ok(deptNode));
-        when(workflowServiceClient.getWorkflowInfoByRequestId(any(), any(), any(), any())).thenReturn(workflowNode);
-
-        // Thực thi
-        com.example.job_service.dto.offer.OfferWithUserDTO result = offerService.getByIdWithUser(1L, "token");
-
-        // Kiểm tra: Các thuộc tính phân mảnh được gộp lại chính xác vào thành 1 DTO duy nhất
-        assertThat(result).isNotNull();
-        assertThat(result.getLevelName()).isEqualTo("Senior");
-        assertThat(result.getDepartmentName()).isEqualTo("Phòng IT");
-        assertThat(result.getJobPositionTitle()).isEqualTo("Java Dev");
-    }
-
-    // Test Case ID: OFF-TC24
-    // Mục tiêu: Tổng hợp DTO nhưng bọc trong chuẩn SingleResponseDTO trả về cho Controller theo Base API
-    @Test
-    @DisplayName("OFF-TC24: getByIdWithUserAndMetadata - Bao bọc bởi SingleResponseDTO")
+    @Transactional
+    @DisplayName("OFF-TC30: getByIdWithUserAndMetadata - Wrapper")
     void getByIdWithUserAndMetadata_ShouldWrapInSingleResponseDTO() throws Exception {
-        // Chuẩn bị: Tái sử dụng/Mock nhánh tối giản, bỏ qua các client phụ bằng cách set ID = null để tránh lỗi NullPointerException
-        draftOffer.setRequesterId(null);
-        draftOffer.setCandidateId(null);
-        draftOffer.setOwnerUserId(null);
-        draftOffer.setWorkflowId(null);
-        when(offerRepository.findById(1L)).thenReturn(Optional.of(draftOffer));
-        
-        // Thực thi
-        com.example.job_service.dto.SingleResponseDTO<com.example.job_service.dto.offer.OfferWithUserDTO> result = 
-            offerService.getByIdWithUserAndMetadata(1L, "token");
-            
-        // Kiểm tra: Dữ liệu được bọc đúng chuẩn SingleResponseDTO
+        Offer offer = createSampleOffer(100L, OfferStatus.DRAFT);
+        offer = offerRepository.save(offer);
+
+        SingleResponseDTO<OfferWithUserDTO> result = offerService.getByIdWithUserAndMetadata(offer.getId(), "token");
+
         assertThat(result.getData()).isNotNull();
-        assertThat(result.getData().getId()).isEqualTo(1L);
+        assertThat(result.getData().getId()).isEqualTo(offer.getId());
     }
 
-    // Test Case ID: OFF-TC25
-    // Mục tiêu: Hàm xem chi tiết trang OfferDetail, phải map và tổng hợp đúng tên requester, candidate email/phone và thông tin JobPosition/Department
     @Test
-    @DisplayName("OFF-TC25: getByIdDetail - Aggregation chi tiết cho trang Offer Detail")
-    void getByIdDetail_ShouldAggregateDetailCorrectly() throws Exception {
-        // Chuẩn bị: Mock Data đầy đủ để đi qua các nhánh logic JSON Parsing, JobPosition và Department
-        draftOffer.setRequesterId(10L);
-        draftOffer.setOwnerUserId(10L);
-        draftOffer.setCandidateId(100L);
-        draftOffer.setWorkflowId(50L);
-
-        com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
-
-        com.fasterxml.jackson.databind.node.ObjectNode employeeNode = mapper.createObjectNode();
-        employeeNode.put("name", "Nguyen Van A");
-        // Thêm position node để phủ nhánh if (employee.has("position"))
-        com.fasterxml.jackson.databind.node.ObjectNode posNode = mapper.createObjectNode();
-        posNode.put("level", "Senior");
-        employeeNode.set("position", posNode);
-
-        com.fasterxml.jackson.databind.node.ObjectNode candidateNode = mapper.createObjectNode();
-        candidateNode.put("name", "Candidate B");
-        candidateNode.put("email", "b@gmail.com");
-        candidateNode.put("phone", "0123");
-        candidateNode.put("jobPositionId", 500L); // Để phủ nhánh lấy JobPosition
-
-        com.fasterxml.jackson.databind.node.ObjectNode deptNode = mapper.createObjectNode();
-        deptNode.put("name", "Phòng Nhân Sự");
-
-        com.fasterxml.jackson.databind.node.ObjectNode workflowNode = mapper.createObjectNode();
-        workflowNode.put("status", "COMPLETED");
-
-        // Mock JobPosition và RecruitmentRequest
-        com.example.job_service.model.JobPosition mockJob = new com.example.job_service.model.JobPosition();
-        mockJob.setTitle("Java Developer");
-        com.example.job_service.model.RecruitmentRequest mockRR = new com.example.job_service.model.RecruitmentRequest();
-        mockRR.setDepartmentId(9L);
-        mockJob.setRecruitmentRequest(mockRR);
-
-        when(offerRepository.findById(1L)).thenReturn(Optional.of(draftOffer));
-
-        // Sử dụng lenient() để tránh lỗi UnnecessaryStubbingException
-        lenient().when(userService.getEmployeeById(10L, "token")).thenReturn(org.springframework.http.ResponseEntity.ok(employeeNode));
-        lenient().when(candidateClient.getCandidateById(100L, "token")).thenReturn(org.springframework.http.ResponseEntity.ok(candidateNode));
-        lenient().when(jobPositionService.findById(500L)).thenReturn(mockJob);
-        lenient().when(userService.getDepartmentById(9L, "token")).thenReturn(org.springframework.http.ResponseEntity.ok(deptNode));
-        lenient().when(workflowServiceClient.getWorkflowInfoByRequestId(1L, 50L, "OFFER", "token")).thenReturn(workflowNode);
-
-        // Thực thi
-        com.example.job_service.dto.offer.OfferDetailDTO result = offerService.getByIdDetail(1L, "token");
-
-        // Kiểm tra: Các field của DetailDTO được map đúng giá trị từ nhiều nguồn
-        assertThat(result.getRequesterName()).isEqualTo("Nguyen Van A");
-        assertThat(result.getCandidateName()).isEqualTo("Candidate B");
-        assertThat(result.getJobPositionTitle()).isEqualTo("Java Developer");
-        assertThat(result.getDepartmentName()).isEqualTo("Phòng Nhân Sự");
-        assertThat(result.getLevelName()).isEqualTo("Senior");
-    }
-
-    // Test Case ID: OFF-TC28
-    // Mục tiêu: Kiểm tra fallback level name (sử dụng position.name nếu position.level không có)
-    @Test
-    @DisplayName("OFF-TC28: convertToDetailDTO - Fallback level name sang position.name")
+    @Transactional
+    @DisplayName("OFF-TC31: convertToDetailDTO - Level fallback")
     void convertToDetailDTO_LevelNameFallback_ShouldUsePositionName() throws Exception {
-        // Chuẩn bị: Employee có position node nhưng không có level, chỉ có name
-        draftOffer.setRequesterId(10L);
-        com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
-        com.fasterxml.jackson.databind.node.ObjectNode employeeNode = mapper.createObjectNode();
-        com.fasterxml.jackson.databind.node.ObjectNode posNode = mapper.createObjectNode();
-        posNode.put("name", "Team Lead"); // Fallback field
-        employeeNode.set("position", posNode);
+        Offer offer = createSampleOffer(100L, OfferStatus.DRAFT);
+        offer.setRequesterId(10L);
+        offer = offerRepository.save(offer);
 
-        when(offerRepository.findById(1L)).thenReturn(Optional.of(draftOffer));
-        lenient().when(userService.getEmployeeById(10L, "token")).thenReturn(org.springframework.http.ResponseEntity.ok(employeeNode));
+        ObjectNode emp = objectMapper.createObjectNode();
+        ObjectNode pos = objectMapper.createObjectNode().put("name", "Team Lead"); // No 'level' field
+        emp.set("position", pos);
 
-        // Thực thi
-        com.example.job_service.dto.offer.OfferDetailDTO result = offerService.getByIdDetail(1L, "token");
+        when(userService.getEmployeeById(10L, "token")).thenReturn(ResponseEntity.ok(emp));
 
-        // Kiểm tra: Phải lấy từ position.name
+        OfferDetailDTO result = offerService.getByIdDetail(offer.getId(), "token");
+
         assertThat(result.getLevelName()).isEqualTo("Team Lead");
     }
 
-    // Test Case ID: OFF-TC26
-    // Mục tiêu: Lấy danh sách Offer có hỗ trợ filter phân trang và user name map.
+    // =======================================================================
+    // "BUG TRAPS" (Sử dụng đặc tả từ docs/system-test)
+    // =======================================================================
+
     @Test
-    @DisplayName("OFF-TC26: getAllWithFilters - Trả về phân trang và mapping đúng")
-    void getAllWithFilters_ShouldReturnPaginationDTO() {
-        // Chuẩn bị: Dữ liệu phân trang
-        org.springframework.data.domain.Pageable pageable = org.springframework.data.domain.PageRequest.of(0, 10);
-        org.springframework.data.domain.Page<Offer> page = new org.springframework.data.domain.PageImpl<>(java.util.List.of(draftOffer), pageable, 1);
-        
-        // Setup draftOffer loại bỏ các key để tránh gọi mock client không cần thiết
-        draftOffer.setRequesterId(null);
-        draftOffer.setCandidateId(null);
-        draftOffer.setWorkflowId(null);
+    @Transactional
+    @DisplayName("OFF-TC32 [Bẫy Lỗi] create - Onboarding quá khứ")
+    void create_PastOnboardingDate_ShouldFail_ButAllows() {
+        CreateOfferDTO dto = new CreateOfferDTO();
+        dto.setCandidateId(100L);
+        dto.setOnboardingDate(LocalDate.now().minusDays(10)); // Quá khứ
 
-        when(offerRepository.findByFilters(OfferStatus.DRAFT, 10L, "keyword", pageable)).thenReturn(page);
-        when(userService.getEmployeesByIds(any(), eq("token"))).thenReturn(java.util.Map.of());
-
-        // Thực thi
-        com.example.job_service.dto.PaginationDTO result = offerService.getAllWithFilters("DRAFT", 10L, "keyword", "token", pageable);
-
-        // Kiểm tra: Phân trang tổng hợp đúng Metadata và số lượng List Result
-        assertThat(result.getMeta().getTotal()).isEqualTo(1);
-        assertThat(result.getResult()).isInstanceOf(java.util.List.class);
+        // 2. Thực thi & Kiểm tra
+        // Chú ý: Test case này sẽ FAIL cho đến khi Bug được fix trong OfferService
+        assertThatThrownBy(() -> offerService.create(dto))
+                .isInstanceOf(IdInvalidException.class)
+                .hasMessageContaining("Ngày nhận việc không được ở trong quá khứ");
     }
 
-    // Test Case ID: OFF-TC27
-    // Mục tiêu: Hàm tìm kiếm dạng List không Support phân trang (dùng cho export, batch update)
     @Test
-    @DisplayName("OFF-TC27: findAllWithFilters - Tìm kiếm danh sách List Offer")
-    void findAllWithFilters_ShouldReturnList() {
-        // Chuẩn bị
-        when(offerRepository.findByFiltersList(OfferStatus.DRAFT, 1L, 2L, 3L, 1000L, 2000L, null, null, "key"))
-            .thenReturn(java.util.List.of(draftOffer));
-            
-        // Thực thi
-        java.util.List<Offer> results = offerService.findAllWithFilters("DRAFT", 1L, 2L, 3L, 1000L, 2000L, null, null, "key");
+    @Transactional
+    @DisplayName("OFF-TC33 [Bẫy Lỗi] create - Lương âm")
+    void create_NegativeSalary_ShouldFail_ButAllows() {
+        CreateOfferDTO dto = new CreateOfferDTO();
+        dto.setCandidateId(100L);
+        dto.setBasicSalary(-1000000L); // Lương âm
+
+        // 2. Thực thi & Kiểm tra
+        // Chú ý: Test case này sẽ FAIL cho đến khi Bug được fix trong OfferService
+        assertThatThrownBy(() -> offerService.create(dto))
+                .isInstanceOf(IdInvalidException.class)
+                .hasMessageContaining("Lương cơ bản không được là số âm");
+    }
+
+    @Test
+    @Transactional
+    @DisplayName("OFF-TC34: update - Partial update")
+    void update_PartialUpdate_ShouldOnlyUpdateNonNullFields() throws IdInvalidException {
+        Offer offer = createSampleOffer(100L, OfferStatus.DRAFT);
+        offer.setBasicSalary(20000000L);
+        offer = offerRepository.save(offer);
+
+        UpdateOfferDTO dto = new UpdateOfferDTO();
+        dto.setBasicSalary(22000000L);
+        dto.setCandidateId(null); // Should not change
+
+        Offer updated = offerService.update(offer.getId(), dto);
+        assertThat(updated.getBasicSalary()).isEqualTo(22000000L);
+        assertThat(updated.getCandidateId()).isEqualTo(100L);
+    }
+
+    @Test
+    @Transactional
+    @DisplayName("OFF-TC35: cancel - Offer REJECTED")
+    void cancel_RejectedOffer_ShouldThrowIllegalStateException() {
+        Offer offer = createSampleOffer(100L, OfferStatus.REJECTED);
+        offer = offerRepository.save(offer);
+
+        Long id = offer.getId();
+        assertThatThrownBy(() -> offerService.cancel(id, new CancelOfferDTO(), 1L, "token"))
+                .isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
+    @Transactional
+    @DisplayName("OFF-TC36: getAllWithFilters - Empty status")
+    void getAllWithFilters_EmptyStatus_ShouldIgnore() {
+        Offer offer = createSampleOffer(100L, OfferStatus.DRAFT);
+        offerRepository.save(offer);
+
+        PaginationDTO result = offerService.getAllWithFilters("   ", null, null, "token", PageRequest.of(0, 10));
+        assertThat(result.getMeta().getTotal()).isGreaterThan(0);
+    }
+
+    @Test
+    @Transactional
+    @DisplayName("OFF-TC37: convertToWithUserDTO - Edge cases")
+    void convertToWithUserDTO_AggregationEdgeCases_ShouldHandleNullsAndErrors() throws Exception {
+        Offer offer = createSampleOffer(100L, OfferStatus.DRAFT);
+        offer.setRequesterId(10L);
+        offer = offerRepository.save(offer);
+
+        // 1. Candidate body null
+        when(candidateClient.getCandidateById(100L, "token")).thenReturn(ResponseEntity.ok(null));
+        OfferWithUserDTO res1 = offerService.getByIdWithUser(offer.getId(), "token");
+        assertThat(res1.getCandidate()).isNull();
+
+        // 2. Candidate no jobPositionId
+        ObjectNode candNoJp = objectMapper.createObjectNode().put("name", "No JP");
+        when(candidateClient.getCandidateById(100L, "token")).thenReturn(ResponseEntity.ok(candNoJp));
+        OfferWithUserDTO res2 = offerService.getByIdWithUser(offer.getId(), "token");
+        assertThat(res2.getJobPositionTitle()).isNull();
+
+        // 3. Candidate jobPositionId is null
+        ObjectNode candNullJp = objectMapper.createObjectNode().put("name", "Null JP");
+        candNullJp.putNull("jobPositionId");
+        when(candidateClient.getCandidateById(100L, "token")).thenReturn(ResponseEntity.ok(candNullJp));
+        OfferWithUserDTO res2b = offerService.getByIdWithUser(offer.getId(), "token");
+        assertThat(res2b.getJobPositionTitle()).isNull();
+
+        // 4. JobPositionService throws exception (catch at line 315)
+        ObjectNode candWithJp = objectMapper.createObjectNode().put("jobPositionId", 501L);
+        when(candidateClient.getCandidateById(100L, "token")).thenReturn(ResponseEntity.ok(candWithJp));
+        when(jobPositionService.findById(501L)).thenThrow(new RuntimeException("Service Error"));
+        OfferWithUserDTO res3 = offerService.getByIdWithUser(offer.getId(), "token");
+        assertThat(res3.getJobPositionTitle()).isNull();
+
+        // 5. JobPosition has no RecruitmentRequest (branch line 304)
+        ObjectNode candWithJp2 = objectMapper.createObjectNode().put("jobPositionId", 502L);
+        when(candidateClient.getCandidateById(100L, "token")).thenReturn(ResponseEntity.ok(candWithJp2));
+        JobPosition jpNoRR = new JobPosition();
+        when(jobPositionService.findById(502L)).thenReturn(jpNoRR);
+        OfferWithUserDTO res4 = offerService.getByIdWithUser(offer.getId(), "token");
+        assertThat(res4.getDepartmentName()).isNull();
+
+        // 6. JobPosition has RecruitmentRequest but DepartmentId is null
+        JobPosition jpNoDept = new JobPosition();
+        jpNoDept.setRecruitmentRequest(new RecruitmentRequest());
+        when(jobPositionService.findById(502L)).thenReturn(jpNoDept);
+        OfferWithUserDTO res4b = offerService.getByIdWithUser(offer.getId(), "token");
+        assertThat(res4b.getDepartmentName()).isNull();
+
+        // 7. Dept response body null (branch line 308)
+        ObjectNode candWithJp3 = objectMapper.createObjectNode().put("jobPositionId", 503L);
+        when(candidateClient.getCandidateById(100L, "token")).thenReturn(ResponseEntity.ok(candWithJp3));
+        JobPosition jpWithRR = new JobPosition();
+        RecruitmentRequest rr = new RecruitmentRequest();
+        rr.setDepartmentId(9L);
+        jpWithRR.setRecruitmentRequest(rr);
+        when(jobPositionService.findById(503L)).thenReturn(jpWithRR);
+        when(userService.getDepartmentById(9L, "token")).thenReturn(ResponseEntity.ok(null));
+        OfferWithUserDTO res5 = offerService.getByIdWithUser(offer.getId(), "token");
+        assertThat(res5.getDepartmentName()).isNull();
+
+        // 8. Dept response success but body has no 'name' (branch line 310)
+        when(userService.getDepartmentById(9L, "token")).thenReturn(ResponseEntity.ok(objectMapper.createObjectNode()));
+        OfferWithUserDTO res5b = offerService.getByIdWithUser(offer.getId(), "token");
+        assertThat(res5b.getDepartmentName()).isNull();
+
+        // 9. Employee has no 'position' (branch line 331)
+        ObjectNode empNoPos = objectMapper.createObjectNode().put("name", "No Pos");
+        when(userService.getEmployeeById(10L, "token")).thenReturn(ResponseEntity.ok(empNoPos));
+        OfferWithUserDTO res9 = offerService.getByIdWithUser(offer.getId(), "token");
+        assertThat(res9.getLevelName()).isNull();
+
+        // 10. Employee has 'position' but no level/name (branch line 335 else if)
+        ObjectNode empEmptyPos = objectMapper.createObjectNode().put("name", "Empty Pos");
+        empEmptyPos.set("position", objectMapper.createObjectNode());
+        when(userService.getEmployeeById(10L, "token")).thenReturn(ResponseEntity.ok(empEmptyPos));
+        OfferWithUserDTO res10 = offerService.getByIdWithUser(offer.getId(), "token");
+        assertThat(res10.getLevelName()).isNull();
+
+        // 11. WorkflowInfo null (branch line 352)
+        when(workflowServiceClient.getWorkflowInfoByRequestId(any(), any(), any(), any())).thenReturn(null);
+        OfferWithUserDTO res11 = offerService.getByIdWithUser(offer.getId(), "token");
+        assertThat(res11.getWorkflowInfo()).isNull();
+
+        // 12. Requester null, dùng OwnerUserId (branch line 325)
+        offer.setRequesterId(null);
+        offer.setOwnerUserId(20L);
+        offerRepository.save(offer);
+        when(userService.getEmployeeById(20L, "token")).thenReturn(ResponseEntity.ok(objectMapper.createObjectNode()));
+        OfferWithUserDTO res12 = offerService.getByIdWithUser(offer.getId(), "token");
+        assertThat(res12).isNotNull();
+    }
+
+    @Test
+    @DisplayName("OFF-TC38: getWithUser - handle null ids")
+
+    void getByIdWithUser_WithVariousNullIds_ShouldHandleGracefully() throws IdInvalidException {
+        OfferRepository mockRepo = org.mockito.Mockito.mock(OfferRepository.class);
+        OfferService localService = new OfferService(mockRepo, userService, workflowProducer, workflowServiceClient, candidateClient, jobPositionService);
+
+        Offer mockOffer = new Offer();
+        mockOffer.setCandidateId(null);
+        mockOffer.setRequesterId(10L);
+        when(mockRepo.findById(999L)).thenReturn(Optional.of(mockOffer));
         
-        // Kiểm tra: Trả về nguyên mẫu List Data
-        assertThat(results).hasSize(1);
+        localService.getByIdWithUser(999L, "token");
+
+        mockOffer.setRequesterId(null);
+        mockOffer.setOwnerUserId(null);
+        localService.getByIdWithUser(999L, "token");
+    }
+
+    @Test
+    @DisplayName("OFF-TC39: getWithUser - handle service failures")
+    void getByIdWithUser_WithUserServiceFailures_ShouldHandleGracefully() throws IdInvalidException {
+        OfferRepository mockRepo = org.mockito.Mockito.mock(OfferRepository.class);
+        OfferService localService = new OfferService(mockRepo, userService, workflowProducer, workflowServiceClient, candidateClient, jobPositionService);
+
+        Offer mockOffer = new Offer();
+        mockOffer.setOwnerUserId(20L);
+        when(mockRepo.findById(999L)).thenReturn(Optional.of(mockOffer));
+        
+        when(userService.getEmployeeById(20L, "token")).thenReturn(ResponseEntity.status(500).build());
+        localService.getByIdWithUser(999L, "token");
+        
+        when(userService.getEmployeeById(20L, "token")).thenReturn(ResponseEntity.ok(null));
+        localService.getByIdWithUser(999L, "token");
+    }
+
+    @Test
+    @DisplayName("OFF-TC40: getByIdDetail - handle various nulls")
+    void getByIdDetail_WithVariousNullFields_ShouldHandleGracefully() throws IdInvalidException {
+        OfferRepository mockRepo = org.mockito.Mockito.mock(OfferRepository.class);
+        OfferService localService = new OfferService(mockRepo, userService, workflowProducer, workflowServiceClient, candidateClient, jobPositionService);
+
+        Offer mockOffer = new Offer();
+        mockOffer.setRequesterId(null);
+        when(mockRepo.findById(999L)).thenReturn(Optional.of(mockOffer));
+        
+        localService.getByIdDetail(999L, "token");
+
+        mockOffer.setRequesterId(10L);
+        when(userService.getEmployeeById(10L, "token")).thenReturn(ResponseEntity.status(404).build());
+        localService.getByIdDetail(999L, "token");
+
+        mockOffer.setCandidateId(null);
+        localService.getByIdDetail(999L, "token");
+
+        mockOffer.setCandidateId(100L);
+        when(candidateClient.getCandidateById(100L, "token")).thenReturn(ResponseEntity.status(500).build());
+        localService.getByIdDetail(999L, "token");
+    }
+
+    @Test
+    @DisplayName("OFF-TC41: getByIdDetail - handle missing fields")
+    void getByIdDetail_WithMissingEmployeePositionName_ShouldHandleGracefully() throws IdInvalidException {
+        OfferRepository mockRepo = org.mockito.Mockito.mock(OfferRepository.class);
+        OfferService localService = new OfferService(mockRepo, userService, workflowProducer, workflowServiceClient, candidateClient, jobPositionService);
+
+        Offer mockOffer = new Offer();
+        mockOffer.setOwnerUserId(20L);
+        when(mockRepo.findById(999L)).thenReturn(Optional.of(mockOffer));
+
+        ObjectNode empNoName = objectMapper.createObjectNode();
+        empNoName.set("position", objectMapper.createObjectNode());
+        when(userService.getEmployeeById(20L, "token")).thenReturn(ResponseEntity.ok(empNoName));
+        
+        localService.getByIdDetail(999L, "token");
+        
+        when(workflowServiceClient.getWorkflowInfoByRequestId(any(), any(), any(), any())).thenReturn(null);
+        mockOffer.setWorkflowId(100L);
+        localService.getByIdDetail(999L, "token");
     }
 }

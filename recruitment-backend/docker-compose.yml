@@ -14,25 +14,10 @@ services:
     networks:
       - backend-network
     healthcheck:
-      test: [ "CMD", "mysqladmin", "ping", "-h", "localhost" ]
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
       interval: 10s
       timeout: 5s
       retries: 5
-
-  # PhpMyAdmin
-  phpmyadmin:
-    image: phpmyadmin/phpmyadmin
-    container_name: phpmyadmin
-    ports:
-      - "8080:80"
-    environment:
-      PMA_HOST: mysql
-      PMA_PORT: 3306
-    depends_on:
-      mysql:
-        condition: service_healthy
-    networks:
-      - backend-network
 
   # Zookeeper
   zookeeper:
@@ -57,9 +42,9 @@ services:
     environment:
       KAFKA_BROKER_ID: 1
       KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
-      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,PLAINTEXT_HOST://0.0.0.0:9093
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:9093
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
       KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
     networks:
@@ -84,7 +69,7 @@ services:
     #   SPRING_CLOUD_GATEWAY_SERVER_WEBFLUX_ROUTES_1_URI: http://job-service:8083
     #   SPRING_CLOUD_GATEWAY_SERVER_WEBFLUX_ROUTES_2_URI: http://candidate-service:8084
 
-    # User Service
+  # User Service
   user-service:
     build:
       context: ./services/user-service
@@ -128,6 +113,8 @@ services:
       SPRING_DATASOURCE_PASSWORD: 123456
       SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       USER_SERVICE_URL: http://user-service:8082
+      WORKFLOW_SERVICE_URL: http://workflow-service:8086
+      CANDIDATE_SERVICE_URL: http://candidate-service:8084
 
   # Candidate Service
   candidate-service:
@@ -152,6 +139,8 @@ services:
       SPRING_DATASOURCE_PASSWORD: 123456
       SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       USER_SERVICE_URL: http://user-service:8082
+      JOB_SERVICE_URL: http://job-service:8083
+      SCHEDULE_SERVICE_URL: http://schedule-service:8085
 
   # Schedule Service
   schedule-service:
@@ -202,7 +191,6 @@ services:
       SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       USER_SERVICE_URL: http://user-service:8082
       CANDIDATE_SERVICE_URL: http://candidate-service:8084
-      SERVICES_USER_SERVICE_URL: http://user-service:8082
 
   # Upload Service
   upload-service:
@@ -240,6 +228,8 @@ services:
       SPRING_DATASOURCE_USERNAME: root
       SPRING_DATASOURCE_PASSWORD: 123456
       SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      USER_SERVICE_URL: http://user-service:8082
+      CANDIDATE_SERVICE_URL: http://candidate-service:8084
 
   # Statistics Service
   statistics-service:
@@ -288,6 +278,8 @@ services:
       SPRING_DATASOURCE_USERNAME: root
       SPRING_DATASOURCE_PASSWORD: 123456
       SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      USER_SERVICE_URL: http://user-service:8082
+      CANDIDATE_SERVICE_URL: http://candidate-service:8084
 
 networks:
   backend-network:
