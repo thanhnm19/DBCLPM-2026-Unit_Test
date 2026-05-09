@@ -1,4 +1,4 @@
-import { Colors } from "../../constants/colors";
+import { Colors } from "../../constants/Colors";
 import { cn } from "../../utils/utils";
 
 const Button = ({

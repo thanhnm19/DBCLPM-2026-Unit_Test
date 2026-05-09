@@ -68,3 +68,6 @@ __pycache__/
 
 docs/
 .CLAUDE.md
+
+# docker compose
+docker-compose.yml
