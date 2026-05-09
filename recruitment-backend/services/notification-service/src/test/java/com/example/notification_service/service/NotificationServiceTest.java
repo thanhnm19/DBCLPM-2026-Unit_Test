@@ -1,6 +1,5 @@
 package com.example.notification_service.service;
 
-import com.example.notification_service.dto.Meta;
 import com.example.notification_service.dto.PaginationDTO;
 import com.example.notification_service.dto.notification.BulkNotificationRequest;
 import com.example.notification_service.exception.NotificationNotFoundException;
@@ -8,16 +7,20 @@ import com.example.notification_service.messaging.NotificationEvent;
 import com.example.notification_service.model.Notification;
 import com.example.notification_service.repository.NotificationRepository;
 import com.example.notification_service.utils.SecurityUtil;
-import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
@@ -37,20 +40,28 @@ import static org.mockito.Mockito.*;
  *
  * Chiến lược (H2 Database):
  * - Sử dụng @SpringBootTest và @Transactional để thực thi và rollback trên DB H2 in-memory.
- * - @Autowired NotificationRepository và NotificationService để gọi logic thật.
- * - @MockBean UserService và SocketIOBroadcastService vì là giao tiếp ngoại biên.
+ * - @MockitoSpyBean NotificationRepository (delegating thật H2) để có thể stub lỗi gọi repo khi cần.
+ * - @Autowired NotificationService để gọi logic thật.
+ * - @MockitoBean UserService và SocketIOBroadcastService vì là giao tiếp ngoại biên.
  * - Minh chứng (CheckDB): Query thẳng lên DB qua repository sau mỗi action.
  */
 @SpringBootTest
 @Transactional
 @ActiveProfiles("test")
+// Tránh IDE/bootstrap nhầm profile: luôn thay DataSource bằng DB nhúng (không dùng MySQL thật).
+@AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.ANY)
 @DisplayName("NotificationService Integration Tests (H2 Database)")
 class NotificationServiceTest {
+
+    @AfterEach
+    void resetNotificationRepositorySpy() {
+        reset(notificationRepository);
+    }
 
     // -----------------------------------------------------------------------
     // Autowired dependencies (True Database Logic)
     // -----------------------------------------------------------------------
-    @Autowired
+    @MockitoSpyBean
     private NotificationRepository notificationRepository;
 
     @Autowired
@@ -59,10 +70,10 @@ class NotificationServiceTest {
     // -----------------------------------------------------------------------
     // Mock dependencies (External Communication)
     // -----------------------------------------------------------------------
-    @MockBean
+    @MockitoBean
     private UserService userService;
 
-    @MockBean
+    @MockitoBean
     private SocketIOBroadcastService socketIOBroadcastService;
 
     // =======================================================================
@@ -94,6 +105,26 @@ class NotificationServiceTest {
 
         // Kiểm tra giao tiếp ngoại biên: Xác nhận hàm socketIOBroadcastService.pushNotification() được gọi đúng 1 lần.
         verify(socketIOBroadcastService, times(1)).pushNotification(any());
+    }
+
+    // -----------------------------------------------------------------------
+    // getNotificationsByRecipient — bổ sung độ phủ (JaCoCo) cho NotificationService
+    // -----------------------------------------------------------------------
+    @Test
+    @DisplayName("getNotificationsByRecipient: trả về đúng danh sách theo recipientId từ DB")
+    void getNotificationsByRecipient_ShouldReturnFromRepository() {
+        Notification a = new Notification();
+        a.setRecipientId(200L);
+        a.setTitle("A");
+        notificationRepository.save(a);
+        Notification b = new Notification();
+        b.setRecipientId(201L);
+        notificationRepository.save(b);
+
+        List<Notification> for200 = notificationService.getNotificationsByRecipient(200L);
+
+        assertThat(for200).hasSize(1);
+        assertThat(for200.get(0).getRecipientId()).isEqualTo(200L);
     }
 
     // =======================================================================
@@ -129,6 +160,7 @@ class NotificationServiceTest {
 
         // Kiểm tra giao tiếp ngoại biên: Hệ thống phải gọi hàm publishUnreadCount để cập nhật Notification Counter qua socket.
         verify(socketIOBroadcastService, times(1)).publishUnreadCount(eq(100L), anyLong());
+        verify(socketIOBroadcastService, times(1)).pushNotification(any());
     }
 
     // Test Case ID: UTIL-NT03
@@ -187,10 +219,10 @@ class NotificationServiceTest {
         // Kiểm tra kết quả trả về: Hàm phải thông báo số lượng bản ghi vừa update là 3.
         assertThat(count).isEqualTo(3);
         
-        // Minh chứng (CheckDB): Cào toàn bộ Notifications lên, dùng allMatch xác nhận 100% trong số đó đã update isRead thành True!
-        List<Notification> inDb = notificationRepository.findAll();
-        boolean allRead = inDb.stream().allMatch(Notification::isRead);
-        assertThat(allRead).isTrue();
+        // Minh chứng (CheckDB): Đúng 3 thông báo của recipient 100 đều đã đọc.
+        List<Notification> for100 = notificationRepository.findByRecipientId(100L);
+        assertThat(for100).hasSize(3);
+        assertThat(for100).allMatch(Notification::isRead);
 
         // Kiểm tra giao tiếp ngoại biên: SocketIO phải được lệnh gọi thông báo unread count về 0.
         verify(socketIOBroadcastService, times(1)).publishUnreadCount(eq(100L), eq(0L));
@@ -201,8 +233,14 @@ class NotificationServiceTest {
     @Test
     @DisplayName("UTIL-NT06: markAllAsRead - Không có thông báo chưa đọc, Không broadcast")
     void markAllAsRead_WithNoUnreadNotifications_ShouldNotBroadcast() {
-        // Chuẩn bị: Database đang rỗng trơn.
-        // Thực thi: Chạy markAllAsRead trên một Database không có thông báo chưa đọc nào.
+        // Chuẩn bị: User 100 chỉ có thông báo đã đọc — không còn bản ghi is_read=false.
+        Notification readOnly = new Notification();
+        readOnly.setRecipientId(100L);
+        readOnly.setRead(true);
+        readOnly.setReadAt(LocalDateTime.now().minusDays(1));
+        notificationRepository.save(readOnly);
+
+        // Thực thi: markAllAsRead khi không có thông báo chưa đọc.
         int count = notificationService.markAllAsRead(100L);
 
         // Kiểm tra kết quả trả về: Không cập nhật dòng nào (0).
@@ -306,7 +344,8 @@ class NotificationServiceTest {
         Map<String, Object> stats = notificationService.getNotificationStats(null);
 
         // Kiểm tra: DB đếm bao quát sẽ trả về cho ta là 2 người đang có tin lưu đọng.
-        assertThat(stats.get("unreadNotifications")).isEqualTo(2L); // n1 và n2
+        assertThat(stats.get("totalNotifications")).isEqualTo(3L);
+        assertThat(stats.get("unreadNotifications")).isEqualTo(2L);
     }
 
     // =======================================================================
@@ -353,6 +392,7 @@ class NotificationServiceTest {
         // Minh chứng (CheckDB): Hàm sẽ đẩy độc lập 2 Object khác nhau lưu vào database, Size = 2.
         List<Notification> inDb = notificationRepository.findAll();
         assertThat(inDb).hasSize(2);
+        assertThat(inDb.stream().map(Notification::getRecipientId).toList()).containsExactlyInAnyOrder(1L, 2L);
     }
 
     // Test Case ID: UTIL-NT14
@@ -417,6 +457,7 @@ class NotificationServiceTest {
         // Minh chứng (CheckDB): Dữ liệu phọt xuống H2 Database phải là 2.
         List<Notification> inDb = notificationRepository.findAll();
         assertThat(inDb).hasSize(2);
+        assertThat(inDb.stream().map(Notification::getRecipientId).toList()).containsExactlyInAnyOrder(5L, 6L);
     }
 
     // Test Case ID: UTIL-NT17
@@ -469,6 +510,8 @@ class NotificationServiceTest {
             
             // Minh chứng (CheckDB): Vị trí dưới DB phải trọn vẹn 3 rows Notification.
             assertThat(notificationRepository.count()).isEqualTo(3L);
+            assertThat(notificationRepository.findAll().stream().map(Notification::getRecipientId).toList())
+                    .containsExactlyInAnyOrder(1L, 2L, 3L);
         }
     }
 
@@ -493,6 +536,8 @@ class NotificationServiceTest {
             // Kiểm chứng: Return là 2. Check Database bằng count() assert phải là 2 rows.
             assertThat(count).isEqualTo(2);
             assertThat(notificationRepository.count()).isEqualTo(2L);
+            assertThat(notificationRepository.findAll().stream().map(Notification::getRecipientId).toList())
+                    .containsExactlyInAnyOrder(1L, 2L);
         }
     }
 
@@ -522,6 +567,8 @@ class NotificationServiceTest {
             // Kiểm chứng & Minh chứng Database (H2): Chỉ số phải bằng 2 do 10L và 11L đã vào DB inbox.
             assertThat(count).isEqualTo(2);
             assertThat(notificationRepository.count()).isEqualTo(2L);
+            assertThat(notificationRepository.findAll().stream().map(Notification::getRecipientId).toList())
+                    .containsExactlyInAnyOrder(10L, 11L);
         }
     }
 
@@ -545,6 +592,9 @@ class NotificationServiceTest {
 
             // Kiểm tra: Hàm trả lời là 1 nhân sự đã thụ hưởng.
             assertThat(count).isEqualTo(1);
+            assertThat(notificationRepository.count()).isEqualTo(1L);
+            Notification saved = notificationRepository.findAll().get(0);
+            assertThat(saved.getRecipientId()).isEqualTo(99L);
         }
     }
 
@@ -555,7 +605,9 @@ class NotificationServiceTest {
     void createBulkNotifications_EmptyRecipients() {
         // Chuẩn bị: Gửi yêu cầu mà rỗng mọi filters.
         BulkNotificationRequest request = new BulkNotificationRequest();
-        
+
+        long before = notificationRepository.count();
+
         try (MockedStatic<SecurityUtil> securityUtil = mockStatic(SecurityUtil.class)) {
             securityUtil.when(SecurityUtil::getCurrentUserJWT).thenReturn(Optional.of("mock-token"));
 
@@ -564,6 +616,530 @@ class NotificationServiceTest {
 
             // Kiểm tra: Hàm cảnh giác ngay từ khi Set HashSet recipientIds bị trống, Return 0 tức thì.
             assertThat(count).isEqualTo(0);
+            assertThat(notificationRepository.count()).isEqualTo(before);
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Bổ sung nhánh resolveRecipientsFromRequest (100% branch JaCoCo)
+    // -----------------------------------------------------------------------
+
+    @Test
+    @DisplayName("Bulk: chỉ positionId (không department) — gọi filter 5 tham số")
+    void createBulkNotifications_PositionIdOnly_ResolvesViaUserService() {
+        BulkNotificationRequest request = new BulkNotificationRequest();
+        request.setTitle("Announce");
+        request.setMessage("Content");
+        request.setPositionId(7L);
+
+        when(userService.getEmployeeIdsByFilters(isNull(), eq(7L), isNull(), isNull(), any()))
+                .thenReturn(Collections.singletonList(70L));
+
+        try (MockedStatic<SecurityUtil> securityUtil = mockStatic(SecurityUtil.class)) {
+            securityUtil.when(SecurityUtil::getCurrentUserJWT).thenReturn(Optional.of("mock-token"));
+            int count = notificationService.createBulkNotificationsByConditions(request);
+            assertThat(count).isEqualTo(1);
+            assertThat(notificationRepository.findAll().get(0).getRecipientId()).isEqualTo(70L);
+        }
+    }
+
+    @Test
+    @DisplayName("Bulk: chỉ status — nhánh OR thứ ba trong resolveRecipientsFromRequest")
+    void createBulkNotifications_StatusOnly_ResolvesViaUserService() {
+        BulkNotificationRequest request = new BulkNotificationRequest();
+        request.setTitle("Announce");
+        request.setMessage("Content");
+        request.setStatus("ACTIVE");
+
+        when(userService.getEmployeeIdsByFilters(isNull(), isNull(), eq("ACTIVE"), isNull(), any()))
+                .thenReturn(Collections.singletonList(71L));
+
+        try (MockedStatic<SecurityUtil> securityUtil = mockStatic(SecurityUtil.class)) {
+            securityUtil.when(SecurityUtil::getCurrentUserJWT).thenReturn(Optional.of("mock-token"));
+            int count = notificationService.createBulkNotificationsByConditions(request);
+            assertThat(count).isEqualTo(1);
+            assertThat(notificationRepository.findAll().get(0).getRecipientId()).isEqualTo(71L);
+        }
+    }
+
+    @Test
+    @DisplayName("Bulk: chỉ keyword — nhánh OR thứ tư trong resolveRecipientsFromRequest")
+    void createBulkNotifications_KeywordOnly_ResolvesViaUserService() {
+        BulkNotificationRequest request = new BulkNotificationRequest();
+        request.setTitle("Announce");
+        request.setMessage("Content");
+        request.setKeyword("hr@");
+
+        when(userService.getEmployeeIdsByFilters(isNull(), isNull(), isNull(), eq("hr@"), any()))
+                .thenReturn(Collections.singletonList(72L));
+
+        try (MockedStatic<SecurityUtil> securityUtil = mockStatic(SecurityUtil.class)) {
+            securityUtil.when(SecurityUtil::getCurrentUserJWT).thenReturn(Optional.of("mock-token"));
+            int count = notificationService.createBulkNotificationsByConditions(request);
+            assertThat(count).isEqualTo(1);
+            assertThat(notificationRepository.findAll().get(0).getRecipientId()).isEqualTo(72L);
+        }
+    }
+
+    @Test
+    @DisplayName("Bulk: recipientIds rỗng nhưng có recipientId — bỏ qua addAll danh sách")
+    void createBulkNotifications_EmptyRecipientIdsList_StillUsesSingleRecipientId() {
+        BulkNotificationRequest request = new BulkNotificationRequest();
+        request.setTitle("Announce");
+        request.setMessage("Content");
+        request.setRecipientIds(Collections.emptyList());
+        request.setRecipientId(88L);
+
+        try (MockedStatic<SecurityUtil> securityUtil = mockStatic(SecurityUtil.class)) {
+            securityUtil.when(SecurityUtil::getCurrentUserJWT).thenReturn(Optional.of("mock-token"));
+            int count = notificationService.createBulkNotificationsByConditions(request);
+            assertThat(count).isEqualTo(1);
+            assertThat(notificationRepository.findAll().get(0).getRecipientId()).isEqualTo(88L);
+        }
+    }
+
+    @Test
+    @DisplayName("Bulk: status rỗng không kích hoạt nhánh filter userService khi không còn điều kiện khác")
+    void createBulkNotifications_BlankStatusOnly_ReturnsZero() {
+        BulkNotificationRequest request = new BulkNotificationRequest();
+        request.setTitle("Announce");
+        request.setMessage("Content");
+        request.setStatus("");
+
+        try (MockedStatic<SecurityUtil> securityUtil = mockStatic(SecurityUtil.class)) {
+            securityUtil.when(SecurityUtil::getCurrentUserJWT).thenReturn(Optional.of("mock-token"));
+            int count = notificationService.createBulkNotificationsByConditions(request);
+            assertThat(count).isEqualTo(0);
+        }
+        verify(userService, never()).getEmployeeIdsByFilters(any(), any(), any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("Bulk: keyword \"\" (non-null, isEmpty) — đánh giá nhánh !isEmpty trong điều kiện OR")
+    void createBulkNotifications_BlankKeywordOnly_ReturnsZero() {
+        BulkNotificationRequest request = new BulkNotificationRequest();
+        request.setTitle("Announce");
+        request.setMessage("Content");
+        request.setKeyword("");
+
+        try (MockedStatic<SecurityUtil> securityUtil = mockStatic(SecurityUtil.class)) {
+            securityUtil.when(SecurityUtil::getCurrentUserJWT).thenReturn(Optional.of("mock-token"));
+            int count = notificationService.createBulkNotificationsByConditions(request);
+            assertThat(count).isEqualTo(0);
+        }
+        verify(userService, never()).getEmployeeIdsByFilters(any(), any(), any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("Bulk: recipientIds chứa null — lọc Objects::nonNull trước khi tạo notification")
+    void createBulkNotifications_RecipientIdsWithNull_filtersNulls() {
+        BulkNotificationRequest request = new BulkNotificationRequest();
+        request.setTitle("Announce");
+        request.setMessage("Content");
+        request.setRecipientIds(Arrays.asList(90L, null, 90L));
+
+        try (MockedStatic<SecurityUtil> securityUtil = mockStatic(SecurityUtil.class)) {
+            securityUtil.when(SecurityUtil::getCurrentUserJWT).thenReturn(Optional.of("mock-token"));
+            int count = notificationService.createBulkNotificationsByConditions(request);
+            assertThat(count).isEqualTo(1);
+            assertThat(notificationRepository.findAll().get(0).getRecipientId()).isEqualTo(90L);
+        }
+    }
+
+    // =======================================================================
+    // PHẦN 8: Bổ sung theo bảng TC (UTIL-NT23 … UTIL-NT46)
+    // Ghi chú: Một số ô “Contrast” trong bảng mâu thuẫn với code hiện tại — test khẳng định hành vi thực tế.
+    // =======================================================================
+
+    @Test
+    @DisplayName("UTIL-NT23: createNotification khi title=null — vẫn lưu DB và publish socket (theo implement hiện tại)")
+    void createNotification_NullTitle_ShouldPersistAndPublish() {
+        doNothing().when(socketIOBroadcastService).pushNotification(any());
+
+        Notification result = notificationService.createNotification(100L, null, "Content");
+
+        assertThat(result.getId()).isNotNull();
+        assertThat(notificationRepository.findById(result.getId())).isPresent();
+        assertThat(notificationRepository.findById(result.getId()).get().getTitle()).isNull();
+        verify(socketIOBroadcastService, times(1)).pushNotification(any());
+        verify(socketIOBroadcastService, never()).publishUnreadCount(anyLong(), anyLong());
+    }
+
+    @Test
+    @DisplayName("UTIL-NT24: createNotification khi message=null — không ném NotificationNotFoundException, vẫn lưu")
+    void createNotification_NullMessage_ShouldPersistWithoutNotificationNotFoundException() {
+        doNothing().when(socketIOBroadcastService).pushNotification(any());
+
+        Notification result = notificationService.createNotification(100L, "Title", null);
+
+        assertThat(result.getId()).isNotNull();
+        assertThat(notificationRepository.findById(result.getId()).get().getMessage()).isNull();
+        verify(socketIOBroadcastService, times(1)).pushNotification(any());
+    }
+
+    @Test
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    @DisplayName("UTIL-NT25: pushNotification lỗi — transaction rollback, không lưu DB")
+    void createNotification_WhenPushFails_ShouldRollbackAndPropagate() {
+        doThrow(new RuntimeException("socket push failed")).when(socketIOBroadcastService).pushNotification(any());
+
+        long before = notificationRepository.count();
+
+        assertThatThrownBy(() -> notificationService.createNotification(100L, "T", "M"))
+                .isInstanceOf(RuntimeException.class)
+                .hasMessageContaining("socket push failed");
+
+        assertThat(notificationRepository.count()).isEqualTo(before);
+    }
+
+    @Test
+    @DisplayName("UTIL-NT26: markAsRead — hiện tại không kiểm tra recipientId; vẫn đánh dấu theo notificationId")
+    void markAsRead_DifferentRecipientAllowedByCurrentImplementation_ShouldStillUpdate() {
+        Notification forOtherUser = new Notification();
+        forOtherUser.setRecipientId(200L);
+        forOtherUser.setRead(false);
+        notificationRepository.save(forOtherUser);
+
+        doNothing().when(socketIOBroadcastService).publishUnreadCount(anyLong(), anyLong());
+        doNothing().when(socketIOBroadcastService).pushNotification(any());
+
+        notificationService.markAsRead(forOtherUser.getId());
+
+        Notification updated = notificationRepository.findById(forOtherUser.getId()).orElseThrow();
+        assertThat(updated.isRead()).isTrue();
+        assertThat(updated.getReadAt()).isNotNull();
+        verify(socketIOBroadcastService, times(1)).publishUnreadCount(eq(200L), anyLong());
+    }
+
+    @Test
+    @DisplayName("UTIL-NT27: markAsRead idempotent khi isRead=true nhưng readAt=null — không broadcast, không ghi readAt")
+    void markAsRead_ReadFlagTrueButReadAtNull_ShouldSkipSideEffects() {
+        Notification odd = new Notification();
+        odd.setRecipientId(100L);
+        odd.setRead(true);
+        odd.setReadAt(null);
+        notificationRepository.save(odd);
+
+        notificationService.markAsRead(odd.getId());
+
+        Notification still = notificationRepository.findById(odd.getId()).orElseThrow();
+        assertThat(still.isRead()).isTrue();
+        assertThat(still.getReadAt()).isNull();
+        verify(socketIOBroadcastService, never()).publishUnreadCount(anyLong(), anyLong());
+        verify(socketIOBroadcastService, never()).pushNotification(any());
+    }
+
+    @Test
+    @DisplayName("UTIL-NT28: markAllAsRead chỉ cập nhật bản ghi chưa đọc; bản đã đọc giữ nguyên readAt")
+    void markAllAsRead_MixedReadUnread_ShouldOnlyTouchUnread() {
+        LocalDateTime oldReadAt = LocalDateTime.now().minusDays(5);
+
+        Notification unread1 = new Notification();
+        unread1.setRecipientId(100L);
+        unread1.setRead(false);
+        notificationRepository.save(unread1);
+
+        Notification unread2 = new Notification();
+        unread2.setRecipientId(100L);
+        unread2.setRead(false);
+        notificationRepository.save(unread2);
+
+        Notification alreadyRead = new Notification();
+        alreadyRead.setRecipientId(100L);
+        alreadyRead.setRead(true);
+        alreadyRead.setReadAt(oldReadAt);
+        notificationRepository.save(alreadyRead);
+
+        doNothing().when(socketIOBroadcastService).publishUnreadCount(anyLong(), anyLong());
+
+        int updated = notificationService.markAllAsRead(100L);
+
+        assertThat(updated).isEqualTo(2);
+
+        Notification stillRead = notificationRepository.findById(alreadyRead.getId()).orElseThrow();
+        assertThat(stillRead.getReadAt()).isEqualToIgnoringNanos(oldReadAt);
+
+        assertThat(notificationRepository.findByRecipientIdAndIsRead(100L, false)).isEmpty();
+        verify(socketIOBroadcastService, times(1)).publishUnreadCount(eq(100L), eq(0L));
+    }
+
+    @Test
+    @DisplayName("UTIL-NT29: markAllAsRead khi repository.update lỗi — ném exception theo implement")
+    void markAllAsRead_WhenRepositoryUpdateFails_ShouldPropagate() {
+        doThrow(new RuntimeException("bulk mark failed"))
+                .when(notificationRepository).markAllAsReadByRecipientId(anyLong(), any());
+
+        assertThatThrownBy(() -> notificationService.markAllAsRead(3L))
+                .isInstanceOf(RuntimeException.class)
+                .hasMessageContaining("bulk mark failed");
+
+        verify(socketIOBroadcastService, never()).publishUnreadCount(anyLong(), anyLong());
+    }
+
+    @Test
+    @DisplayName("UTIL-NT30: recipientId và status cùng truyền — nhánh hiện tại ưu tiên recipientId (bỏ qua status)")
+    void getAllNotificationsWithFilters_RecipientIdAndStatusBothProvided_StatusIgnoredByImplementation() {
+        Notification failedFor100 = new Notification();
+        failedFor100.setRecipientId(100L);
+        failedFor100.setDeliveryStatus("FAILED");
+        notificationRepository.save(failedFor100);
+
+        Notification sentFor100 = new Notification();
+        sentFor100.setRecipientId(100L);
+        sentFor100.setDeliveryStatus("SENT");
+        notificationRepository.save(sentFor100);
+
+        PaginationDTO dto = notificationService.getAllNotificationsWithFilters(100L, "FAILED", PageRequest.of(0, 10));
+
+        assertThat(dto.getMeta().getTotal()).isEqualTo(2L);
+        List<?> rows = (List<?>) dto.getResult();
+        assertThat(rows).hasSize(2);
+    }
+
+    @Test
+    @DisplayName("UTIL-NT31: lọc theo status không tồn tại trong DB — trả rỗng")
+    void getAllNotificationsWithFilters_UnknownStatus_ShouldReturnEmptyPage() {
+        Notification n = new Notification();
+        n.setRecipientId(1L);
+        n.setDeliveryStatus("SENT");
+        notificationRepository.save(n);
+
+        PaginationDTO dto = notificationService.getAllNotificationsWithFilters(null, "UNKNOWN", PageRequest.of(0, 10));
+
+        assertThat(dto.getMeta().getTotal()).isZero();
+        assertThat((List<?>) dto.getResult()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("UTIL-NT32: phân trang — meta đúng khi page=1, size=10, tổng 15 bản ghi")
+    void getAllNotificationsWithFilters_ValidPagination_SecondPageMeta() {
+        for (int i = 0; i < 15; i++) {
+            notificationRepository.save(new Notification());
+        }
+
+        PaginationDTO dto = notificationService.getAllNotificationsWithFilters(null, null, PageRequest.of(1, 10));
+
+        assertThat(dto.getMeta().getTotal()).isEqualTo(15L);
+        assertThat(dto.getMeta().getPages()).isEqualTo(2);
+        assertThat(dto.getMeta().getPage()).isEqualTo(2);
+        assertThat(dto.getMeta().getPageSize()).isEqualTo(10);
+        assertThat(((List<?>) dto.getResult())).hasSize(5);
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    @DisplayName("UTIL-NT33: sort createdAt DESC — thứ tự đúng trên Pageable")
+    void getAllNotificationsWithFilters_SortByCreatedAtDesc_ShouldOrderNewestFirst() throws InterruptedException {
+        Notification older = new Notification();
+        older.setRecipientId(99L);
+        notificationRepository.save(older);
+
+        Thread.sleep(50);
+
+        Notification newer = new Notification();
+        newer.setRecipientId(99L);
+        notificationRepository.save(newer);
+
+        Pageable pageable = PageRequest.of(0, 10, Sort.by(Sort.Direction.DESC, "createdAt"));
+        PaginationDTO dto = notificationService.getAllNotificationsWithFilters(null, null, pageable);
+
+        List<Notification> content = (List<Notification>) (List<?>) dto.getResult();
+        assertThat(content.get(0).getId()).isEqualTo(newer.getId());
+        assertThat(content.get(1).getId()).isEqualTo(older.getId());
+    }
+
+    @Test
+    @DisplayName("UTIL-NT34: getNotificationStats recipient không có thông báo — unread=0, total là tổng toàn hệ thống")
+    void getNotificationStats_RecipientWithNoRows_UnreadZeroTotalGlobal() {
+        Notification other = new Notification();
+        other.setRecipientId(50L);
+        other.setRead(false);
+        notificationRepository.save(other);
+
+        Map<String, Object> stats = notificationService.getNotificationStats(999L);
+
+        assertThat(stats.get("unreadNotifications")).isEqualTo(0L);
+        assertThat(stats.get("totalNotifications")).isEqualTo(1L);
+    }
+
+    @Test
+    @DisplayName("UTIL-NT35: getNotificationStats khi count() lỗi — ném RuntimeException có message")
+    void getNotificationStats_WhenCountFails_ShouldPropagate() {
+        doThrow(new RuntimeException("count failed")).when(notificationRepository).count();
+
+        assertThatThrownBy(() -> notificationService.getNotificationStats(1L))
+                .isInstanceOf(RuntimeException.class)
+                .hasMessageContaining("count failed");
+    }
+
+    @Test
+    @DisplayName("UTIL-NT36: processNotificationEvent(null) — NPE theo implement hiện tại")
+    void processNotificationEvent_NullEvent_ShouldThrowNpe() {
+        assertThatThrownBy(() -> notificationService.processNotificationEvent(null))
+                .isInstanceOf(NullPointerException.class);
+    }
+
+    @Test
+    @DisplayName("UTIL-NT37: includeAllEmployees=true nhưng userService trả rỗng — không tạo notification")
+    void processNotificationEvent_IncludeAllEmployeesEmptyList_ShouldNoOp() {
+        NotificationEvent event = new NotificationEvent();
+        event.setTitle("T");
+        event.setMessage("M");
+        event.setIncludeAllEmployees(true);
+        when(userService.getAllEmployeeIds(any())).thenReturn(Collections.emptyList());
+
+        long before = notificationRepository.count();
+        notificationService.processNotificationEvent(event);
+        assertThat(notificationRepository.count()).isEqualTo(before);
+    }
+
+    @Test
+    @DisplayName("UTIL-NT38: userService lỗi khi includeAllEmployees — exception lan truyền")
+    void processNotificationEvent_UserServiceFails_ShouldPropagate() {
+        NotificationEvent event = new NotificationEvent();
+        event.setTitle("T");
+        event.setMessage("M");
+        event.setIncludeAllEmployees(true);
+        when(userService.getAllEmployeeIds(any())).thenThrow(new RuntimeException("user-service-down"));
+
+        long before = notificationRepository.count();
+
+        assertThatThrownBy(() -> notificationService.processNotificationEvent(event))
+                .isInstanceOf(RuntimeException.class)
+                .hasMessageContaining("user-service-down");
+
+        assertThat(notificationRepository.count()).isEqualTo(before);
+    }
+
+    @Test
+    @DisplayName("UTIL-NT39: recipientIds=[] và không có đích khác — không insert")
+    void processNotificationEvent_EmptyRecipientIdsOnly_ShouldNoOp() {
+        NotificationEvent event = new NotificationEvent();
+        event.setTitle("T");
+        event.setMessage("M");
+        event.setRecipientIds(Collections.emptyList());
+
+        long before = notificationRepository.count();
+        notificationService.processNotificationEvent(event);
+        assertThat(notificationRepository.count()).isEqualTo(before);
+    }
+
+    @Test
+    @DisplayName("UTIL-NT40: recipientIds có null — processNotificationEvent lọc null")
+    void processNotificationEvent_RecipientIdsWithNull_ShouldFilterNulls() {
+        NotificationEvent event = new NotificationEvent();
+        event.setTitle("T");
+        event.setMessage("M");
+        event.setRecipientIds(Arrays.asList(5L, null, 6L));
+
+        notificationService.processNotificationEvent(event);
+
+        List<Notification> all = notificationRepository.findAll();
+        assertThat(all).hasSize(2);
+        assertThat(all.stream().map(Notification::getRecipientId).toList()).containsExactlyInAnyOrder(5L, 6L);
+    }
+
+    @Test
+    @DisplayName("UTIL-NT41: createBulkNotificationsByConditions(null) — NPE")
+    void createBulkNotifications_NullRequest_ShouldThrowNpe() {
+        assertThatThrownBy(() -> notificationService.createBulkNotificationsByConditions(null))
+                .isInstanceOf(NullPointerException.class);
+    }
+
+    @Test
+    @DisplayName("UTIL-NT42: bulk includeAllEmployees=true nhưng userService rỗng — không tạo notification")
+    void createBulkNotifications_IncludeAllEmployeesEmpty_ShouldReturnZero() {
+        BulkNotificationRequest request = new BulkNotificationRequest();
+        request.setIncludeAllEmployees(true);
+        request.setTitle("T");
+        request.setMessage("M");
+        when(userService.getAllEmployeeIds(any())).thenReturn(Collections.emptyList());
+
+        try (MockedStatic<SecurityUtil> securityUtil = mockStatic(SecurityUtil.class)) {
+            securityUtil.when(SecurityUtil::getCurrentUserJWT).thenReturn(Optional.of("mock-token"));
+            long before = notificationRepository.count();
+            int count = notificationService.createBulkNotificationsByConditions(request);
+            assertThat(count).isZero();
+            assertThat(notificationRepository.count()).isEqualTo(before);
+        }
+    }
+
+    @Test
+    @DisplayName("UTIL-NT43: recipientIds trùng — distinct, chỉ một notification / id")
+    void createBulkNotifications_DuplicateRecipientIds_ShouldDistinct() {
+        BulkNotificationRequest request = new BulkNotificationRequest();
+        request.setRecipientIds(Arrays.asList(1L, 1L, 2L));
+        request.setTitle("T");
+        request.setMessage("M");
+
+        try (MockedStatic<SecurityUtil> securityUtil = mockStatic(SecurityUtil.class)) {
+            securityUtil.when(SecurityUtil::getCurrentUserJWT).thenReturn(Optional.of("mock-token"));
+            int count = notificationService.createBulkNotificationsByConditions(request);
+            assertThat(count).isEqualTo(2);
+            assertThat(notificationRepository.findAll().stream().map(Notification::getRecipientId).toList())
+                    .containsExactlyInAnyOrder(1L, 2L);
+        }
+    }
+
+    @Test
+    @DisplayName("UTIL-NT44: recipientIds rỗng và không có điều kiện khác — return 0")
+    void createBulkNotifications_EmptyRecipientIdsOnly_ShouldReturnZero() {
+        BulkNotificationRequest request = new BulkNotificationRequest();
+        request.setRecipientIds(Collections.emptyList());
+        request.setTitle("T");
+        request.setMessage("M");
+
+        try (MockedStatic<SecurityUtil> securityUtil = mockStatic(SecurityUtil.class)) {
+            securityUtil.when(SecurityUtil::getCurrentUserJWT).thenReturn(Optional.of("mock-token"));
+            long before = notificationRepository.count();
+            assertThat(notificationService.createBulkNotificationsByConditions(request)).isZero();
+            assertThat(notificationRepository.count()).isEqualTo(before);
+        }
+    }
+
+    @Test
+    @DisplayName("UTIL-NT45: filter departmentId + positionId + status — gọi userService đủ tham số")
+    void createBulkNotifications_DepartmentPositionStatus_ShouldCallUserServiceWithFilters() {
+        BulkNotificationRequest request = new BulkNotificationRequest();
+        request.setTitle("T");
+        request.setMessage("M");
+        request.setDepartmentId(1L);
+        request.setPositionId(2L);
+        request.setStatus("ACTIVE");
+
+        when(userService.getEmployeeIdsByFilters(eq(1L), eq(2L), eq("ACTIVE"), isNull(), any()))
+                .thenReturn(Arrays.asList(10L, 11L));
+
+        try (MockedStatic<SecurityUtil> securityUtil = mockStatic(SecurityUtil.class)) {
+            securityUtil.when(SecurityUtil::getCurrentUserJWT).thenReturn(Optional.of("mock-token"));
+            int count = notificationService.createBulkNotificationsByConditions(request);
+            assertThat(count).isEqualTo(2);
+        }
+
+        verify(userService, times(1)).getEmployeeIdsByFilters(eq(1L), eq(2L), eq("ACTIVE"), isNull(), any());
+    }
+
+    @Test
+    @DisplayName("UTIL-NT46: bulk filter — userService lỗi, exception lan truyền")
+    void createBulkNotifications_FilterUserServiceFails_ShouldPropagate() {
+        BulkNotificationRequest request = new BulkNotificationRequest();
+        request.setTitle("T");
+        request.setMessage("M");
+        request.setDepartmentId(1L);
+        request.setStatus("ACTIVE");
+
+        when(userService.getEmployeeIdsByFilters(eq(1L), isNull(), eq("ACTIVE"), isNull(), any()))
+                .thenThrow(new RuntimeException("filter failed"));
+
+        try (MockedStatic<SecurityUtil> securityUtil = mockStatic(SecurityUtil.class)) {
+            securityUtil.when(SecurityUtil::getCurrentUserJWT).thenReturn(Optional.of("mock-token"));
+            long before = notificationRepository.count();
+
+            assertThatThrownBy(() -> notificationService.createBulkNotificationsByConditions(request))
+                    .isInstanceOf(RuntimeException.class)
+                    .hasMessageContaining("filter failed");
+
+            assertThat(notificationRepository.count()).isEqualTo(before);
         }
     }
 }
