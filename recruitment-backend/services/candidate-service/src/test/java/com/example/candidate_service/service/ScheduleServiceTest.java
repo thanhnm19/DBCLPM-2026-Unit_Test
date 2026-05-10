@@ -384,4 +384,79 @@ class ScheduleServiceTest {
         assertTrue(result.isEmpty(),
                 "BUG: Không fallback List.of() khi body null");
     }
+
+    /**
+     * Test Case ID: SCH-TC-010
+     * Nhánh FALSE của `if (token != null && !token.isEmpty())`:
+     * token = "" (empty string) → KHÔNG gắn Bearer header.
+     *
+     * Bug bị bắt: Gắn Bearer header ngay cả khi token là empty string.
+     */
+    @Test
+    @DisplayName("SCH-TC-010: getCandidateIdsByInterviewer - token='' (empty) → không gắn Bearer header")
+    void testGetCandidateIdsByInterviewer_EmptyToken_SCH_TC_010() {
+        // Arrange: token = "" → nhánh FALSE của if (token != null && !token.isEmpty())
+        Long employeeId = 40L;
+
+        Response<List<Long>> body = new Response<>();
+        body.setData(List.of(5L, 6L));
+
+        when(restTemplate.exchange(
+                anyString(),
+                eq(HttpMethod.GET),
+                any(HttpEntity.class),
+                any(ParameterizedTypeReference.class)))
+                .thenReturn(new ResponseEntity<>(body, HttpStatus.OK));
+
+        // Act: token = "" (empty string, không null)
+        List<Long> result = scheduleService.getCandidateIdsByInterviewer(employeeId, "");
+
+        // Assert: không gắn Bearer, vẫn trả về data bình thường
+        assertNotNull(result);
+        assertEquals(List.of(5L, 6L), result);
+
+        verify(restTemplate, times(1)).exchange(
+                anyString(),
+                eq(HttpMethod.GET),
+                any(HttpEntity.class),
+                any(ParameterizedTypeReference.class));
+    }
+
+    /**
+     * Test Case ID: SCH-TC-011
+     * Nhánh FALSE của `if (response.getBody() != null && response.getBody().getData() != null)`:
+     * body not null nhưng data = null → fallback List.of().
+     *
+     * Bug bị bắt: NPE khi gọi response.getBody().getData() mà data null (nhưng body not null).
+     */
+    @Test
+    @DisplayName("SCH-TC-011: getCandidateIdsByInterviewer - body not null nhưng data=null → fallback List.of()")
+    void testGetCandidateIdsByInterviewer_BodyNotNullButDataNull_SCH_TC_011() {
+        // Arrange: body not null nhưng data = null
+        Long employeeId = 50L;
+
+        Response<List<Long>> body = new Response<>();
+        body.setData(null); // ← data = null
+
+        when(restTemplate.exchange(
+                anyString(),
+                eq(HttpMethod.GET),
+                any(HttpEntity.class),
+                any(ParameterizedTypeReference.class)))
+                .thenReturn(new ResponseEntity<>(body, HttpStatus.OK)); // body = Response object (not null)
+
+        // Act
+        List<Long> result = scheduleService.getCandidateIdsByInterviewer(employeeId, "token");
+
+        // Assert: không NPE, trả về list rỗng (fallback)
+        assertNotNull(result);
+        assertTrue(result.isEmpty(),
+                "BUG: Không fallback List.of() khi data null");
+
+        verify(restTemplate, times(1)).exchange(
+                anyString(),
+                eq(HttpMethod.GET),
+                any(HttpEntity.class),
+                any(ParameterizedTypeReference.class));
+    }
 }
