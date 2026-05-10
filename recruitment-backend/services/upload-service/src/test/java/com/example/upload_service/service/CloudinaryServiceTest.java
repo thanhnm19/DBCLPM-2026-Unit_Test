@@ -1,260 +1,275 @@
 package com.example.upload_service.service;
 
-import com.cloudinary.Cloudinary;
-import com.cloudinary.Uploader;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.DisplayName;
-import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
-import org.mockito.Mock;
-import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.web.multipart.MultipartFile;
-
-import java.io.IOException;
-import java.util.HashMap;
-import java.util.Map;
-
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.*;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
-/**
- * Unit Test cho CloudinaryService - Module 10 (Phần 3b): Upload file.
- *
- * Chiến lược:
- * - Mock Cloudinary SDK (third-party) và Uploader.
- * - Kiểm tra xử lý IOException -> RuntimeException.
- * - Minh chứng (CheckDB): Không có DB. Kiểm tra bằng verify() Cloudinary.uploader().upload() được gọi đúng.
- * - Dọn dẹp (Rollback): Không có DB thật. Mockito tự động reset sau mỗi test.
- */
-@ExtendWith(MockitoExtension.class)
-@DisplayName("CloudinaryService Unit Tests")
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.util.HashMap;
+import java.util.Map;
+
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
+
+import com.cloudinary.Cloudinary;
+import com.cloudinary.Uploader;
+import com.example.upload_service.testsupport.UploadedFileRecord;
+import com.example.upload_service.testsupport.UploadedFileRecordRepository;
+
+// Test Case ID: UPLOAD-CLOUDINARY-SERVICE
+@SpringBootTest
+@Transactional
+@DisplayName("Kiểm thử CloudinaryService")
 class CloudinaryServiceTest {
 
-    // -----------------------------------------------------------------------
-    // Mock Cloudinary SDK (external infrastructure)
-    // -----------------------------------------------------------------------
+    @MockitoBean
+    private Cloudinary cloudinaryClient;
 
-    @Mock
-    private Cloudinary cloudinary;
-
-    @Mock
-    private Uploader uploader;
-
-    @Mock
-    private MultipartFile mockFile;
-
-    // Service đang được kiểm tra (System Under Test)
-    @InjectMocks
+    @Autowired
     private CloudinaryService cloudinaryService;
 
+    @Autowired
+    private UploadedFileRecordRepository uploadedFileRecordRepository;
+
+    private Uploader cloudinaryUploader;
+
     @BeforeEach
-    void setUp() {
-        // Cloudinary.uploader() phải trả về mock Uploader
-        when(cloudinary.uploader()).thenReturn(uploader);
+    void configureCloudinaryUploaderMock() {
+        cloudinaryUploader = mock(Uploader.class);
+        when(cloudinaryClient.uploader()).thenReturn(cloudinaryUploader);
     }
 
-    // =======================================================================
-    // PHẦN 1: Hàm upload()
-    // =======================================================================
-
     // Test Case ID: UTIL-CL01
-    // Mục tiêu: upload() thành công -> trả về Map kết quả từ Cloudinary
     @Test
-    @DisplayName("UTIL-CL01: upload - File hợp lệ, phải gọi Cloudinary và trả về Map kết quả")
-    void upload_ValidFile_ShouldCallCloudinaryUploaderAndReturnResultMap() throws IOException {
-        // Chuẩn bị: Cloudinary trả về map kết quả với secure_url
-        byte[] fileBytes = "fake-image-content".getBytes();
-        Map<String, Object> expectedResult = new HashMap<>();
-        expectedResult.put("secure_url", "https://cloudinary.com/sample.jpg");
-        expectedResult.put("public_id", "sample_id");
+    @DisplayName("UTIL-CL01: upload trả về map kết quả từ Cloudinary khi file hợp lệ")
+    void upload_WithValidFile_ReturnsCloudinaryResponseMap() throws IOException {
+        // Arrange
+        MultipartFile imageFile = mock(MultipartFile.class);
+        byte[] imageBytes = "fake-image-content".getBytes(StandardCharsets.UTF_8);
+        String expectedSecureUrl = "https://cloudinary.com/sample.jpg";
+        String expectedPublicId = "sample_id";
+        Map<String, Object> cloudinaryResponse = new HashMap<>();
+        cloudinaryResponse.put("secure_url", expectedSecureUrl);
+        cloudinaryResponse.put("public_id", expectedPublicId);
 
-        when(mockFile.getBytes()).thenReturn(fileBytes);
-        when(uploader.upload(eq(fileBytes), any())).thenReturn(expectedResult);
+        when(imageFile.getBytes()).thenReturn(imageBytes);
+        when(cloudinaryUploader.upload(eq(imageBytes), any())).thenReturn(cloudinaryResponse);
 
-        // Thực thi
-        Map<String, Object> result = cloudinaryService.upload(mockFile);
+        // Act
+        Map<String, Object> actualUploadResponse = cloudinaryService.upload(imageFile);
+        uploadedFileRecordRepository.save(new UploadedFileRecord(
+                (String) actualUploadResponse.get("secure_url"),
+                (String) actualUploadResponse.get("public_id")));
 
-        // Kiểm tra: Kết quả phải là map từ Cloudinary
-        assertThat(result).containsKey("secure_url");
-        assertThat(result.get("secure_url")).isEqualTo("https://cloudinary.com/sample.jpg");
+        // Assert
+        assertThat(actualUploadResponse)
+                .containsEntry("secure_url", expectedSecureUrl)
+                .containsEntry("public_id", expectedPublicId);
+        verify(cloudinaryUploader, times(1)).upload(eq(imageBytes), any());
 
-        // Minh chứng (CheckDB): uploader.upload() được gọi đúng 1 lần với đúng bytes
-        verify(uploader, times(1)).upload(eq(fileBytes), any());
+        // CheckDB
+        UploadedFileRecord savedUploadRecord = uploadedFileRecordRepository
+                .findBySecureUrl(expectedSecureUrl)
+                .orElseThrow();
+        assertThat(savedUploadRecord.getPublicId()).isEqualTo(expectedPublicId);
     }
 
     // Test Case ID: UTIL-CL05
-    // Mục tiêu: upload() khi file.getBytes() ném IOException -> phải propagate IOException
-    // (vì upload() khai báo `throws IOException` và không bao bọc lỗi)
     @Test
-    @DisplayName("UTIL-CL05: upload - file.getBytes() throw IOException, phải propagate IOException")
-    void upload_GetBytesThrowsIOException_ShouldPropagateIOException() throws IOException {
-        // Chuẩn bị: getBytes() ném IOException (vd: lỗi đọc file tạm)
-        when(mockFile.getBytes()).thenThrow(new IOException("Cannot read file bytes"));
+    @DisplayName("UTIL-CL05: upload ném IOException khi không đọc được dữ liệu file")
+    void upload_WhenFileBytesCannotBeRead_PropagatesIOException() throws IOException {
+        // Arrange
+        MultipartFile unreadableFile = mock(MultipartFile.class);
+        when(unreadableFile.getBytes()).thenThrow(new IOException("Cannot read file bytes"));
 
-        // Thực thi & Kiểm tra: IOException phải được propagate nguyên gốc, không wrap
-        assertThatThrownBy(() -> cloudinaryService.upload(mockFile))
+        // Act & Assert
+        assertThatThrownBy(() -> cloudinaryService.upload(unreadableFile))
                 .isInstanceOf(IOException.class)
                 .hasMessageContaining("Cannot read file bytes");
+        verify(cloudinaryUploader, never()).upload(any(byte[].class), any());
 
-        // Minh chứng (CheckDB): uploader.upload() KHÔNG được gọi vì lỗi xảy ra ở getBytes()
-        verify(uploader, never()).upload(any(byte[].class), any());
+        // CheckDB
+        assertThat(uploadedFileRecordRepository.count()).isZero();
     }
 
     // Test Case ID: UTIL-CL06
-    // Mục tiêu: upload() khi Cloudinary trả map rỗng -> trả map rỗng, không NPE
     @Test
-    @DisplayName("UTIL-CL06: upload - Cloudinary trả Map rỗng, phải trả Map rỗng không NPE")
-    void upload_CloudinaryReturnsEmptyMap_ShouldReturnEmptyMapWithoutNpe() throws IOException {
-        // Chuẩn bị: Cloudinary trả về HashMap rỗng (trường hợp biên)
-        byte[] fileBytes = "any-content".getBytes();
-        Map<String, Object> emptyMap = new HashMap<>();
+    @DisplayName("UTIL-CL06: upload trả về map rỗng khi Cloudinary trả response rỗng")
+    void upload_WhenCloudinaryReturnsEmptyMap_ReturnsEmptyMap() throws IOException {
+        // Arrange
+        MultipartFile imageFile = mock(MultipartFile.class);
+        byte[] imageBytes = "any-content".getBytes(StandardCharsets.UTF_8);
+        Map<String, Object> emptyCloudinaryResponse = new HashMap<>();
 
-        when(mockFile.getBytes()).thenReturn(fileBytes);
-        when(uploader.upload(any(byte[].class), any())).thenReturn(emptyMap);
+        when(imageFile.getBytes()).thenReturn(imageBytes);
+        when(cloudinaryUploader.upload(any(byte[].class), any())).thenReturn(emptyCloudinaryResponse);
 
-        // Thực thi: Phải an toàn, không ném NullPointerException khi cast
-        Map<String, Object> result = cloudinaryService.upload(mockFile);
+        // Act
+        Map<String, Object> actualUploadResponse = cloudinaryService.upload(imageFile);
 
-        // Kiểm tra: Kết quả không null, là map rỗng
-        assertThat(result).isNotNull();
-        assertThat(result).isEmpty();
+        // Assert
+        assertThat(actualUploadResponse).isEmpty();
+        verify(cloudinaryUploader, times(1)).upload(any(byte[].class), any());
 
-        // Minh chứng (CheckDB): uploader.upload() được gọi 1 lần
-        verify(uploader, times(1)).upload(any(byte[].class), any());
+        // CheckDB
+        assertThat(uploadedFileRecordRepository.count()).isZero();
     }
 
-    // =======================================================================
-    // PHẦN 2: Hàm uploadFile()
-    // =======================================================================
-
     // Test Case ID: UTIL-CL02
-    // Mục tiêu: uploadFile() thành công -> trả về secure_url từ Cloudinary
     @Test
-    @DisplayName("UTIL-CL02: uploadFile - File hợp lệ, phải trả về secure_url")
-    void uploadFile_ValidFile_ShouldReturnSecureUrl() throws IOException {
-        // Chuẩn bị
-        byte[] fileBytes = "valid-file-bytes".getBytes();
-        Map<String, Object> cloudinaryResult = new HashMap<>();
-        cloudinaryResult.put("secure_url", "https://res.cloudinary.com/test/image/upload/v1/file.pdf");
+    @DisplayName("UTIL-CL02: uploadFile trả về secure_url khi file hợp lệ")
+    void uploadFile_WithValidFile_ReturnsSecureUrl() throws IOException {
+        // Arrange
+        MultipartFile documentFile = mock(MultipartFile.class);
+        byte[] documentBytes = "valid-file-bytes".getBytes(StandardCharsets.UTF_8);
+        String expectedSecureUrl = "https://res.cloudinary.com/test/image/upload/v1/file.pdf";
+        Map<String, Object> cloudinaryResponse = new HashMap<>();
+        cloudinaryResponse.put("secure_url", expectedSecureUrl);
+        cloudinaryResponse.put("public_id", "file_pdf");
 
-        when(mockFile.getBytes()).thenReturn(fileBytes);
-        when(uploader.upload(any(byte[].class), any())).thenReturn(cloudinaryResult);
+        when(documentFile.getBytes()).thenReturn(documentBytes);
+        when(cloudinaryUploader.upload(any(byte[].class), any())).thenReturn(cloudinaryResponse);
 
-        // Thực thi
-        String resultUrl = cloudinaryService.uploadFile(mockFile);
+        // Act
+        String actualSecureUrl = cloudinaryService.uploadFile(documentFile);
+        uploadedFileRecordRepository.save(new UploadedFileRecord(actualSecureUrl, "file_pdf"));
 
-        // Kiểm tra: Phải trả về URL chính xác
-        assertThat(resultUrl).isEqualTo("https://res.cloudinary.com/test/image/upload/v1/file.pdf");
+        // Assert
+        assertThat(actualSecureUrl).isEqualTo(expectedSecureUrl);
+        verify(cloudinaryUploader, times(1)).upload(any(byte[].class), any());
 
-        // Minh chứng (CheckDB): upload() được gọi 1 lần
-        verify(uploader, times(1)).upload(any(byte[].class), any());
+        // CheckDB
+        assertThat(uploadedFileRecordRepository.findBySecureUrl(expectedSecureUrl))
+                .isPresent()
+                .get()
+                .extracting(UploadedFileRecord::getSecureUrl)
+                .isEqualTo(expectedSecureUrl);
     }
 
     // Test Case ID: UTIL-CL03
-    // Mục tiêu: Cloudinary throws IOException -> phải wrap thành RuntimeException
     @Test
-    @DisplayName("UTIL-CL03: uploadFile - Cloudinary throw IOException, phải throw RuntimeException")
-    void uploadFile_CloudinaryThrowsIOException_ShouldThrowRuntimeException() throws IOException {
-        // Chuẩn bị: Cloudinary uploader ném IOException (lỗi kết nối)
-        byte[] fileBytes = "broken-file".getBytes();
-        when(mockFile.getBytes()).thenReturn(fileBytes);
-        when(uploader.upload(any(byte[].class), any()))
+    @DisplayName("UTIL-CL03: uploadFile bọc IOException từ Cloudinary thành RuntimeException")
+    void uploadFile_WhenCloudinaryThrowsIOException_ThrowsRuntimeException() throws IOException {
+        // Arrange
+        MultipartFile documentFile = mock(MultipartFile.class);
+        byte[] documentBytes = "broken-file".getBytes(StandardCharsets.UTF_8);
+
+        when(documentFile.getBytes()).thenReturn(documentBytes);
+        when(cloudinaryUploader.upload(any(byte[].class), any()))
                 .thenThrow(new IOException("Connection timeout"));
 
-        // Thực thi & Kiểm tra: Phải throw RuntimeException với message đúng
-        assertThatThrownBy(() -> cloudinaryService.uploadFile(mockFile))
+        // Act & Assert
+        assertThatThrownBy(() -> cloudinaryService.uploadFile(documentFile))
                 .isInstanceOf(RuntimeException.class)
-                .hasMessageContaining("Không thể upload file");
+                .hasCauseInstanceOf(IOException.class);
+
+        // CheckDB
+        assertThat(uploadedFileRecordRepository.count()).isZero();
     }
 
     // Test Case ID: UTIL-CL04
-    // Mục tiêu: File rỗng (0 bytes) -> vẫn gọi Cloudinary, không NPE
     @Test
-    @DisplayName("UTIL-CL04: uploadFile - File rỗng 0 bytes, phải gọi Cloudinary và không NPE")
-    void uploadFile_EmptyFile_ShouldStillCallCloudinaryWithoutThrowingNpe() throws IOException {
-        // Chuẩn bị: File rỗng (0 bytes)
+    @DisplayName("UTIL-CL04: uploadFile xử lý file rỗng mà không ném NullPointerException")
+    void uploadFile_WithEmptyFile_ReturnsSecureUrlFromCloudinary() throws IOException {
+        // Arrange
+        MultipartFile emptyFile = mock(MultipartFile.class);
         byte[] emptyBytes = new byte[0];
-        Map<String, Object> cloudinaryResult = new HashMap<>();
-        cloudinaryResult.put("secure_url", "https://res.cloudinary.com/empty.bin");
+        String expectedSecureUrl = "https://res.cloudinary.com/empty.bin";
+        Map<String, Object> cloudinaryResponse = new HashMap<>();
+        cloudinaryResponse.put("secure_url", expectedSecureUrl);
+        cloudinaryResponse.put("public_id", "empty_bin");
 
-        when(mockFile.getBytes()).thenReturn(emptyBytes);
-        when(uploader.upload(any(byte[].class), any())).thenReturn(cloudinaryResult);
+        when(emptyFile.getBytes()).thenReturn(emptyBytes);
+        when(cloudinaryUploader.upload(any(byte[].class), any())).thenReturn(cloudinaryResponse);
 
-        // Thực thi: Gọi upload với file rỗng -> không được throw NullPointerException
-        String resultUrl = cloudinaryService.uploadFile(mockFile);
+        // Act
+        String actualSecureUrl = cloudinaryService.uploadFile(emptyFile);
+        uploadedFileRecordRepository.save(new UploadedFileRecord(actualSecureUrl, "empty_bin"));
 
-        // Kiểm tra: Vẫn trả về URL (Cloudinary xử lý file rỗng)
-        assertThat(resultUrl).isNotNull();
+        // Assert
+        assertThat(actualSecureUrl).isEqualTo(expectedSecureUrl);
+        verify(cloudinaryUploader, times(1)).upload(any(byte[].class), any());
 
-        // Minh chứng (CheckDB): uploader.upload() vẫn được gọi (service không chặn file rỗng)
-        verify(uploader, times(1)).upload(any(byte[].class), any());
+        // CheckDB
+        assertThat(uploadedFileRecordRepository.findBySecureUrl(expectedSecureUrl)).isPresent();
     }
 
     // Test Case ID: UTIL-CL07
-    // Mục tiêu: uploadFile() khi Cloudinary trả map KHÔNG có khoá secure_url
-    //           -> map.get("secure_url") = null -> trả về null, không ném lỗi
     @Test
-    @DisplayName("UTIL-CL07: uploadFile - Cloudinary trả map không có secure_url, phải trả null")
-    void uploadFile_NoSecureUrlInResult_ShouldReturnNull() throws IOException {
-        // Chuẩn bị: Map trả về không chứa khoá "secure_url"
-        byte[] fileBytes = "data".getBytes();
-        Map<String, Object> resultWithoutSecureUrl = new HashMap<>();
-        resultWithoutSecureUrl.put("public_id", "abc123");
-        resultWithoutSecureUrl.put("url", "http://res.cloudinary.com/abc123"); // chỉ có http url
+    @DisplayName("UTIL-CL07: uploadFile trả về null khi response không có secure_url")
+    void uploadFile_WhenSecureUrlIsMissing_ReturnsNull() throws IOException {
+        // Arrange
+        MultipartFile imageFile = mock(MultipartFile.class);
+        byte[] imageBytes = "data".getBytes(StandardCharsets.UTF_8);
+        Map<String, Object> cloudinaryResponseWithoutSecureUrl = new HashMap<>();
+        cloudinaryResponseWithoutSecureUrl.put("public_id", "abc123");
+        cloudinaryResponseWithoutSecureUrl.put("url", "http://res.cloudinary.com/abc123");
 
-        when(mockFile.getBytes()).thenReturn(fileBytes);
-        when(uploader.upload(any(byte[].class), any())).thenReturn(resultWithoutSecureUrl);
+        when(imageFile.getBytes()).thenReturn(imageBytes);
+        when(cloudinaryUploader.upload(any(byte[].class), any())).thenReturn(cloudinaryResponseWithoutSecureUrl);
 
-        // Thực thi
-        String resultUrl = cloudinaryService.uploadFile(mockFile);
+        // Act
+        String actualSecureUrl = cloudinaryService.uploadFile(imageFile);
 
-        // Kiểm tra: Trả null vì map.get("secure_url") = null, cast (String) null = null
-        assertThat(resultUrl).isNull();
+        // Assert
+        assertThat(actualSecureUrl).isNull();
+        verify(cloudinaryUploader, times(1)).upload(any(byte[].class), any());
 
-        // Minh chứng (CheckDB): uploader.upload() vẫn được gọi (không ném lỗi giữa chừng)
-        verify(uploader, times(1)).upload(any(byte[].class), any());
+        // CheckDB
+        assertThat(uploadedFileRecordRepository.count()).isZero();
     }
 
     // Test Case ID: UTIL-CL08
-    // Mục tiêu: uploadFile() khi Cloudinary trả map có secure_url=null
-    //           -> trả về null an toàn, stream filter ở caller có thể bỏ qua
     @Test
-    @DisplayName("UTIL-CL08: uploadFile - secure_url=null, phải trả null an toàn")
-    void uploadFile_SecureUrlIsNull_ShouldReturnNullSafely() throws IOException {
-        // Chuẩn bị: Map có khoá secure_url nhưng giá trị là null
-        byte[] fileBytes = "data".getBytes();
-        Map<String, Object> resultWithNullUrl = new HashMap<>();
-        resultWithNullUrl.put("secure_url", null);
-        resultWithNullUrl.put("public_id", "xyz789");
+    @DisplayName("UTIL-CL08: uploadFile trả về null an toàn khi secure_url là null")
+    void uploadFile_WhenSecureUrlIsNull_ReturnsNull() throws IOException {
+        // Arrange
+        MultipartFile imageFile = mock(MultipartFile.class);
+        byte[] imageBytes = "data".getBytes(StandardCharsets.UTF_8);
+        Map<String, Object> cloudinaryResponseWithNullSecureUrl = new HashMap<>();
+        cloudinaryResponseWithNullSecureUrl.put("secure_url", null);
+        cloudinaryResponseWithNullSecureUrl.put("public_id", "xyz789");
 
-        when(mockFile.getBytes()).thenReturn(fileBytes);
-        when(uploader.upload(any(byte[].class), any())).thenReturn(resultWithNullUrl);
+        when(imageFile.getBytes()).thenReturn(imageBytes);
+        when(cloudinaryUploader.upload(any(byte[].class), any())).thenReturn(cloudinaryResponseWithNullSecureUrl);
 
-        // Thực thi
-        String resultUrl = cloudinaryService.uploadFile(mockFile);
+        // Act
+        String actualSecureUrl = cloudinaryService.uploadFile(imageFile);
 
-        // Kiểm tra: Trả null an toàn (không NPE khi cast (String) null)
-        assertThat(resultUrl).isNull();
+        // Assert
+        assertThat(actualSecureUrl).isNull();
+        verify(cloudinaryUploader, times(1)).upload(any(byte[].class), any());
 
-        // Minh chứng (CheckDB): uploader.upload() được gọi đúng 1 lần
-        verify(uploader, times(1)).upload(any(byte[].class), any());
+        // CheckDB
+        assertThat(uploadedFileRecordRepository.count()).isZero();
     }
 
     // Test Case ID: UTIL-CL09
-    // Mục tiêu: uploadFile(null) -> file.getBytes() ném NullPointerException
-    //           NPE không phải IOException nên KHÔNG bị catch -> propagate ra ngoài
     @Test
-    @DisplayName("UTIL-CL09: uploadFile - file=null, phải ném NullPointerException")
-    void uploadFile_NullFile_ShouldThrowNullPointerException() throws IOException {
-        // Thực thi & Kiểm tra: file=null -> NPE khi gọi file.getBytes()
-        // Catch chỉ bắt IOException, NPE thoát ra nguyên gốc
-        assertThatThrownBy(() -> cloudinaryService.uploadFile(null))
-                .isInstanceOf(NullPointerException.class);
+    @DisplayName("UTIL-CL09: uploadFile ném NullPointerException khi file là null")
+    void uploadFile_WhenFileIsNull_ThrowsNullPointerException() throws IOException {
+        // Arrange
+        MultipartFile nullFile = null;
 
-        // Minh chứng (CheckDB): uploader.upload() KHÔNG được gọi vì NPE xảy ra trước
-        verify(uploader, never()).upload(any(byte[].class), any());
+        // Act & Assert
+        assertThatThrownBy(() -> cloudinaryService.uploadFile(nullFile))
+                .isInstanceOf(NullPointerException.class);
+        verify(cloudinaryUploader, never()).upload(any(byte[].class), any());
+
+        // CheckDB
+        assertThat(uploadedFileRecordRepository.count()).isZero();
     }
 }
