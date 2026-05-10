@@ -285,8 +285,8 @@ class ApprovalTrackingServiceTest {
                 "BUG: Không ném CustomException khi workflow không tìm thấy");
     }
 
-    /**
-     * Test Case ID: AT-TC02
+        /**
+         * Test Case ID: AT-TC07
      * Workflow tồn tại nhưng không có step 1 → CustomException
      *
      * Bug bị bắt: Không kiểm tra firstStep → NullPointerException
@@ -449,7 +449,7 @@ class ApprovalTrackingServiceTest {
     }
 
     /**
-     * Test Case ID: AT-TC02
+     * Test Case ID: AT-TC07
      * Nhánh [B2]: User hiện tại KHÁC approverPositionId → CustomException + DB không đổi
      *
      * Bug bị bắt: Thiếu kiểm tra quyền → cho approve bừa bãi
@@ -457,8 +457,8 @@ class ApprovalTrackingServiceTest {
      * CheckDB: Status vẫn là PENDING sau khi exception
      */
     @Test
-    @DisplayName("[AT-TC02][B2] approve() - Sai người duyệt → CustomException; status DB vẫn PENDING")
-    void tc02_approve_wrongApprover_throwsCustomException_dbUnchanged() {
+        @DisplayName("[AT-TC07][B2] approve() - Sai người duyệt → CustomException; status DB vẫn PENDING")
+        void tc07_approve_wrongApprover_throwsCustomException_dbUnchanged() {
         // Gán tracking cho OTHER_USER_ID (không phải người đang đăng nhập)
         pendingTracking.setApproverPositionId(OTHER_USER_ID);
         approvalTrackingRepository.save(pendingTracking);
@@ -717,8 +717,8 @@ class ApprovalTrackingServiceTest {
                 "BUG: Total phải >= 1 vì có sampleTracking từ setUp");
     }
 
-    /**
-     * Test Case ID: AT-TC18
+        /**
+         * Test Case ID: AT-TC23
      * Nhánh [B12]: filter requestId=REQUEST_ID → chỉ trả về tracking của request đó
      *
      * Bug bị bắt: Filter requestId bị bỏ qua → trả về tất cả tracking của mọi request
@@ -827,8 +827,8 @@ class ApprovalTrackingServiceTest {
      * Bug bị bắt: Filter type không đúng → lẫn tracking của OFFER
      */
     @Test
-    @DisplayName("[AT-TC18][B17] getWorkflowInfoByRequestId() - requestType=REQUEST → chỉ cho REQUEST tracking")
-    void tc18_getWorkflowInfoByRequestId_typeRequest_returnsOnlyRequestTrackings() {
+        @DisplayName("[AT-TC23][B17] getWorkflowInfoByRequestId() - requestType=REQUEST → chỉ cho REQUEST tracking")
+        void tc23_getWorkflowInfoByRequestId_typeRequest_returnsOnlyRequestTrackings() {
         // Arrange: tạo thêm 1 tracking OFFER cùng REQUEST_ID → tổng = 2 trackings
         // Setup đã có 1 tracking REQUEST → sau khi filter chỉ còn 1
         Workflow offerWf = saveWorkflow("Offer Workflow", WorkflowType.OFFER, 10L);
@@ -995,15 +995,15 @@ class ApprovalTrackingServiceTest {
     // NHÓM 7: handleWorkflowEvent() — các nhánh switch-case
     // ================================================================
 
-    /**
-     * Test Case ID: AT-TC27
+        /**
+         * Test Case ID: AT-TC29
      * Nhánh [B20]: event=null → không làm gì, không exception, DB không đổi
      *
      * Bug bị bắt: Không guard null event → NullPointerException
      */
     @Test
-    @DisplayName("[AT-TC27][B20] handleWorkflowEvent() - event=null → bỏ qua, DB không đổi")
-    void tc27_handleWorkflowEvent_nullEvent_doesNothingNoException() {
+        @DisplayName("[AT-TC29][B20] handleWorkflowEvent() - event=null → bỏ qua, DB không đổi")
+        void tc71_handleWorkflowEvent_nullEvent_doesNothingNoException() {
         long countBefore = approvalTrackingRepository.count();
 
         assertDoesNotThrow(() -> approvalTrackingService.handleWorkflowEvent(null),
@@ -1013,15 +1013,15 @@ class ApprovalTrackingServiceTest {
                 "BUG: DB bị thay đổi dù event=null");
     }
 
-    /**
-     * Test Case ID: AT-TC28
+        /**
+         * Test Case ID: AT-TC30
      * Nhánh [B21]: eventType=null → bỏ qua, DB không đổi
      *
      * Bug bị bắt: Gọi `.toUpperCase()` trên null → NullPointerException
      */
     @Test
-    @DisplayName("[AT-TC28][B21] handleWorkflowEvent() - eventType=null → bỏ qua, không NPE")
-    void tc28_handleWorkflowEvent_nullEventType_doesNothingNoException() {
+        @DisplayName("[AT-TC30][B21] handleWorkflowEvent() - eventType=null → bỏ qua, không NPE")
+        void tc72_handleWorkflowEvent_nullEventType_doesNothingNoException() {
         RecruitmentWorkflowEvent event = new RecruitmentWorkflowEvent();
         event.setEventType(null);
         event.setRequestId(REQUEST_ID);
@@ -1036,7 +1036,7 @@ class ApprovalTrackingServiceTest {
     }
 
     /**
-     * Test Case ID: AT-TC29
+     * Test Case ID: AT-TC31
      * Nhánh [B22]: REQUEST_CANCELLED → tracking PENDING bị CANCELLED, actionType="CANCEL"
      *
      * Bug bị bắt:
@@ -1048,7 +1048,7 @@ class ApprovalTrackingServiceTest {
      * CheckDB: Truy vấn lại từng trường
      */
     @Test
-    @DisplayName("[AT-TC29][B22] handleWorkflowEvent() - REQUEST_CANCELLED → status=CANCELLED, actionType=CANCEL")
+    @DisplayName("[AT-TC31][B22] handleWorkflowEvent() - REQUEST_CANCELLED → status=CANCELLED, actionType=CANCEL")
     void tc29_handleWorkflowEvent_requestCancelled_setsStatusAndActionType() {
         RecruitmentWorkflowEvent event = buildEvent("REQUEST_CANCELLED", "REQUEST", REQUEST_ID);
         event.setActorUserId(APPROVER_USER_ID);
@@ -1071,13 +1071,13 @@ class ApprovalTrackingServiceTest {
     }
 
     /**
-     * Test Case ID: AT-TC30
+     * Test Case ID: AT-TC32
      * Nhánh [B23]: REQUEST_CANCELLED + request không có PENDING → DB không thay đổi
      *
      * Bug bị bắt: Cố update tracking không tồn tại → exception bất ngờ
      */
     @Test
-    @DisplayName("[AT-TC30][B23] REQUEST_CANCELLED + không có PENDING → DB không đổi, không exception")
+    @DisplayName("[AT-TC32][B23] REQUEST_CANCELLED + không có PENDING → DB không đổi, không exception")
     void tc30_handleWorkflowEvent_cancelledNoActivePending_dbUnchanged() {
         // Đặt tracking thành APPROVED (không còn PENDING)
         pendingTracking.setStatus(ApprovalStatus.APPROVED);
@@ -1096,7 +1096,7 @@ class ApprovalTrackingServiceTest {
     }
 
     /**
-     * Test Case ID: AT-TC31
+     * Test Case ID: AT-TC33
      * Nhánh [B24]: REQUEST_WITHDRAWN → actionType="WITHDRAW" (khác CANCEL!)
      *
      * Bug bị bắt: Dùng cùng actionType="CANCEL" cho cả CANCEL và WITHDRAW → không phân biệt được nguồn gốc
@@ -1104,7 +1104,7 @@ class ApprovalTrackingServiceTest {
      * CheckDB: actionType phải là "WITHDRAW", status phải là CANCELLED
      */
     @Test
-    @DisplayName("[AT-TC31][B24] REQUEST_WITHDRAWN → status=CANCELLED, actionType=WITHDRAW (≠ CANCEL)")
+    @DisplayName("[AT-TC33][B24] REQUEST_WITHDRAWN → status=CANCELLED, actionType=WITHDRAW (≠ CANCEL)")
     void tc31_handleWorkflowEvent_requestWithdrawn_actionTypeIsWithdrawNotCancel() {
         RecruitmentWorkflowEvent event = buildEvent("REQUEST_WITHDRAWN", "REQUEST", REQUEST_ID);
         event.setActorUserId(APPROVER_USER_ID);
@@ -1122,11 +1122,11 @@ class ApprovalTrackingServiceTest {
     }
 
         /**
-         * Test Case ID: AT-TC31B
+         * Test Case ID: AT-TC34
          * REQUEST_WITHDRAWN với reason=null → dùng message mặc định.
          */
         @Test
-        @DisplayName("[AT-TC31B] REQUEST_WITHDRAWN reason=null → dùng message mặc định")
+        @DisplayName("[AT-TC34] REQUEST_WITHDRAWN reason=null → dùng message mặc định")
         void tc31b_handleWorkflowEvent_requestWithdrawn_nullReason_usesDefaultMessage() {
                 RecruitmentWorkflowEvent event = buildEvent("REQUEST_WITHDRAWN", "REQUEST", REQUEST_ID);
                 event.setActorUserId(APPROVER_USER_ID);
@@ -1142,7 +1142,7 @@ class ApprovalTrackingServiceTest {
         }
 
     /**
-     * Test Case ID: AT-TC32
+     * Test Case ID: AT-TC35
      * Nhánh [B25]: REQUEST_RETURNED + có returnedToStepId → status=RETURNED, actionType=RETURN, returnedToStepId ghi đúng
      *
      * Bug bị bắt:
@@ -1154,7 +1154,7 @@ class ApprovalTrackingServiceTest {
      * CheckDB: 4 trường đều đúng
      */
     @Test
-    @DisplayName("[AT-TC32][B25] REQUEST_RETURNED + returnedToStepId → RETURNED, RETURN, returnedToStepId")
+    @DisplayName("[AT-TC35][B25] REQUEST_RETURNED + returnedToStepId → RETURNED, RETURN, returnedToStepId")
     void tc32_handleWorkflowEvent_requestReturned_withStepId_setReadCorrectly() {
         RecruitmentWorkflowEvent event = buildEvent("REQUEST_RETURNED", "REQUEST", REQUEST_ID);
         event.setActorUserId(APPROVER_USER_ID);
@@ -1178,7 +1178,7 @@ class ApprovalTrackingServiceTest {
     }
 
     /**
-     * Test Case ID: AT-TC33
+     * Test Case ID: AT-TC36
      * Nhánh [B26]: REQUEST_RETURNED + returnedToStepId=null → tự động trả về bước đầu (stepOrder=1)
      *
      * Bug bị bắt: Khi returnedToStepId=null, không resolve tự động về step 1 → returnedToStepId = null trong DB
@@ -1186,7 +1186,7 @@ class ApprovalTrackingServiceTest {
      * CheckDB: returnedToStepId phải = step1.getId()
      */
     @Test
-    @DisplayName("[AT-TC33][B26] REQUEST_RETURNED + returnedToStepId=null → tự resolve về step 1")
+    @DisplayName("[AT-TC36][B26] REQUEST_RETURNED + returnedToStepId=null → tự resolve về step 1")
     void tc33_handleWorkflowEvent_requestReturned_nullStepId_defaultsToFirstStep() {
         RecruitmentWorkflowEvent event = buildEvent("REQUEST_RETURNED", "REQUEST", REQUEST_ID);
         event.setActorUserId(APPROVER_USER_ID);
@@ -1206,7 +1206,7 @@ class ApprovalTrackingServiceTest {
     }
 
     /**
-     * Test Case ID: AT-TC34
+     * Test Case ID: AT-TC37
      * Nhánh [B27]: REQUEST_APPROVED + có bước tiếp → tracking hiện tại APPROVED + tạo tracking PENDING mới
      *
      * Bug bị bắt:
@@ -1216,7 +1216,7 @@ class ApprovalTrackingServiceTest {
      * CheckDB: 2 điểm kiểm tra
      */
     @Test
-    @DisplayName("[AT-TC34][B27] REQUEST_APPROVED + có bước tiếp → tracking APPROVED + tạo tracking mới")
+    @DisplayName("[AT-TC37][B27] REQUEST_APPROVED + có bước tiếp → tracking APPROVED + tạo tracking mới")
     void tc34_handleWorkflowEvent_requestApproved_withNextStep_approvesAndCreatesNext() {
         long countBefore = approvalTrackingRepository.count();
 
@@ -1241,13 +1241,13 @@ class ApprovalTrackingServiceTest {
     }
 
     /**
-     * Test Case ID: AT-TC35
+     * Test Case ID: AT-TC38
      * Nhánh [B28]: REQUEST_APPROVED + không có bước tiếp → tracking APPROVED, KHÔNG tạo thêm
      *
      * Bug bị bắt: Cố tạo tracking cho bước tiếp dù không còn bước → data giả
      */
     @Test
-    @DisplayName("[AT-TC35][B28] REQUEST_APPROVED + không có bước tiếp → APPROVED, không tạo thêm tracking")
+    @DisplayName("[AT-TC38][B28] REQUEST_APPROVED + không có bước tiếp → APPROVED, không tạo thêm tracking")
     void tc35_handleWorkflowEvent_requestApproved_lastStep_noNewTracking() {
         // Workflow chỉ 1 bước
         Workflow wf1 = saveWorkflow("Workflow 1 Bước Only", WorkflowType.REQUEST, 20L);
@@ -1275,7 +1275,7 @@ class ApprovalTrackingServiceTest {
     }
 
     /**
-     * Test Case ID: AT-TC36
+     * Test Case ID: AT-TC39
      * Nhánh [B29]: REQUEST_REJECTED → tracking PENDING → REJECTED, actionType="REJECT"
      *
      * Bug bị bắt:
@@ -1285,7 +1285,7 @@ class ApprovalTrackingServiceTest {
      * CheckDB: status=REJECTED, actionType=REJECT
      */
     @Test
-    @DisplayName("[AT-TC36][B29] REQUEST_REJECTED → status=REJECTED, actionType=REJECT")
+    @DisplayName("[AT-TC39][B29] REQUEST_REJECTED → status=REJECTED, actionType=REJECT")
     void tc36_handleWorkflowEvent_requestRejected_setsRejectedAndActionType() {
         RecruitmentWorkflowEvent event = buildEvent("REQUEST_REJECTED", "REQUEST", REQUEST_ID);
         event.setActorUserId(APPROVER_USER_ID);
@@ -1303,13 +1303,13 @@ class ApprovalTrackingServiceTest {
     }
 
     /**
-     * Test Case ID: AT-TC37
+     * Test Case ID: AT-TC40
      * Nhánh [B30]: eventType không xác định → bỏ qua, DB không thay đổi
      *
      * Bug bị bắt: Ném exception cho eventType lạ → production crashes khi nhận event mới
      */
     @Test
-    @DisplayName("[AT-TC37][B30] handleWorkflowEvent() - eventType lạ → bỏ qua hoàn toàn, DB không đổi")
+    @DisplayName("[AT-TC40][B30] handleWorkflowEvent() - eventType lạ → bỏ qua hoàn toàn, DB không đổi")
     void tc37_handleWorkflowEvent_unknownEventType_dbUnchanged() {
         RecruitmentWorkflowEvent event = buildEvent("UNKNOWN_FUTURE_EVENT", "REQUEST", REQUEST_ID);
 
@@ -1332,7 +1332,7 @@ class ApprovalTrackingServiceTest {
     // ================================================================
 
     /**
-     * Test Case ID: AT-TC38
+     * Test Case ID: AT-TC41
      * Nhánh D2=True, D4=True, D5=True:
      * OFFER event, departmentId=null, candidateId có giá trị → candidateService trả về departmentId → set vào event.
      *
@@ -1341,7 +1341,7 @@ class ApprovalTrackingServiceTest {
      * CheckDB: Tracking được tạo (REQUEST_SUBMITTED thành công sau khi resolve departmentId).
      */
     @Test
-    @DisplayName("[AT-TC38] handleWorkflowEvent() - OFFER, departmentId=null, candidateId hợp lệ → resolve từ candidate")
+    @DisplayName("[AT-TC41] handleWorkflowEvent() - OFFER, departmentId=null, candidateId hợp lệ → resolve từ candidate")
     void tc38_handleWorkflowEvent_offerNullDeptWithCandidateId_resolvesDepartmentId() {
         // Arrange: tracking không có actionUserId
         ApprovalTracking tracking = buildTracking(50L, step1, ApprovalStatus.PENDING, APPROVER_USER_ID);
@@ -1363,15 +1363,15 @@ class ApprovalTrackingServiceTest {
     // NHÓM 8: getWorkflowInfoByRequestId() — các nhánh requestType
     // ================================================================
 
-    /**
-     * Test Case ID: AT-TC20
+        /**
+         * Test Case ID: AT-TC39
      * Nhánh requestType="OFFER" → chỉ trả về tracking thuộc workflow OFFER.
      *
      * Bug bị bắt: Không filter đúng → trả lẫn tracking REQUEST và OFFER.
      */
     @Test
-    @DisplayName("[AT-TC20] getWorkflowInfoByRequestId() - requestType=OFFER → chỉ trả OFFER tracking")
-    void tc20_getWorkflowInfoByRequestId_typeOffer_returnsOnlyOfferTrackings() {
+        @DisplayName("[AT-TC42] getWorkflowInfoByRequestId() - requestType=OFFER → chỉ trả OFFER tracking")
+        void tc39_getWorkflowInfoByRequestId_typeOffer_returnsOnlyOfferTrackings() {
         // Arrange: tạo workflow OFFER + tracking OFFER cùng REQUEST_ID
         Workflow offerWf = saveWorkflow("Offer WF", WorkflowType.OFFER, 10L);
         WorkflowStep offerStep = saveStep(offerWf, 1, APPROVER_USER_ID);
@@ -1400,15 +1400,15 @@ class ApprovalTrackingServiceTest {
                 "BUG: Filter OFFER không loại được tracking REQUEST");
     }
 
-    /**
-     * Test Case ID: AT-TC21
+        /**
+         * Test Case ID: AT-TC43
      * Nhánh requestType không xác định (vd "SOMETHING") → workflowType=null → không filter → trả tất cả.
      *
      * Bug bị bắt: Requesttype lạ bị xử lý như null → lọc ra hết kết quả.
      */
     @Test
-    @DisplayName("[AT-TC21] getWorkflowInfoByRequestId() - requestType unknown → không filter, trả tất cả")
-    void tc21_getWorkflowInfoByRequestId_unknownType_returnsAllTrackings() {
+        @DisplayName("[AT-TC43] getWorkflowInfoByRequestId() - requestType unknown → không filter, trả tất cả")
+        void tc40_getWorkflowInfoByRequestId_unknownType_returnsAllTrackings() {
         // Act: requestType không khớp bất kỳ giá trị nào → workflowType=null → không filter
         var resultUnknown = approvalTrackingService.getWorkflowInfoByRequestId(REQUEST_ID, null, "SOMETHING_ELSE");
         var resultNull    = approvalTrackingService.getWorkflowInfoByRequestId(REQUEST_ID, null, null);
@@ -1425,8 +1425,8 @@ class ApprovalTrackingServiceTest {
     // NHÓM 9: handleWorkflowEvent() — OFFER + departmentId resolution
     // ================================================================
 
-    /**
-     * Test Case ID: AT-TC33
+        /**
+         * Test Case ID: AT-TC44
      * Nhánh D2=True, D4=True, D5=True:
      * OFFER event, departmentId=null, candidateId có giá trị → candidateService trả về departmentId → set vào event.
      *
@@ -1435,8 +1435,8 @@ class ApprovalTrackingServiceTest {
      * CheckDB: Tracking được tạo (REQUEST_SUBMITTED thành công sau khi resolve departmentId).
      */
     @Test
-    @DisplayName("[AT-TC33] handleWorkflowEvent() - OFFER, departmentId=null, candidateId hợp lệ → resolve từ candidate")
-    void tc33_handleWorkflowEvent_offerNullDeptWithCandidateId_resolvesDepartmentId() {
+        @DisplayName("[AT-TC44] handleWorkflowEvent() - OFFER, departmentId=null, candidateId hợp lệ → resolve từ candidate")
+        void tc41_handleWorkflowEvent_offerNullDeptWithCandidateId_resolvesDepartmentId() {
         // Arrange: workflow OFFER, step1 với approverPositionId
         Workflow offerWf = saveWorkflow("OFFER WF", WorkflowType.OFFER, 77L);
         saveStep(offerWf, 1, APPROVER_USER_ID);
@@ -1464,16 +1464,16 @@ class ApprovalTrackingServiceTest {
                 "BUG: Tracking không được tạo sau khi resolve departmentId từ candidate");
     }
 
-    /**
-     * Test Case ID: AT-TC34
+        /**
+         * Test Case ID: AT-TC45
      * Nhánh D2=True, D4=False:
      * OFFER event, departmentId=null, candidateId=null → log warn, skip resolve, tiếp tục vào switch.
      *
      * Bug bị bắt: NPE khi candidateId=null không được guard.
      */
     @Test
-    @DisplayName("[AT-TC34] handleWorkflowEvent() - OFFER, departmentId=null, candidateId=null → log warn, không crash")
-    void tc34_handleWorkflowEvent_offerNullDeptNullCandidateId_logsWarnNoCrash() {
+        @DisplayName("[AT-TC45] handleWorkflowEvent() - OFFER, departmentId=null, candidateId=null → log warn, không crash")
+        void tc42_handleWorkflowEvent_offerNullDeptNullCandidateId_logsWarnNoCrash() {
         // Arrange
         long countBefore = approvalTrackingRepository.count();
 
@@ -1499,15 +1499,15 @@ class ApprovalTrackingServiceTest {
     // NHÓM 10: handleRequestSubmitted() — tất cả nhánh
     // ================================================================
 
-    /**
-     * Test Case ID: AT-TC35
+        /**
+         * Test Case ID: AT-TC46
      * Nhánh D1=True: workflowId=null → early return, DB không đổi.
      *
      * Bug bị bắt: Gọi workflowRepository.findById(null) → NullPointerException hoặc xử lý sai.
      */
     @Test
-    @DisplayName("[AT-TC35] handleRequestSubmitted() - workflowId=null → early return, DB không đổi")
-    void tc35_handleRequestSubmitted_nullWorkflowId_earlyReturn() {
+        @DisplayName("[AT-TC46] handleRequestSubmitted() - workflowId=null → early return, DB không đổi")
+        void tc43_handleRequestSubmitted_nullWorkflowId_earlyReturn() {
         long countBefore = approvalTrackingRepository.count();
 
         RecruitmentWorkflowEvent event = buildEvent("REQUEST_SUBMITTED", "REQUEST", 70L);
@@ -1520,15 +1520,15 @@ class ApprovalTrackingServiceTest {
                 "BUG: DB bị thay đổi dù workflowId=null → phải early return");
     }
 
-    /**
-     * Test Case ID: AT-TC36
+        /**
+         * Test Case ID: AT-TC47
      * Nhánh D2=True: requestType=OFFER, departmentId=null → early return khi submit.
      *
      * Bug bị bắt: OFFER không có departmentId vẫn cố tạo tracking → lỗi dữ liệu.
      */
     @Test
-    @DisplayName("[AT-TC36] handleRequestSubmitted() - OFFER + departmentId=null → early return")
-    void tc36_handleRequestSubmitted_offerNullDepartmentId_earlyReturn() {
+        @DisplayName("[AT-TC47] handleRequestSubmitted() - OFFER + departmentId=null → early return")
+        void tc44_handleRequestSubmitted_offerNullDepartmentId_earlyReturn() {
         long countBefore = approvalTrackingRepository.count();
 
         RecruitmentWorkflowEvent event = buildEvent("REQUEST_SUBMITTED", "OFFER", 71L);
@@ -1542,8 +1542,8 @@ class ApprovalTrackingServiceTest {
                 "BUG: Tạo tracking dù OFFER không có departmentId → phải early return");
     }
 
-    /**
-     * Test Case ID: AT-TC37
+        /**
+         * Test Case ID: AT-TC48
      * Nhánh D3=False (không có pending), D5=False (không có returnedTracking):
      * Submit lần đầu bình thường → tạo 1 tracking PENDING tại step1.
      *
@@ -1555,8 +1555,8 @@ class ApprovalTrackingServiceTest {
      * CheckDB: +1 tracking PENDING tại step1
      */
     @Test
-    @DisplayName("[AT-TC37] handleRequestSubmitted() - submit lần đầu → tạo tracking PENDING tại step1")
-    void tc37_handleRequestSubmitted_firstSubmit_createsStep1PendingTracking() {
+        @DisplayName("[AT-TC48] handleRequestSubmitted() - submit lần đầu → tạo tracking PENDING tại step1")
+        void tc45_handleRequestSubmitted_firstSubmit_createsStep1PendingTracking() {
         // Dùng requestId khác để không bị lẫn với setUp
         Long newRequestId = 100L;
         long countBefore = approvalTrackingRepository.count();
@@ -1581,8 +1581,8 @@ class ApprovalTrackingServiceTest {
                 "BUG: Tracking mới phải gắn với step1");
     }
 
-    /**
-     * Test Case ID: AT-TC38
+        /**
+         * Test Case ID: AT-TC49
      * Nhánh D3=False, D5=False, D6=True (position & dept khớp) → auto-approve step1 + tạo tracking step2.
      *
      * Cách giả lập: Mock restTemplate để getRequesterPositionId trả về APPROVER_USER_ID (= step1.approverPositionId)
@@ -1595,8 +1595,8 @@ class ApprovalTrackingServiceTest {
      * CheckDB: step1 tracking = APPROVED, step2 tracking = PENDING
      */
     @Test
-    @DisplayName("[AT-TC38] handleRequestSubmitted() - requester trùng approver step1 → auto-approve step1 + tạo step2")
-    void tc38_handleRequestSubmitted_requesterMatchesStep1Approver_autoApprovesAndCreatesStep2() {
+        @DisplayName("[AT-TC49] handleRequestSubmitted() - requester trùng approver step1 → auto-approve step1 + tạo step2")
+        void tc46_handleRequestSubmitted_requesterMatchesStep1Approver_autoApprovesAndCreatesStep2() {
         Long newRequestId = 110L;
 
         // Mock restTemplate.exchange: trả về JSON employee với position.id = APPROVER_USER_ID và department.id = 10L
@@ -1645,8 +1645,8 @@ class ApprovalTrackingServiceTest {
         assertTrue(hasStep2Pending, "BUG: Tracking step2 phải được tạo với status=PENDING");
     }
 
-    /**
-     * Test Case ID: AT-TC39
+        /**
+         * Test Case ID: AT-TC50
      * Nhánh D3=False, D5=False, D6=False (position KHÔNG khớp) → tạo tracking PENDING step1 bình thường.
      *
      * Cách giả lập: restTemplate trả null → getRequesterPositionId=null → positionMatches=false.
@@ -1656,8 +1656,8 @@ class ApprovalTrackingServiceTest {
      * CheckDB: 1 tracking PENDING tại step1
      */
     @Test
-    @DisplayName("[AT-TC39] handleRequestSubmitted() - requester KHÔNG trùng approver → tạo tracking PENDING step1")
-    void tc39_handleRequestSubmitted_requesterNotMatchStep1Approver_createsNormalStep1Tracking() {
+        @DisplayName("[AT-TC50] handleRequestSubmitted() - requester KHÔNG trùng approver → tạo tracking PENDING step1")
+        void tc47_handleRequestSubmitted_requesterNotMatchStep1Approver_createsNormalStep1Tracking() {
         Long newRequestId = 120L;
         // restTemplate trả null → getRequesterPositionId throws NPE inside try → returns null
         // → positionMatches = false → không auto-approve
@@ -1682,8 +1682,8 @@ class ApprovalTrackingServiceTest {
                 "BUG: Phải tạo tracking tại step1 (stepOrder=1)");
     }
 
-    /**
-     * Test Case ID: AT-TC40
+        /**
+         * Test Case ID: AT-TC51
      * Nhánh D3=True (có pending), D4=False (không phải return placeholder):
      * Resubmit khi đang có PENDING thường → cancel pending cũ + tạo tracking mới.
      *
@@ -1692,8 +1692,8 @@ class ApprovalTrackingServiceTest {
      * CheckDB: tracking cũ = CANCELLED, tracking mới = PENDING
      */
     @Test
-    @DisplayName("[AT-TC40] handleRequestSubmitted() - có pending thường → cancel pending cũ + tạo tracking mới")
-    void tc40_handleRequestSubmitted_resubmitWithExistingPending_cancelOldAndCreateNew() {
+        @DisplayName("[AT-TC51] handleRequestSubmitted() - có pending thường → cancel pending cũ + tạo tracking mới")
+        void tc48_handleRequestSubmitted_resubmitWithExistingPending_cancelOldAndCreateNew() {
         // setUp đã có pendingTracking cho REQUEST_ID → pending tồn tại
         long countBefore = approvalTrackingRepository.count();
 
@@ -1717,8 +1717,8 @@ class ApprovalTrackingServiceTest {
                 "BUG: Không tạo tracking mới sau khi cancel pending cũ");
     }
 
-    /**
-     * Test Case ID: AT-TC41
+        /**
+         * Test Case ID: AT-TC52
      * Nhánh D5=True: returnedTracking != null → submit lại sau return → tạo tracking từ bước được trả về.
      * Nhánh D9=True + D10=False: isResubmitAfterReturn=true, existingNotes=null → notes = "Đã chỉnh sửa".
      *
@@ -1729,8 +1729,8 @@ class ApprovalTrackingServiceTest {
      * CheckDB: tracking mới với notes chứa "Đã chỉnh sửa"
      */
     @Test
-    @DisplayName("[AT-TC41] handleRequestSubmitted() - resubmit sau return → tạo tracking từ bước returnedToStepId + ghi chú 'Đã chỉnh sửa'")
-    void tc41_handleRequestSubmitted_resubmitAfterReturn_createsTrackingFromReturnedStep() {
+        @DisplayName("[AT-TC52] handleRequestSubmitted() - resubmit sau return → tạo tracking từ bước returnedToStepId + ghi chú 'Đã chỉnh sửa'")
+        void tc49_handleRequestSubmitted_resubmitAfterReturn_createsTrackingFromReturnedStep() {
         Long newRequestId = 130L;
 
         // Arrange: tracking đã RETURNED, returnedToStepId = step1
@@ -1762,13 +1762,13 @@ class ApprovalTrackingServiceTest {
                 "BUG: Notes phải chứa 'Đã chỉnh sửa' khi resubmit sau return");
     }
 
-    /**
-     * Test Case ID: AT-TC42
+        /**
+         * Test Case ID: AT-TC53
      * Các pending tracking đều là placeholder return → phải cancel placeholder và tạo tracking mới.
      */
     @Test
-    @DisplayName("[AT-TC42] handleRequestSubmitted() - placeholder pending → cancel placeholder và tạo tracking mới")
-    void tc42_handleRequestSubmitted_allPendingAreReturnPlaceholders_resubmitsAndCancelsPlaceholder() {
+        @DisplayName("[AT-TC53] handleRequestSubmitted() - placeholder pending → cancel placeholder và tạo tracking mới")
+        void tc50_handleRequestSubmitted_allPendingAreReturnPlaceholders_resubmitsAndCancelsPlaceholder() {
         Long newRequestId = 140L;
 
         ApprovalTracking placeholder = buildTracking(newRequestId, step1, ApprovalStatus.PENDING, APPROVER_USER_ID);
@@ -1795,13 +1795,13 @@ class ApprovalTrackingServiceTest {
                 "BUG: Placeholder phải được ghi chú là cancelled due to resubmit");
     }
 
-    /**
-     * Test Case ID: AT-TC43
+        /**
+         * Test Case ID: AT-TC54
      * Workflow chỉ có 1 bước, requester trùng approver step1 → auto-approve step1 và gửi WORKFLOW_COMPLETED.
      */
     @Test
-    @DisplayName("[AT-TC43] handleRequestSubmitted() - auto-approve step1 của workflow 1 bước → gửi WORKFLOW_COMPLETED")
-    void tc43_handleRequestSubmitted_singleStepWorkflow_autoApproveAndComplete() {
+        @DisplayName("[AT-TC54] handleRequestSubmitted() - auto-approve step1 của workflow 1 bước → gửi WORKFLOW_COMPLETED")
+        void tc51_handleRequestSubmitted_singleStepWorkflow_autoApproveAndComplete() {
         Workflow singleStepWorkflow = saveWorkflow("Single Step Workflow", WorkflowType.REQUEST, 10L);
         saveStep(singleStepWorkflow, 1, APPROVER_USER_ID);
 
@@ -1851,16 +1851,16 @@ class ApprovalTrackingServiceTest {
     //           — các nhánh "không tìm thấy pending tracking"
     // ================================================================
 
-    /**
-     * Test Case ID: AT-TC42
+        /**
+         * Test Case ID: AT-TC55
      * Nhánh D1=False trong handleStepApproved(): markCurrentTracking trả null (không có PENDING).
      * → bỏ qua, DB không đổi.
      *
      * Bug bị bắt: NPE khi gọi current.getStep() trên null.
      */
     @Test
-    @DisplayName("[AT-TC42] REQUEST_APPROVED - không có PENDING tracking → bỏ qua, DB không đổi")
-    void tc42_handleStepApproved_noPendingTracking_skipsGracefully() {
+        @DisplayName("[AT-TC55] REQUEST_APPROVED - không có PENDING tracking → bỏ qua, DB không đổi")
+        void tc52_handleStepApproved_noPendingTracking_skipsGracefully() {
         // Đặt tracking thành APPROVED trước → không còn PENDING
         pendingTracking.setStatus(ApprovalStatus.APPROVED);
         approvalTrackingRepository.save(pendingTracking);
@@ -1879,16 +1879,16 @@ class ApprovalTrackingServiceTest {
                 "BUG: DB bị thay đổi dù không có pending tracking để approve");
     }
 
-    /**
-     * Test Case ID: AT-TC43
+        /**
+         * Test Case ID: AT-TC56
      * Nhánh D1=False trong handleStepRejected(): markCurrentTracking trả null.
      * → bỏ qua, DB không đổi.
      *
      * Bug bị bắt: NPE khi gọi tracking.getStep() trên null.
      */
     @Test
-    @DisplayName("[AT-TC43] REQUEST_REJECTED - không có PENDING tracking → bỏ qua, DB không đổi")
-    void tc43_handleStepRejected_noPendingTracking_skipsGracefully() {
+        @DisplayName("[AT-TC56] REQUEST_REJECTED - không có PENDING tracking → bỏ qua, DB không đổi")
+        void tc53_handleStepRejected_noPendingTracking_skipsGracefully() {
         // Đặt tracking thành APPROVED → không còn PENDING cho REQUEST_REJECTED xử lý
         pendingTracking.setStatus(ApprovalStatus.APPROVED);
         approvalTrackingRepository.save(pendingTracking);
@@ -1910,15 +1910,15 @@ class ApprovalTrackingServiceTest {
                 "BUG: Tracking đã APPROVED bị thay đổi");
     }
 
-    /**
-     * Test Case ID: AT-TC44 (bonus — thay thế AT-TC43 cho handleRequestReturned)
+        /**
+         * Test Case ID: AT-TC57
      * Nhánh currentTracking=null trong handleRequestReturned(): không tìm thấy pending tracking → early return.
      *
      * Bug bị bắt: NPE khi gọi currentTracking.setStatus() trên null.
      */
     @Test
-    @DisplayName("[AT-TC44] REQUEST_RETURNED - không có PENDING tracking → early return, DB không đổi")
-    void tc44_handleRequestReturned_noPendingTracking_earlyReturn() {
+        @DisplayName("[AT-TC57] REQUEST_RETURNED - không có PENDING tracking → early return, DB không đổi")
+        void tc54_handleRequestReturned_noPendingTracking_earlyReturn() {
         // Đặt tracking thành APPROVED → không còn PENDING
         pendingTracking.setStatus(ApprovalStatus.APPROVED);
         approvalTrackingRepository.save(pendingTracking);
@@ -1938,11 +1938,11 @@ class ApprovalTrackingServiceTest {
     }
 
         /**
-         * Test Case ID: AT-TC44B
+         * Test Case ID: AT-TC58
          * REQUEST_RETURNED với reason=null và returnedToStepId=null → tự resolve step 1.
          */
         @Test
-        @DisplayName("[AT-TC44B] REQUEST_RETURNED reason=null + returnedToStepId=null → tự resolve step 1")
+        @DisplayName("[AT-TC58] REQUEST_RETURNED reason=null + returnedToStepId=null → tự resolve step 1")
         void tc44b_handleRequestReturned_nullReason_defaultMessageAndAutoResolve() {
                 RecruitmentWorkflowEvent event = buildEvent("REQUEST_RETURNED", "REQUEST", REQUEST_ID);
                 event.setActorUserId(APPROVER_USER_ID);
@@ -1958,16 +1958,16 @@ class ApprovalTrackingServiceTest {
                 assertNull(updated.getNotes(), "BUG: notes từ reason=null phải là null trước khi persist");
         }
 
-    /**
-     * Test Case ID: AT-TC45
+        /**
+         * Test Case ID: AT-TC59
      * Nhánh recipients.isEmpty() = True trong notifyRequester():
      * Cả requesterId và ownerUserId đều null → recipients rỗng → không gọi sendNotification.
      *
      * Bug bị bắt: Gọi sendNotification với null recipientId → NPE trong producer.
      */
     @Test
-    @DisplayName("[AT-TC45] REQUEST_CANCELLED - requesterId và ownerUserId null → không gọi sendNotification")
-    void tc45_notifyRequester_emptyRecipients_doesNotSendNotification() {
+        @DisplayName("[AT-TC59] REQUEST_CANCELLED - requesterId và ownerUserId null → không gọi sendNotification")
+        void tc55_notifyRequester_emptyRecipients_doesNotSendNotification() {
         // Arrange: event không có requesterId và ownerUserId
         RecruitmentWorkflowEvent event = new RecruitmentWorkflowEvent();
         event.setEventType("REQUEST_CANCELLED");
@@ -1985,13 +1985,13 @@ class ApprovalTrackingServiceTest {
         verify(notificationProducer, never()).sendNotification(any(), any(), any(), any());
     }
 
-    /**
-     * Test Case ID: AT-TC47
+        /**
+         * Test Case ID: AT-TC60
      * handleStepApproved(): Không có PENDING tracking → bỏ qua, DB không đổi
      */
     @Test
-    @DisplayName("[AT-TC47] handleStepApproved() - không có PENDING tracking → bỏ qua, DB không đổi")
-    void tc47_handleStepApproved_noPending_skipsNoDbChange() {
+        @DisplayName("[AT-TC60] handleStepApproved() - không có PENDING tracking → bỏ qua, DB không đổi")
+        void tc56_handleStepApproved_noPending_skipsNoDbChange() {
         // Arrange: đảm bảo không có tracking PENDING cho REQUEST_ID
         pendingTracking.setStatus(ApprovalStatus.APPROVED);
         approvalTrackingRepository.save(pendingTracking);
@@ -2013,13 +2013,13 @@ class ApprovalTrackingServiceTest {
         verify(notificationProducer, never()).sendNotification(anyLong(), anyString(), anyString(), anyString());
     }
 
-    /**
-     * Test Case ID: AT-TC48
+        /**
+         * Test Case ID: AT-TC61
      * handleStepRejected(): Không có PENDING tracking → bỏ qua, DB không đổi
      */
     @Test
-    @DisplayName("[AT-TC48] handleStepRejected() - không có PENDING tracking → bỏ qua, DB không đổi")
-    void tc48_handleStepRejected_noPending_skipsNoDbChange() {
+        @DisplayName("[AT-TC61] handleStepRejected() - không có PENDING tracking → bỏ qua, DB không đổi")
+        void tc57_handleStepRejected_noPending_skipsNoDbChange() {
         // Arrange
         pendingTracking.setStatus(ApprovalStatus.APPROVED);
         approvalTrackingRepository.save(pendingTracking);
@@ -2037,13 +2037,13 @@ class ApprovalTrackingServiceTest {
                 "BUG: DB bị thay đổi dù không có PENDING tracking");
     }
 
-    /**
-     * Test Case ID: AT-TC49
+        /**
+         * Test Case ID: AT-TC62
      * handleRequestReturned(): Không có PENDING tracking → early return, DB không đổi
      */
     @Test
-    @DisplayName("[AT-TC49] handleRequestReturned() - không có PENDING tracking → early return, DB không đổi")
-    void tc49_handleRequestReturned_noPending_earlyReturnNoDbChange() {
+        @DisplayName("[AT-TC62] handleRequestReturned() - không có PENDING tracking → early return, DB không đổi")
+        void tc58_handleRequestReturned_noPending_earlyReturnNoDbChange() {
         // Arrange
         pendingTracking.setStatus(ApprovalStatus.APPROVED);
         approvalTrackingRepository.save(pendingTracking);
@@ -2062,13 +2062,13 @@ class ApprovalTrackingServiceTest {
                 "BUG: DB bị thay đổi dù không có PENDING tracking");
     }
 
-    /**
-     * Test Case ID: AT-TC50
+        /**
+         * Test Case ID: AT-TC63
      * notifyRequester(): requesterId=null và ownerUserId=null → không gọi sendNotification
      */
     @Test
-    @DisplayName("[AT-TC50] notifyRequester() - requesterId=null và ownerUserId=null → không gọi sendNotification")
-    void tc50_notifyRequester_nullRecipients_doesNotSendNotification() {
+        @DisplayName("[AT-TC63] notifyRequester() - requesterId=null và ownerUserId=null → không gọi sendNotification")
+        void tc59_notifyRequester_nullRecipients_doesNotSendNotification() {
         RecruitmentWorkflowEvent event = buildEvent("REQUEST_CANCELLED", "REQUEST", REQUEST_ID);
         event.setRequesterId(null);
         event.setOwnerUserId(null);
@@ -2079,8 +2079,8 @@ class ApprovalTrackingServiceTest {
         verify(notificationProducer, never()).sendNotification(anyLong(), anyString(), anyString(), anyString());
     }
 
-    /**
-     * Test Case ID: AT-TC51
+        /**
+         * Test Case ID: AT-TC64
      * Dùng reflection để cover các helper private:
      * - convertWorkflowToDTO(Workflow)
      * - convertWorkflowToDTO(Workflow, Map) với steps=null
@@ -2088,8 +2088,8 @@ class ApprovalTrackingServiceTest {
      * - convertStepToDTO(WorkflowStep, Map) với positionNamesMap=null và approverPositionId=null
      */
     @Test
-    @DisplayName("[AT-TC51] private convert helpers - cover null branches")
-    void tc51_privateConvertHelpers_coverNullBranches() throws Exception {
+        @DisplayName("[AT-TC64] private convert helpers - cover null branches")
+        void tc60_privateConvertHelpers_coverNullBranches() throws Exception {
         Workflow workflow = new Workflow();
         workflow.setId(900L);
         workflow.setName("WF Private Convert");
@@ -2139,13 +2139,13 @@ class ApprovalTrackingServiceTest {
         assertNull(stepDtoWithMap.getApproverPositionName(), "BUG: position name phải null khi map/position null");
     }
 
-    /**
-     * Test Case ID: AT-TC52
+        /**
+         * Test Case ID: AT-TC65
      * Cover helper createTrackingForReturnedStep() và nhánh isReturned=true/false.
      */
     @Test
-    @DisplayName("[AT-TC52] createTrackingForReturnedStep() - cover isReturned branches")
-    void tc52_createTrackingForReturnedStep_coverIsReturnedBranches() throws Exception {
+        @DisplayName("[AT-TC65] createTrackingForReturnedStep() - cover isReturned branches")
+        void tc61_createTrackingForReturnedStep_coverIsReturnedBranches() throws Exception {
         Workflow workflow = saveWorkflow("WF Returned Helper", WorkflowType.REQUEST, 20L);
         WorkflowStep returnedStep = saveStep(workflow, 1, APPROVER_USER_ID);
 
@@ -2173,14 +2173,14 @@ class ApprovalTrackingServiceTest {
         verify(notificationProducer, never()).sendNotificationToDepartment(anyLong(), anyLong(), anyString(), anyString(), anyString());
     }
 
-    /**
-     * Test Case ID: AT-TC53
+        /**
+         * Test Case ID: AT-TC66
      * Cover getRequesterPositionId() và getRequesterDepartmentId() cho các nhánh
      * null/không có field/có field department.id và departmentId.
      */
     @Test
-    @DisplayName("[AT-TC53] requester resolution helpers - cover all branches")
-    void tc53_requesterResolutionHelpers_coverBranches() throws Exception {
+        @DisplayName("[AT-TC66] requester resolution helpers - cover all branches")
+        void tc62_requesterResolutionHelpers_coverBranches() throws Exception {
         com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
         ApprovalTrackingService targetService = org.springframework.test.util.AopTestUtils.getTargetObject(approvalTrackingService);
         java.lang.reflect.Method positionMethod = ApprovalTrackingService.class
@@ -2239,15 +2239,15 @@ class ApprovalTrackingServiceTest {
         assertNull(departmentMethod.invoke(targetService, null, "token"));
     }
 
-    /**
-     * Test Case ID: AT-TC54
+        /**
+         * Test Case ID: AT-TC67
      * initializeApproval(): findUserByPositionId() trả empty list -> approverPositionId=null.
      * Mục tiêu: cover nhánh false của userPositions.isEmpty() và nhánh
      * tracking.getApproverPositionId() == null trong initializeApproval().
      */
     @Test
-    @DisplayName("[AT-TC54] initializeApproval() - empty user position list -> approverPositionId=null")
-    void tc54_initializeApproval_emptyUserPositionList_coversNullApproverBranch() {
+        @DisplayName("[AT-TC67] initializeApproval() - empty user position list -> approverPositionId=null")
+        void tc63_initializeApproval_emptyUserPositionList_coversNullApproverBranch() {
         Response<java.util.List<Object>> emptyUserPositions = new Response<>();
         emptyUserPositions.setData(java.util.List.of());
         doReturn(org.springframework.http.ResponseEntity.ok(emptyUserPositions)).when(restTemplate).exchange(
@@ -2267,15 +2267,15 @@ class ApprovalTrackingServiceTest {
                 "BUG: phải báo lỗi khi user-position list rỗng");
     }
 
-    /**
-     * Test Case ID: AT-TC55
+        /**
+         * Test Case ID: AT-TC68
      * getById()/DTO mapping với tracking có các field nullable.
      * Mục tiêu: cover các nhánh actionUserId=null, approverPositionId=null và step=null
      * trong toResponseDTO()/getById().
      */
     @Test
-    @DisplayName("[AT-TC55] private toResponseDTO - nullable tracking fields")
-    void tc55_toResponseDTO_nullableTrackingFields_coverBranches() throws Exception {
+        @DisplayName("[AT-TC68] private toResponseDTO - nullable tracking fields")
+        void tc64_toResponseDTO_nullableTrackingFields_coverBranches() throws Exception {
         ApprovalTrackingService targetService = org.springframework.test.util.AopTestUtils.getTargetObject(approvalTrackingService);
         java.lang.reflect.Method toResponse = ApprovalTrackingService.class
                 .getDeclaredMethod("toResponseDTO", ApprovalTracking.class, Map.class, Map.class, Map.class);
@@ -2297,14 +2297,14 @@ class ApprovalTrackingServiceTest {
         assertNull(dto.getActionUserName(), "BUG: actionUserName phải null khi actionUserId null");
     }
 
-    /**
-     * Test Case ID: AT-TC56
+        /**
+         * Test Case ID: AT-TC69
      * getAll()/getPendingApprovalsForUser(): danh sách có tracking null action/approver IDs.
      * Mục tiêu: cover nhánh false của các filter(id -> id != null).
      */
     @Test
-    @DisplayName("[AT-TC56] getAll/pending - null action and approver ids")
-    void tc56_getAllAndPending_nullIds_coverFilterFalseBranches() {
+        @DisplayName("[AT-TC69] getAll/pending - null action and approver ids")
+        void tc65_getAllAndPending_nullIds_coverFilterFalseBranches() {
         ApprovalTracking nullableIds = buildTracking(9056L, step1, ApprovalStatus.PENDING, null);
         nullableIds.setActionUserId(null);
         approvalTrackingRepository.save(nullableIds);
@@ -2317,14 +2317,14 @@ class ApprovalTrackingServiceTest {
         assertNotNull(pending, "BUG: pending approvals null khi userId null");
     }
 
-    /**
-     * Test Case ID: AT-TC57
+        /**
+         * Test Case ID: AT-TC70
      * getWorkflowInfoByRequestId(): cover các nhánh workflow.steps != null,
      * requestType="REQUEST", tracking.step=null và tracking.step.workflow=null.
      */
     @Test
-    @DisplayName("[AT-TC57] getWorkflowInfoByRequestId - edge branches")
-    void tc57_getWorkflowInfoByRequestId_edgeBranches() {
+        @DisplayName("[AT-TC70 getWorkflowInfoByRequestId - edge branches")
+        void tc66_getWorkflowInfoByRequestId_edgeBranches() {
         Workflow workflow = saveWorkflow("WF Info Edge", WorkflowType.REQUEST, 57L);
         WorkflowStep realStep = saveStep(workflow, 1, APPROVER_USER_ID);
         WorkflowStep secondStep = saveStep(workflow, 2, OTHER_USER_ID);
@@ -2341,13 +2341,13 @@ class ApprovalTrackingServiceTest {
         assertFalse(result.getWorkflow().getSteps().isEmpty(), "BUG: workflow steps rỗng");
     }
 
-    /**
-     * Test Case ID: AT-TC58
+        /**
+         * Test Case ID: AT-TC71
      * Private helpers: filter/getWorkflowType/notify/moveToNextStep/createTrackingForStep.
      */
     @Test
-    @DisplayName("[AT-TC58] private helpers - remaining null/empty branches")
-    void tc58_privateHelpers_remainingBranches() throws Exception {
+        @DisplayName("[AT-TC71] private helpers - remaining null/empty branches")
+        void tc67_privateHelpers_remainingBranches() throws Exception {
         ApprovalTrackingService targetService = org.springframework.test.util.AopTestUtils.getTargetObject(approvalTrackingService);
 
         java.lang.reflect.Method workflowTypeMethod = ApprovalTrackingService.class
@@ -2399,13 +2399,13 @@ class ApprovalTrackingServiceTest {
                 () -> moveMethod.invoke(targetService, noStepTracking, 10L, "token"));
     }
 
-    /**
-     * Test Case ID: AT-TC59
+        /**
+         * Test Case ID: AT-TC72
      * handleWorkflowEvent(): event guards, OFFER department resolution null và submit guards.
      */
     @Test
-    @DisplayName("[AT-TC59] handleWorkflowEvent - guard branches")
-    void tc59_handleWorkflowEvent_guardBranches() {
+        @DisplayName("[AT-TC72] handleWorkflowEvent - guard branches")
+        void tc68_handleWorkflowEvent_guardBranches() {
         assertDoesNotThrow(() -> approvalTrackingService.handleWorkflowEvent(null));
 
         RecruitmentWorkflowEvent nullType = buildEvent(null, "REQUEST", 9059L);
@@ -2432,13 +2432,13 @@ class ApprovalTrackingServiceTest {
         assertDoesNotThrow(() -> approvalTrackingService.handleWorkflowEvent(missingWorkflow));
     }
 
-    /**
-     * Test Case ID: AT-TC60
+        /**
+         * Test Case ID: AT-TC73
      * handleRequestSubmitted(): requester auto-approve edge branches and resubmit note append.
      */
     @Test
-    @DisplayName("[AT-TC60] handleRequestSubmitted - auto approve and resubmit branches")
-    void tc60_handleRequestSubmitted_autoApproveAndResubmitBranches() {
+        @DisplayName("[AT-TC73] handleRequestSubmitted - auto approve and resubmit branches")
+        void tc69_handleRequestSubmitted_autoApproveAndResubmitBranches() {
         com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
         com.fasterxml.jackson.databind.node.ObjectNode employee = mapper.createObjectNode();
         com.fasterxml.jackson.databind.node.ObjectNode position = mapper.createObjectNode();
@@ -2481,13 +2481,13 @@ class ApprovalTrackingServiceTest {
                 "BUG: resubmit sau return không ghi chú đã chỉnh sửa");
     }
 
-    /**
-     * Test Case ID: AT-TC61
+        /**
+         * Test Case ID: AT-TC74
      * handleStepRejected()/return()/invalidateFutureSteps(): null step and future pending branches.
      */
     @Test
-    @DisplayName("[AT-TC61] reject/return/invalidate - remaining branches")
-    void tc61_rejectReturnInvalidate_remainingBranches() throws Exception {
+        @DisplayName("[AT-TC74] reject/return/invalidate - remaining branches")
+        void tc70_rejectReturnInvalidate_remainingBranches() throws Exception {
         Long requestId = 9062L;
         ApprovalTracking current = buildTracking(requestId, step1, ApprovalStatus.PENDING, APPROVER_USER_ID);
         approvalTrackingRepository.save(current);
