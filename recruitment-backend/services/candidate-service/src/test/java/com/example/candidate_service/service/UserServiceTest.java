@@ -67,7 +67,6 @@ class UserServiceTest {
         Response<Map<String, Object>> body = new Response<>();
         body.setData(data);
 
-        @SuppressWarnings("unchecked")
         ResponseEntity<Response<Map<String, Object>>> mockedResponse = 
                 (ResponseEntity<Response<Map<String, Object>>>) (ResponseEntity<?>) ResponseEntity.ok(body);
 
@@ -87,7 +86,6 @@ class UserServiceTest {
         Response<Map<String, Object>> body = new Response<>();
         body.setData(null);
 
-        @SuppressWarnings("unchecked")
         ResponseEntity<Response<Map<String, Object>>> mockedResponse = 
                 (ResponseEntity<Response<Map<String, Object>>>) (ResponseEntity<?>) ResponseEntity.ok(body);
 
@@ -105,7 +103,6 @@ class UserServiceTest {
         Response<List<Map<String, Object>>> body = new Response<>();
         body.setData(data);
 
-        @SuppressWarnings("unchecked")
         ResponseEntity<Response<List<Map<String, Object>>>> mockedResponse = 
                 (ResponseEntity<Response<List<Map<String, Object>>>>) (ResponseEntity<?>) ResponseEntity.ok(body);
 
@@ -125,7 +122,6 @@ class UserServiceTest {
         Response<Map<String, Object>> body = new Response<>();
         body.setData(data);
 
-        @SuppressWarnings("unchecked")
         ResponseEntity<Response<Map<String, Object>>> mockedResponse = 
                 (ResponseEntity<Response<Map<String, Object>>>) (ResponseEntity<?>) ResponseEntity.ok(body);
 
@@ -143,7 +139,6 @@ class UserServiceTest {
         Response<Map<String, Object>> body = new Response<>();
         body.setData(data);
 
-        @SuppressWarnings("unchecked")
         ResponseEntity<Response<Map<String, Object>>> mockedResponse = 
                 (ResponseEntity<Response<Map<String, Object>>>) (ResponseEntity<?>) ResponseEntity.ok(body);
 
@@ -171,7 +166,6 @@ class UserServiceTest {
         Response<JsonNode> body = new Response<>();
         body.setData(data);
 
-        @SuppressWarnings("unchecked")
         ResponseEntity<Response<JsonNode>> mockedResponse = 
                 (ResponseEntity<Response<JsonNode>>) (ResponseEntity<?>) ResponseEntity.ok(body);
 
@@ -189,7 +183,6 @@ class UserServiceTest {
         Response<JsonNode> body = new Response<>();
         body.setData(null);
 
-        @SuppressWarnings("unchecked")
         ResponseEntity<Response<JsonNode>> mockedResponse = 
                 (ResponseEntity<Response<JsonNode>>) (ResponseEntity<?>) ResponseEntity.status(400).body(body);
 
@@ -201,84 +194,154 @@ class UserServiceTest {
     }
 
     @Test
-    @DisplayName("US-TC-009: getEmployeeName - handle null/empty token")
-    void getEmployeeName_WithNullOrEmptyToken_ShouldHandleGracefully() {
-        userService.getEmployeeName(1L, null);
-        userService.getEmployeeName(1L, "");
-        userService.getEmployeeNames(List.of(1L), null);
-        userService.getEmployeeNames(List.of(1L), "");
+    @DisplayName("US-TC-009: getEmployeeName - null token")
+    void testGetEmployeeName_NullToken() {
+        // 2. Thực thi & 3. Kiểm tra
+        assertThat(userService.getEmployeeName(1L, null).getStatusCode())
+                .isEqualTo(HttpStatus.UNAUTHORIZED);
     }
 
     @Test
-    @DisplayName("US-TC-010: userService - handle null response bodies")
-    void userServiceMethods_WithNullResponseBody_ShouldHandleGracefully() {
+    @DisplayName("US-TC-015: getEmployeeName - empty token")
+    void testGetEmployeeName_EmptyToken() {
+        // 2. Thực thi & 3. Kiểm tra
+        assertThat(userService.getEmployeeName(1L, "").getStatusCode())
+                .isEqualTo(HttpStatus.UNAUTHORIZED);
+    }
+
+    @Test
+    @DisplayName("US-TC-016: getEmployeeNames - null token")
+    void testGetEmployeeNames_NullToken() {
+        // 2. Thực thi & 3. Kiểm tra
+        assertThat(userService.getEmployeeNames(List.of(1L), null).getStatusCode())
+                .isEqualTo(HttpStatus.UNAUTHORIZED);
+    }
+
+    @Test
+    @DisplayName("US-TC-010: getEmployeeName - null response body")
+    void testGetEmployeeName_NullResponseBody() {
+        // 1. Chuẩn bị
         when(restTemplate.exchange(anyString(), any(), any(), any(ParameterizedTypeReference.class)))
                 .thenReturn(ResponseEntity.ok(null));
-        userService.getEmployeeName(1L, "token");
-        userService.getEmployeeNames(List.of(1L), "token");
-        userService.getUserIdByEmail("test@example.com");
-        userService.createEmployeeFromCandidate(1L, "N", "E", "P", "D", "G", "N", "I", "A", "V", 1L, 1L, "S", "T");
 
-        Response<Object> respNull = new Response<>();
-        respNull.setData(null);
+        // 2. Thực thi & 3. Kiểm tra
+        assertThat(userService.getEmployeeName(1L, "token").getStatusCode())
+                .isEqualTo(HttpStatus.NOT_FOUND);
+    }
+
+    @Test
+    @DisplayName("US-TC-017: getEmployeeNames - null response body")
+    void testGetEmployeeNames_NullResponseBody() {
+        // 1. Chuẩn bị
         when(restTemplate.exchange(anyString(), any(), any(), any(ParameterizedTypeReference.class)))
-                .thenReturn(ResponseEntity.ok(respNull));
-        userService.getEmployeeName(1L, "token");
-        userService.getEmployeeNames(List.of(1L), "token");
-        userService.getUserIdByEmail("test@example.com");
-        userService.createEmployeeFromCandidate(1L, "N", "E", "P", "D", "G", "N", "I", "A", "V", 1L, 1L, "S", "T");
+                .thenReturn(ResponseEntity.ok(null));
+
+        // 2. Thực thi & 3. Kiểm tra
+        assertThat(userService.getEmployeeNames(List.of(1L), "token").getStatusCode())
+                .isEqualTo(HttpStatus.OK); // Logic hiện tại trả về Map rỗng với status 200
+    }
+
+    @Test
+    @DisplayName("US-TC-018: getUserIdByEmail - null response body")
+    void testGetUserIdByEmail_NullResponseBody() {
+        // 1. Chuẩn bị
+        when(restTemplate.exchange(anyString(), any(), any(), any(ParameterizedTypeReference.class)))
+                .thenReturn(ResponseEntity.ok(null));
+
+        // 2. Thực thi & 3. Kiểm tra
+        assertThat(userService.getUserIdByEmail("test@example.com")).isNull();
     }
 
     @Test
     @DisplayName("US-TC-011: getEmployeeName - handle null name in data")
-    void getEmployeeName_WithNullNameInBody_ShouldHandleGracefully() {
+    void testGetEmployeeName_NullNameInBody() {
+        // 1. Chuẩn bị
         Map<String, Object> dataNullName = new HashMap<>();
         dataNullName.put("name", null);
         Response<Map<String, Object>> respNullName = new Response<>();
         respNullName.setData(dataNullName);
+
         when(restTemplate.exchange(anyString(), eq(HttpMethod.GET), any(), any(ParameterizedTypeReference.class)))
                 .thenReturn(ResponseEntity.ok(respNullName));
-        userService.getEmployeeName(1L, "token");
+
+        // 2. Thực thi & 3. Kiểm tra
+        assertThat(userService.getEmployeeName(1L, "token").getStatusCode())
+                .isEqualTo(HttpStatus.NOT_FOUND);
     }
 
     @Test
-    @DisplayName("US-TC-012: getEmployeeNames - handle null id or name in list")
-    void getEmployeeNames_WithNullIdOrNameInList_ShouldHandleGracefully() {
+    @DisplayName("US-TC-012: getEmployeeNames - null ID in list")
+    void testGetEmployeeNames_NullIdInList() {
+        // 1. Chuẩn bị
         Map<String, Object> emp1 = new HashMap<>();
         emp1.put("id", null);
         emp1.put("name", "John");
+
+        Response<List<Map<String, Object>>> respListNull = new Response<>();
+        respListNull.setData(List.of(emp1));
+
+        when(restTemplate.exchange(anyString(), eq(HttpMethod.GET), any(), any(ParameterizedTypeReference.class)))
+                .thenReturn(ResponseEntity.ok(respListNull));
+
+        // 2. Thực thi & 3. Kiểm tra
+        assertThat(userService.getEmployeeNames(List.of(1L), "token").getBody().isEmpty()).isTrue();
+    }
+
+    @Test
+    @DisplayName("US-TC-019: getEmployeeNames - null Name in list")
+    void testGetEmployeeNames_NullNameInList() {
+        // 1. Chuẩn bị
         Map<String, Object> emp2 = new HashMap<>();
         emp2.put("id", 2);
         emp2.put("name", null);
+
         Response<List<Map<String, Object>>> respListNull = new Response<>();
-        respListNull.setData(List.of(emp1, emp2));
+        respListNull.setData(List.of(emp2));
+
         when(restTemplate.exchange(anyString(), eq(HttpMethod.GET), any(), any(ParameterizedTypeReference.class)))
                 .thenReturn(ResponseEntity.ok(respListNull));
-        userService.getEmployeeNames(List.of(1L, 2L), "token");
+
+        // 2. Thực thi & 3. Kiểm tra
+        assertThat(userService.getEmployeeNames(List.of(2L), "token").getBody().isEmpty()).isTrue();
     }
 
     @Test
     @DisplayName("US-TC-013: getUserIdByEmail - handle various ID types")
-    void getUserIdByEmail_WithVariousIdTypes_ShouldHandleGracefully() {
+    void testGetUserIdByEmail_VariousIdTypes() {
+        // 1. Chuẩn bị
         Map<String, Object> dataU = new HashMap<>();
-        dataU.put("employeeId", "string");
+        dataU.put("employeeId", "not_a_number");
         dataU.put("id", 123);
         Response<Map<String, Object>> respU = new Response<>();
         respU.setData(dataU);
+
         when(restTemplate.exchange(anyString(), eq(HttpMethod.GET), any(), any(ParameterizedTypeReference.class)))
                 .thenReturn(ResponseEntity.ok(respU));
-        userService.getUserIdByEmail("a@b.com");
 
-        dataU.put("id", "string");
-        userService.getUserIdByEmail("a@b.com");
+        // 2. Thực thi & 3. Kiểm tra
+        assertThat(userService.getUserIdByEmail("a@b.com")).isEqualTo(123L);
     }
 
     @Test
-    @DisplayName("US-TC-014: userService - handle API exceptions")
-    void userServiceMethods_WithApiDown_ShouldReturnNull() {
+    @DisplayName("US-TC-014: getEmployeeName - API Down")
+    void testGetEmployeeName_ApiDown() {
+        // 1. Chuẩn bị
         when(restTemplate.exchange(anyString(), any(), any(), any(ParameterizedTypeReference.class)))
                 .thenThrow(new RuntimeException("API Down"));
-        userService.getEmployeeName(1L, "token");
-        userService.getEmployeeNames(List.of(1L), "token");
+
+        // 2. Thực thi & 3. Kiểm tra
+        assertThat(userService.getEmployeeName(1L, "token").getStatusCode())
+                .isEqualTo(HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+
+    @Test
+    @DisplayName("US-TC-020: getUserIdByEmail - API Down")
+    void testGetUserIdByEmail_ApiDown() {
+        // 1. Chuẩn bị
+        when(restTemplate.exchange(anyString(), any(), any(), any(ParameterizedTypeReference.class)))
+                .thenThrow(new RuntimeException("API Down"));
+
+        // 2. Thực thi & 3. Kiểm tra
+        assertThat(userService.getUserIdByEmail("test@example.com")).isNull();
     }
 }

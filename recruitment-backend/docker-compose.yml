@@ -13,6 +13,11 @@ services:
       - mysql_data:/var/lib/mysql
     networks:
       - backend-network
+    deploy:
+      resources:
+        limits:
+          cpus: '1.5'
+          memory: 1536M
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
       interval: 10s
@@ -30,6 +35,11 @@ services:
       ZOOKEEPER_TICK_TIME: 2000
     networks:
       - backend-network
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
 
   # Kafka
   kafka:
@@ -49,6 +59,11 @@ services:
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
     networks:
       - backend-network
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1024M
 
   # Gateway
   gateway:
@@ -64,10 +79,11 @@ services:
       - candidate-service
     networks:
       - backend-network
-    # environment:
-    #   SPRING_CLOUD_GATEWAY_SERVER_WEBFLUX_ROUTES_0_URI: http://user-service:8082
-    #   SPRING_CLOUD_GATEWAY_SERVER_WEBFLUX_ROUTES_1_URI: http://job-service:8083
-    #   SPRING_CLOUD_GATEWAY_SERVER_WEBFLUX_ROUTES_2_URI: http://candidate-service:8084
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
 
   # User Service
   user-service:
@@ -84,6 +100,11 @@ services:
         condition: service_started
     networks:
       - backend-network
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
     environment:
       SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/user_service?createDatabaseIfNotExist=true
       SPRING_DATASOURCE_USERNAME: root
@@ -107,6 +128,11 @@ services:
         condition: service_started
     networks:
       - backend-network
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
     environment:
       SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/job_service?createDatabaseIfNotExist=true
       SPRING_DATASOURCE_USERNAME: root
@@ -133,6 +159,11 @@ services:
         condition: service_started
     networks:
       - backend-network
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
     environment:
       SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/candidate_service?createDatabaseIfNotExist=true
       SPRING_DATASOURCE_USERNAME: root
@@ -161,6 +192,11 @@ services:
         condition: service_started
     networks:
       - backend-network
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
     environment:
       SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/schedule_service?createDatabaseIfNotExist=true
       SPRING_DATASOURCE_USERNAME: root
@@ -184,6 +220,11 @@ services:
         condition: service_started
     networks:
       - backend-network
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
     environment:
       SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/workflow_service?createDatabaseIfNotExist=true
       SPRING_DATASOURCE_USERNAME: root
@@ -205,6 +246,11 @@ services:
         condition: service_started
     networks:
       - backend-network
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 1024M
     environment:
       SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
 
@@ -223,6 +269,11 @@ services:
         condition: service_started
     networks:
       - backend-network
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
     environment:
       SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/notification_service?createDatabaseIfNotExist=true
       SPRING_DATASOURCE_USERNAME: root
@@ -250,6 +301,11 @@ services:
         condition: service_started
     networks:
       - backend-network
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
     environment:
       USER_SERVICE_URL: http://user-service:8082
       JOB_SERVICE_URL: http://job-service:8083
@@ -273,6 +329,11 @@ services:
         condition: service_started
     networks:
       - backend-network
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
     environment:
       SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/email_service?createDatabaseIfNotExist=true
       SPRING_DATASOURCE_USERNAME: root
