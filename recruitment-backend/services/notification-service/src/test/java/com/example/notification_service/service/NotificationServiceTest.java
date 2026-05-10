@@ -1,3 +1,9 @@
+package com.example.notification_service.service;
+
+import com.example.notification_service.dto.PaginationDTO;
+import com.example.notification_service.dto.notification.BulkNotificationRequest;
+import com.example.notification_service.messaging.NotificationEvent;
+import com.example.notification_service.exception.NotificationNotFoundException;
 import com.example.notification_service.model.Notification;
 import com.example.notification_service.repository.NotificationRepository;
 import com.example.notification_service.utils.SecurityUtil;

@@ -4,7 +4,6 @@
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
 
-    <!-- Khai báo Root POM vừa tạo làm parent -->
     <parent>
         <groupId>com.example</groupId>
         <artifactId>recruitment-backend-aggregator</artifactId>
@@ -19,11 +18,9 @@
     <description>Module tổng hợp báo cáo JaCoCo từ tất cả các backend services</description>
 
     <dependencies>
-        <!-- Phải đưa tất cả các module cần report vào dependencies để aggregate có thể tìm thấy codebase và file exe -->
         <dependency><groupId>com.example</groupId><artifactId>gateway</artifactId><version>0.0.1-SNAPSHOT</version></dependency>
         <dependency><groupId>com.example</groupId><artifactId>candidate-service</artifactId><version>0.0.1-SNAPSHOT</version></dependency>
         <dependency><groupId>com.example</groupId><artifactId>communications-service</artifactId><version>0.0.1-SNAPSHOT</version></dependency>
-        <dependency><groupId>com.example</groupId><artifactId>email-service</artifactId><version>0.0.1-SNAPSHOT</version></dependency>
         <dependency><groupId>com.example</groupId><artifactId>job-service</artifactId><version>0.0.1-SNAPSHOT</version></dependency>
         <dependency><groupId>com.example</groupId><artifactId>notification-service</artifactId><version>0.0.1-SNAPSHOT</version></dependency>
         <dependency><groupId>com.example</groupId><artifactId>schedule-service</artifactId><version>0.0.1-SNAPSHOT</version></dependency>
@@ -38,7 +35,6 @@
             <plugin>
                 <groupId>org.jacoco</groupId>
                 <artifactId>jacoco-maven-plugin</artifactId>
-                <!-- Đồng bộ phiên bản với user-service -->
                 <version>0.8.12</version>
                 <executions>
                     <execution>
@@ -49,87 +45,52 @@
                         </goals>
                         <configuration>
                             <outputDirectory>${project.build.directory}/site/jacoco-aggregate</outputDirectory>
-                            
-                            <!--
-                            Scope cho report aggregate:
-                            1) Mặc định lấy toàn bộ service layer của các module.
-                            2) Riêng user-service, đồng bộ đúng phạm vi unit test trong services/user-service/pom.xml:
-                               - service: UserService, UserDetailCustom, DepartmentService,
-                                 EmployeeService, PositionService, RoleService, PermissionService
-                               - config: PermissionInterceptor
-                               - utils: JwtUtil
-                            -->
                             <includes>
-                                <include>com/example/*/service/**</include>
+                                <!-- Job-service -->
+                                <include>com/example/job_service/service/JobPositionService*</include>
+                                <include>com/example/job_service/service/OfferService*</include>
+                                <include>com/example/job_service/service/RecruitmentRequestService*</include>
 
-                                <!-- User-service (giữ đúng phạm vi test đã chốt) -->
+                                <!-- Candidate-service -->
+                                <include>com/example/candidate_service/service/UserService*</include>
+                                <include>com/example/candidate_service/service/JobService*</include>
+                                <include>com/example/candidate_service/service/CandidateService*</include>
+                                <include>com/example/candidate_service/service/ScheduleService*</include>
+                                <include>com/example/candidate_service/service/ReviewCandidateService*</include>
+                                <include>com/example/candidate_service/service/CommentService*</include>
+                                <include>com/example/candidate_service/service/CloudinaryService*</include>
+
+                                <!-- User-service -->
                                 <include>com/example/user_service/service/UserService*</include>
-                                <include>com/example/user_service/service/UserDetailCustom*</include>
-                                <include>com/example/user_service/service/DepartmentService*</include>
                                 <include>com/example/user_service/service/EmployeeService*</include>
+                                <include>com/example/user_service/service/DepartmentService*</include>
                                 <include>com/example/user_service/service/PositionService*</include>
                                 <include>com/example/user_service/service/RoleService*</include>
                                 <include>com/example/user_service/service/PermissionService*</include>
-                                <include>com/example/user_service/config/PermissionInterceptor.class</include>
+                                <include>com/example/user_service/service/UserDetailCustom*</include>
+                                <include>com/example/user_service/config/PermissionInterceptor*</include>
                                 <include>com/example/user_service/utils/JwtUtil*</include>
+
+                                <!-- Workflow-service -->
+                                <include>com/example/workflow_service/service/WorkflowService*</include>
+                                <include>com/example/workflow_service/service/ApprovalTrackingService*</include>
+
+                                <!-- Other Services -->
+                                <include>com/example/notification_service/service/NotificationService*</include>
+                                <include>com/example/schedule_service/service/ScheduleService*</include>
+                                <include>com/example/schedule_service/service/ScheduleStatusUpdateService*</include>
+                                <include>com/example/statistics_service/service/StatisticsService*</include>
+                                <include>com/example/upload_service/service/CloudinaryService*</include>
                             </includes>
-
-                            <!--
-                            Exclusions dùng wildcard hợp lệ của JaCoCo.
-                            Lưu ý: JaCoCo không hỗ trợ pattern phủ định kiểu !(...).
-                            -->
                             <excludes>
-                                <!-- Boilerplate chung -->
+                                <!-- Loại bỏ class Application và các class ẩn/nội phát sinh -->
                                 <exclude>**/*Application.*</exclude>
-                                <exclude>com/example/*/controller/**</exclude>
-                                <exclude>com/example/*/dto/**</exclude>
-                                <exclude>com/example/*/model/**</exclude>
-                                <exclude>com/example/*/repository/**</exclude>
-                                <exclude>com/example/*/exception/**</exclude>
-                                <exclude>com/example/*/messaging/**</exclude>
+                                <exclude>**/*$*.class</exclude>
                                 
-                                <!-- Đặc thù Notification-service -->
-                                <exclude>com/example/notification_service/service/UserService.class</exclude>
-                                <exclude>com/example/notification_service/service/UserService$*.class</exclude>
-                                <exclude>com/example/notification_service/service/SocketIOBroadcastService.class</exclude>
-                                <exclude>com/example/notification_service/service/SocketIOBroadcastService$*.class</exclude>
-                                <exclude>com/example/notification_service/websocket/**</exclude>
-                                <exclude>com/example/notification_service/utils/**</exclude>
-                                <exclude>com/example/notification_service/config/**</exclude>
-
-                                <!-- Job-Service===================================================== -->
-                                <exclude>com/example/workflow_service/service/CandidateService.class</exclude>
-                                <exclude>com/example/workflow_service/service/CandidateService$*.class</exclude>
-                                <exclude>com/example/workflow_service/service/UserService.class</exclude>
-                                <exclude>com/example/workflow_service/service/UserService$*.class</exclude>
-                                <exclude>com/example/workflow_service/utils/**</exclude>
-                                <exclude>com/example/workflow_service/config/**</exclude>
-
-                                <!-- ===================================================== -->
-                                <exclude>com/example/job_service/service/UserClient.class</exclude>
-                                <exclude>com/example/job_service/service/CandidateClient.class</exclude>
-                                <exclude>com/example/job_service/service/WorkflowClient.class</exclude>
-                                <exclude>com/example/job_service/service/UserClient$*.class</exclude>
-                                <exclude>com/example/job_service/service/CandidateClient$*.class</exclude>
-                                <exclude>com/example/job_service/service/WorkflowClient$*.class</exclude>
-                                <exclude>com/example/job_service/utils/**</exclude>
-                                <exclude>com/example/job_service/config/**</exclude>
-
-                                <!-- Đặc thù Statistics-service -->
+                                <!-- Loại bỏ các Client gọi Microservice (vì đã được Mock) -->
+                                <exclude>com/example/job_service/service/*Client*</exclude>
+                                <exclude>com/example/notification_service/service/SocketIOBroadcastService*</exclude>
                                 <exclude>com/example/statistics_service/service/client/**</exclude>
-                                <exclude>com/example/statistics_service/utils/**</exclude>
-                                <exclude>com/example/statistics_service/config/**</exclude>
-
-                                <!-- Đặc thù Upload-service (Chỉ loại trừ controller và config như POM gốc) -->
-                                <exclude>com/example/upload_service/config/**</exclude>
-
-                                <!-- User-service: loại toàn bộ config/utils, sau đó include lại class cần giữ ở trên -->
-                                <exclude>com/example/user_service/config/**</exclude>
-                                <exclude>com/example/user_service/utils/**</exclude>
-
-                                <!-- Các module còn lại: loại toàn bộ config/utils để tránh làm nhiễu số liệu unit test service -->
-                                <exclude>com/example/*/config/**</exclude>
-                                <exclude>com/example/*/utils/**</exclude>
                             </excludes>
                         </configuration>
                     </execution>
