@@ -685,39 +685,77 @@ class WorkflowServiceTest {
          * Nhánh còn thiếu của update(): workflow.getSteps() ban đầu là null → service
          * phải khởi tạo Set mới.
          */
+        // @Test
+        // @DisplayName("[WF-TC16A] update() - workflow.getSteps() null → khởi tạo Set rỗng")
+        // void tc16a_update_whenWorkflowStepsNull_initializesEmptySet() {
+        //         WorkflowRepository originalRepository = workflowRepository;
+        //         WorkflowRepository mockedRepository = Mockito.mock(WorkflowRepository.class);
+        //         ReflectionTestUtils.setField(workflowService, "workflowRepository", mockedRepository);
+
+        //         try {
+        //                 Workflow workflow = new Workflow();
+        //                 workflow.setId(9000L);
+        //                 workflow.setName("Workflow Null Steps");
+        //                 workflow.setType(WorkflowType.REQUEST);
+        //                 workflow.setDepartmentId(10L);
+        //                 workflow.setIsActive(true);
+        //                 workflow.setSteps(null);
+
+        //                 when(mockedRepository.findById(9000L)).thenReturn(Optional.of(workflow));
+        //                 when(mockedRepository.save(any(Workflow.class)))
+        //                                 .thenAnswer(invocation -> invocation.getArgument(0));
+
+        //                 UpdateWorkflowDTO dto = new UpdateWorkflowDTO();
+        //                 dto.setDescription("Cập nhật mô tả");
+        //                 dto.setSteps(null);
+
+        //                 WorkflowResponseDTO result = workflowService.update(9000L, dto);
+
+        //                 assertThat(result.getDescription()).isEqualTo("Cập nhật mô tả");
+        //                 assertThat(result.getSteps()).isEmpty();
+        //                 assertThat(workflow.getSteps()).isNotNull();
+        //                 assertThat(workflow.getSteps()).isEmpty();
+        //         } finally {
+        //                 ReflectionTestUtils.setField(workflowService, "workflowRepository", originalRepository);
+        //         }
+        // }
+
+        /**
+         * Test Case ID: WF-TC16A
+         * Nhánh còn thiếu của update(): workflow.getSteps() ban đầu là null → service
+         * phải khởi tạo Set mới.
+         */
         @Test
         @DisplayName("[WF-TC16A] update() - workflow.getSteps() null → khởi tạo Set rỗng")
         void tc16a_update_whenWorkflowStepsNull_initializesEmptySet() {
-                WorkflowRepository originalRepository = workflowRepository;
-                WorkflowRepository mockedRepository = Mockito.mock(WorkflowRepository.class);
-                ReflectionTestUtils.setField(workflowService, "workflowRepository", mockedRepository);
+                // 1. Arrange: Tạo đối tượng và lưu thẳng xuống Database H2 thật
+                Workflow workflow = new Workflow();
+                workflow.setName("Workflow Null Steps");
+                workflow.setType(WorkflowType.REQUEST);
+                workflow.setDepartmentId(10L);
+                workflow.setIsActive(true);
+                workflow.setSteps(null); // Gán null theo kịch bản
 
-                try {
-                        Workflow workflow = new Workflow();
-                        workflow.setId(9000L);
-                        workflow.setName("Workflow Null Steps");
-                        workflow.setType(WorkflowType.REQUEST);
-                        workflow.setDepartmentId(10L);
-                        workflow.setIsActive(true);
-                        workflow.setSteps(null);
+                // Lưu vào DB và lấy ID thật do DB tự sinh (thay vì fix cứng 9000L)
+                Workflow savedWorkflow = workflowRepository.save(workflow);
+                Long workflowId = savedWorkflow.getId();
 
-                        when(mockedRepository.findById(9000L)).thenReturn(Optional.of(workflow));
-                        when(mockedRepository.save(any(Workflow.class)))
-                                        .thenAnswer(invocation -> invocation.getArgument(0));
+                UpdateWorkflowDTO dto = new UpdateWorkflowDTO();
+                dto.setDescription("Cập nhật mô tả");
+                dto.setSteps(null);
 
-                        UpdateWorkflowDTO dto = new UpdateWorkflowDTO();
-                        dto.setDescription("Cập nhật mô tả");
-                        dto.setSteps(null);
+                // 2. Act: Gọi hàm service thực thi nghiệp vụ
+                WorkflowResponseDTO result = workflowService.update(workflowId, dto);
 
-                        WorkflowResponseDTO result = workflowService.update(9000L, dto);
+                // 3. Assert: Kiểm chứng kết quả trả về từ hàm
+                assertThat(result.getDescription()).isEqualTo("Cập nhật mô tả");
+                assertThat(result.getSteps()).isEmpty(); // Đảm bảo Set đã được khởi tạo và rỗng
 
-                        assertThat(result.getDescription()).isEqualTo("Cập nhật mô tả");
-                        assertThat(result.getSteps()).isEmpty();
-                        assertThat(workflow.getSteps()).isNotNull();
-                        assertThat(workflow.getSteps()).isEmpty();
-                } finally {
-                        ReflectionTestUtils.setField(workflowService, "workflowRepository", originalRepository);
-                }
+                // 4. Assert DB: Móc dữ liệu ngược lại từ Database lên để kiểm chứng tính toàn vẹn
+                Workflow updatedWorkflow = workflowRepository.findById(workflowId).orElseThrow();
+                assertThat(updatedWorkflow.getDescription()).isEqualTo("Cập nhật mô tả");
+                assertThat(updatedWorkflow.getSteps()).isNotNull();
+                assertThat(updatedWorkflow.getSteps()).isEmpty();
         }
 
         // ================================================================
