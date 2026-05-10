@@ -19,12 +19,19 @@ import org.mockito.Mock;
 import org.mockito.MockedStatic;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.lang.reflect.Method;
+import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
@@ -758,6 +765,1089 @@ class StatisticsServiceTest {
             when(jobServiceClient.getJobPositions(any(), any(), anyInt(), anyInt())).thenReturn(dto);
             List<JobOpeningDTO> res = statisticsService.getJobOpenings("token", 1, 10);
             assertThat(res).isEmpty(); // Bị ignored
+        }
+    }
+
+    // =======================================================================
+    // PHẦN 5: Bổ sung TC để đạt độ phủ Mức 1 (Statement) & Mức 2 (Branch) 100%
+    // =======================================================================
+
+    // Test Case ID: UTIL-ST31
+    // Mục tiêu: startDate có giá trị, endDate=null -> periodEnd phải = startDate + 7 ngày
+    @Test
+    @DisplayName("UTIL-ST31: getSummaryStatistics - startDate có, endDate=null phải set mặc định + 7 ngày")
+    void getSummaryStatistics_WithStartDateOnly_ShouldDefaultEndDateToPlusSeven() {
+        LocalDate start = LocalDate.of(2026, 4, 1);
+
+        try (MockedStatic<SecurityUtil> secUtil = mockStatic(SecurityUtil.class)) {
+            secUtil.when(SecurityUtil::extractUserRole).thenReturn("CEO");
+
+            when(candidateServiceClient.getApplicationsForStatistics(
+                    any(), any(), any(), any(), any(), any())).thenReturn(Collections.emptyList());
+            when(communicationServiceClient.getSchedulesForStatistics(
+                    any(), any(), any(), any(), any())).thenReturn(Collections.emptyList());
+
+            // Thực thi
+            SummaryStatisticsDTO result = statisticsService.getSummaryStatistics("token", start, null);
+
+            // Kiểm tra: không null
+            assertThat(result).isNotNull();
+            // Minh chứng: candidateServiceClient gọi với startDate=2026-04-01, endDate=2026-04-08
+            verify(candidateServiceClient, times(1)).getApplicationsForStatistics(
+                    any(),
+                    isNull(),
+                    eq("2026-04-01"),
+                    eq("2026-04-08"),
+                    any(),
+                    isNull());
+        }
+    }
+
+    // Test Case ID: UTIL-ST32
+    // Mục tiêu: startDate=null, endDate có giá trị -> periodStart phải = today
+    @Test
+    @DisplayName("UTIL-ST32: getSummaryStatistics - startDate=null, endDate có thì periodStart=today")
+    void getSummaryStatistics_WithEndDateOnly_ShouldDefaultStartDateToToday() {
+        LocalDate end = LocalDate.of(2026, 4, 30);
+        LocalDate today = LocalDate.now();
+
+        try (MockedStatic<SecurityUtil> secUtil = mockStatic(SecurityUtil.class)) {
+            secUtil.when(SecurityUtil::extractUserRole).thenReturn("CEO");
+
+            when(candidateServiceClient.getApplicationsForStatistics(
+                    any(), any(), any(), any(), any(), any())).thenReturn(Collections.emptyList());
+            when(communicationServiceClient.getSchedulesForStatistics(
+                    any(), any(), any(), any(), any())).thenReturn(Collections.emptyList());
+
+            // Thực thi
+            SummaryStatisticsDTO result = statisticsService.getSummaryStatistics("token", null, end);
+
+            assertThat(result).isNotNull();
+            // Minh chứng: startDate=today, endDate=2026-04-30
+            verify(candidateServiceClient, times(1)).getApplicationsForStatistics(
+                    any(),
+                    isNull(),
+                    eq(today.toString()),
+                    eq("2026-04-30"),
+                    any(),
+                    isNull());
+        }
+    }
+
+    // Test Case ID: UTIL-ST33
+    // Mục tiêu: startDate > endDate -> không crash, count=0 do filter ra rỗng
+    @Test
+    @DisplayName("UTIL-ST33: getSummaryStatistics - startDate > endDate, kết quả count=0")
+    void getSummaryStatistics_StartDateAfterEndDate_ShouldReturnZeroCount() {
+        LocalDate start = LocalDate.of(2026, 5, 1);
+        LocalDate end = LocalDate.of(2026, 4, 1);
+
+        // Cố tình cho dữ liệu nằm giữa, nhưng filter sẽ luôn loại bỏ vì start > end
+        List<JsonNode> applications = Arrays.asList(
+                buildApplicationNode("2026-04-15", "HIRED"),
+                buildApplicationNode("2026-04-20", "REJECTED"));
+
+        try (MockedStatic<SecurityUtil> secUtil = mockStatic(SecurityUtil.class)) {
+            secUtil.when(SecurityUtil::extractUserRole).thenReturn("CEO");
+
+            when(candidateServiceClient.getApplicationsForStatistics(
+                    any(), any(), any(), any(), any(), any())).thenReturn(applications);
+            when(communicationServiceClient.getSchedulesForStatistics(
+                    any(), any(), any(), any(), any())).thenReturn(Collections.emptyList());
+
+            // Thực thi: không được throw exception
+            SummaryStatisticsDTO result = statisticsService.getSummaryStatistics("token", start, end);
+
+            // Kiểm tra: count=0 do filter loại bỏ
+            assertThat(result.getApplications()).isEqualTo(0L);
+            assertThat(result.getHired()).isEqualTo(0L);
+            assertThat(result.getRejected()).isEqualTo(0L);
+            assertThat(result.getInterviews()).isEqualTo(0L);
+        }
+    }
+
+    // Test Case ID: UTIL-ST34
+    // Mục tiêu: candidateServiceClient throw exception -> getSummaryStatistics ném lỗi (theo implement)
+    @Test
+    @DisplayName("UTIL-ST34: getSummaryStatistics - candidateServiceClient throw -> exception lan tỏa")
+    void getSummaryStatistics_CandidateClientThrows_ShouldPropagateException() {
+        try (MockedStatic<SecurityUtil> secUtil = mockStatic(SecurityUtil.class)) {
+            secUtil.when(SecurityUtil::extractUserRole).thenReturn("CEO");
+
+            when(candidateServiceClient.getApplicationsForStatistics(
+                    any(), any(), any(), any(), any(), any()))
+                    .thenThrow(new RuntimeException("Candidate service down"));
+
+            // Kiểm tra: phải ném RuntimeException (theo implement, không có try/catch ở SUT)
+            assertThatThrownBy(() -> statisticsService.getSummaryStatistics(
+                    "token", LocalDate.of(2026, 1, 1), LocalDate.of(2026, 12, 31)))
+                    .isInstanceOf(RuntimeException.class)
+                    .hasMessageContaining("Candidate service down");
+        }
+    }
+
+    // Test Case ID: UTIL-ST35
+    // Mục tiêu: scheduleServiceClient throw exception -> ném lỗi
+    @Test
+    @DisplayName("UTIL-ST35: getSummaryStatistics - scheduleServiceClient throw -> exception lan tỏa")
+    void getSummaryStatistics_ScheduleClientThrows_ShouldPropagateException() {
+        try (MockedStatic<SecurityUtil> secUtil = mockStatic(SecurityUtil.class)) {
+            secUtil.when(SecurityUtil::extractUserRole).thenReturn("CEO");
+
+            when(candidateServiceClient.getApplicationsForStatistics(
+                    any(), any(), any(), any(), any(), any())).thenReturn(Collections.emptyList());
+            when(communicationServiceClient.getSchedulesForStatistics(
+                    any(), any(), any(), any(), any()))
+                    .thenThrow(new RuntimeException("Schedule service down"));
+
+            assertThatThrownBy(() -> statisticsService.getSummaryStatistics(
+                    "token", LocalDate.of(2026, 1, 1), LocalDate.of(2026, 12, 31)))
+                    .isInstanceOf(RuntimeException.class)
+                    .hasMessageContaining("Schedule service down");
+        }
+    }
+
+    // Test Case ID: UTIL-ST36
+    // Mục tiêu: getJobOpenings - jobServiceClient throw -> exception lan tỏa
+    @Test
+    @DisplayName("UTIL-ST36: getJobOpenings - jobServiceClient throw -> exception lan tỏa")
+    void getJobOpenings_JobClientThrows_ShouldPropagateException() {
+        try (MockedStatic<SecurityUtil> secUtil = mockStatic(SecurityUtil.class)) {
+            secUtil.when(SecurityUtil::extractUserRole).thenReturn("CEO");
+
+            when(jobServiceClient.getJobPositions(any(), any(), anyInt(), anyInt()))
+                    .thenThrow(new RuntimeException("Job service down"));
+
+            assertThatThrownBy(() -> statisticsService.getJobOpenings("token", 1, 10))
+                    .isInstanceOf(RuntimeException.class)
+                    .hasMessageContaining("Job service down");
+        }
+    }
+
+    // Test Case ID: UTIL-ST37
+    // Mục tiêu: getJobOpenings - location null/rỗng và isRemote=false -> workLocation default "On-site"
+    @Test
+    @DisplayName("UTIL-ST37: getJobOpenings - location null + isRemote=false -> workLocation='On-site'")
+    void getJobOpenings_NullLocationAndNotRemote_ShouldDefaultToOnSite() {
+        // location = null (sẽ thành chuỗi rỗng), isRemote=false
+        JsonNode pos = buildJobPositionNode(false, null, "10000000", "20000000");
+
+        PaginationDTO dto = new PaginationDTO();
+        dto.setResult(Arrays.asList(pos));
+
+        try (MockedStatic<SecurityUtil> secUtil = mockStatic(SecurityUtil.class)) {
+            secUtil.when(SecurityUtil::extractUserRole).thenReturn("CEO");
+            when(jobServiceClient.getJobPositions(any(), any(), anyInt(), anyInt())).thenReturn(dto);
+
+            List<JobOpeningDTO> res = statisticsService.getJobOpenings("token", 1, 10);
+
+            assertThat(res).hasSize(1);
+            assertThat(res.get(0).getWorkLocation()).isEqualTo("On-site");
+        }
+    }
+
+    // Test Case ID: UTIL-ST38
+    // Mục tiêu: location chữ thường "hcm hybrid" -> implement case-sensitive nên KHÔNG match
+    @Test
+    @DisplayName("UTIL-ST38: getJobOpenings - location='hcm hybrid' (lowercase) -> 'On-site' do case-sensitive")
+    void getJobOpenings_LowercaseHybrid_ShouldFallbackToOnSite() {
+        JsonNode pos = buildJobPositionNode(false, "hcm hybrid", "10000000", "20000000");
+
+        PaginationDTO dto = new PaginationDTO();
+        dto.setResult(Arrays.asList(pos));
+
+        try (MockedStatic<SecurityUtil> secUtil = mockStatic(SecurityUtil.class)) {
+            secUtil.when(SecurityUtil::extractUserRole).thenReturn("CEO");
+            when(jobServiceClient.getJobPositions(any(), any(), anyInt(), anyInt())).thenReturn(dto);
+
+            List<JobOpeningDTO> res = statisticsService.getJobOpenings("token", 1, 10);
+
+            // Implement dùng contains("Hybrid") (case-sensitive) -> không match -> "On-site"
+            assertThat(res.get(0).getWorkLocation()).isEqualTo("On-site");
+        }
+    }
+
+    // Test Case ID: UTIL-ST39
+    // Mục tiêu: salaryMin có giá trị, salaryMax=null -> "10 triệu"
+    @Test
+    @DisplayName("UTIL-ST39: formatSalary - min có, max=null -> 'X triệu'")
+    void getJobOpenings_WithMaxNull_ShouldFormatMin() {
+        JsonNode pos = buildJobPositionNode(false, "Ha Noi", "10000000", null);
+        PaginationDTO dto = new PaginationDTO();
+        dto.setResult(Arrays.asList(pos));
+
+        try (MockedStatic<SecurityUtil> secUtil = mockStatic(SecurityUtil.class)) {
+            secUtil.when(SecurityUtil::extractUserRole).thenReturn("CEO");
+            when(jobServiceClient.getJobPositions(any(), any(), anyInt(), anyInt())).thenReturn(dto);
+
+            List<JobOpeningDTO> res = statisticsService.getJobOpenings("token", 1, 10);
+            assertThat(res.get(0).getSalaryDisplay()).isEqualTo("10 triệu");
+        }
+    }
+
+    // Test Case ID: UTIL-ST40
+    // Mục tiêu: min > max -> không crash, hiển thị theo implement "20 - 10 triệu"
+    @Test
+    @DisplayName("UTIL-ST40: formatSalary - min > max, không crash, hiển thị 'min - max triệu'")
+    void getJobOpenings_WithMinGreaterMax_ShouldNotCrash() {
+        JsonNode pos = buildJobPositionNode(false, "Ha Noi", "20000000", "10000000");
+        PaginationDTO dto = new PaginationDTO();
+        dto.setResult(Arrays.asList(pos));
+
+        try (MockedStatic<SecurityUtil> secUtil = mockStatic(SecurityUtil.class)) {
+            secUtil.when(SecurityUtil::extractUserRole).thenReturn("CEO");
+            when(jobServiceClient.getJobPositions(any(), any(), anyInt(), anyInt())).thenReturn(dto);
+
+            List<JobOpeningDTO> res = statisticsService.getJobOpenings("token", 1, 10);
+            // Theo implement: ghép trực tiếp min - max
+            assertThat(res.get(0).getSalaryDisplay()).isEqualTo("20 - 10 triệu");
+        }
+    }
+
+    // Test Case ID: UTIL-ST41
+    // Mục tiêu: Job item null trong list -> bỏ qua, không NPE
+    @Test
+    @DisplayName("UTIL-ST41: getJobOpenings - list chứa null item, bỏ qua")
+    void getJobOpenings_ListWithNullItem_ShouldSkipNull() {
+        JsonNode validPos = buildJobPositionNode(false, "Ha Noi", "10000000", "20000000");
+        PaginationDTO dto = new PaginationDTO();
+        // Trộn 1 null và 1 hợp lệ
+        dto.setResult(Arrays.asList((Object) null, validPos));
+
+        try (MockedStatic<SecurityUtil> secUtil = mockStatic(SecurityUtil.class)) {
+            secUtil.when(SecurityUtil::extractUserRole).thenReturn("CEO");
+            when(jobServiceClient.getJobPositions(any(), any(), anyInt(), anyInt())).thenReturn(dto);
+
+            List<JobOpeningDTO> res = statisticsService.getJobOpenings("token", 1, 10);
+
+            // Chỉ trả về 1 item hợp lệ
+            assertThat(res).hasSize(1);
+            assertThat(res.get(0).getTitle()).isEqualTo("Developer");
+        }
+    }
+
+    // Test Case ID: UTIL-ST36b (bonus)
+    // Mục tiêu: getJobOpenings - jobPositions != null nhưng getResult() == null -> trả list rỗng
+    @Test
+    @DisplayName("UTIL-ST36b: getJobOpenings - jobPositions.getResult()=null -> list rỗng (cover branch)")
+    void getJobOpenings_NullResultField_ShouldReturnEmptyList() {
+        PaginationDTO dto = new PaginationDTO();
+        dto.setResult(null); // result null
+
+        try (MockedStatic<SecurityUtil> secUtil = mockStatic(SecurityUtil.class)) {
+            secUtil.when(SecurityUtil::extractUserRole).thenReturn("CEO");
+            when(jobServiceClient.getJobPositions(any(), any(), anyInt(), anyInt())).thenReturn(dto);
+
+            List<JobOpeningDTO> res = statisticsService.getJobOpenings("token", 1, 10);
+            assertThat(res).isEmpty();
+        }
+    }
+
+    // Test Case ID: UTIL-ST42
+    // Mục tiêu: scheduleService trả null -> NPE lan tỏa (theo implement, không có null-safe)
+    @Test
+    @DisplayName("UTIL-ST42: getUpcomingSchedules - client trả null -> ném NullPointerException")
+    void getUpcomingSchedules_NullResult_ShouldThrowNpe() {
+        try (MockedStatic<SecurityUtil> secUtil = mockStatic(SecurityUtil.class)) {
+            secUtil.when(SecurityUtil::extractEmployeeId).thenReturn(10L);
+
+            when(communicationServiceClient.getUpcomingSchedules(any(), anyLong(), anyInt()))
+                    .thenReturn(null);
+
+            // Implement gọi schedules.stream() -> NullPointerException
+            assertThatThrownBy(() -> statisticsService.getUpcomingSchedules("token", 10))
+                    .isInstanceOf(NullPointerException.class);
+        }
+    }
+
+    // Test Case ID: UTIL-ST43
+    // Mục tiêu: schedule.participants không có (absent) -> candidateName="", không NPE
+    @Test
+    @DisplayName("UTIL-ST43: getUpcomingSchedules - không có field 'participants', không NPE")
+    void getUpcomingSchedules_NoParticipantsField_ShouldNotThrow() {
+        ObjectNode schedule = objectMapper.createObjectNode();
+        schedule.put("id", 99L);
+        schedule.put("startTime", "2026-04-20T10:00:00");
+        schedule.put("title", "Interview");
+        // Không có field "participants"
+
+        try (MockedStatic<SecurityUtil> secUtil = mockStatic(SecurityUtil.class)) {
+            secUtil.when(SecurityUtil::extractEmployeeId).thenReturn(10L);
+            when(communicationServiceClient.getUpcomingSchedules(any(), anyLong(), anyInt()))
+                    .thenReturn(Collections.singletonList(schedule));
+
+            UpcomingScheduleDTO result = statisticsService.getUpcomingSchedules("token", 10);
+
+            assertThat(result.getSchedules()).hasSize(1);
+            assertThat(result.getSchedules().get(0).getCandidateName()).isEqualTo("");
+        }
+    }
+
+    // Test Case ID: UTIL-ST44
+    // Mục tiêu: Có nhiều CANDIDATE participant -> chỉ lấy người đầu tiên (do break)
+    @Test
+    @DisplayName("UTIL-ST44: getUpcomingSchedules - nhiều CANDIDATE, chỉ lấy người đầu tiên")
+    void getUpcomingSchedules_MultipleCandidates_ShouldTakeFirst() {
+        ObjectNode schedule = objectMapper.createObjectNode();
+        schedule.put("id", 1L);
+        schedule.put("startTime", "2026-04-20T10:00:00");
+        schedule.put("title", "Interview");
+
+        ObjectNode firstCand = objectMapper.createObjectNode();
+        firstCand.put("participantType", "CANDIDATE");
+        firstCand.put("name", "First Candidate");
+
+        ObjectNode secondCand = objectMapper.createObjectNode();
+        secondCand.put("participantType", "CANDIDATE");
+        secondCand.put("name", "Second Candidate");
+
+        schedule.putArray("participants").add(firstCand).add(secondCand);
+
+        try (MockedStatic<SecurityUtil> secUtil = mockStatic(SecurityUtil.class)) {
+            secUtil.when(SecurityUtil::extractEmployeeId).thenReturn(10L);
+            when(communicationServiceClient.getUpcomingSchedules(any(), anyLong(), anyInt()))
+                    .thenReturn(Collections.singletonList(schedule));
+
+            UpcomingScheduleDTO result = statisticsService.getUpcomingSchedules("token", 10);
+
+            // Chỉ lấy CANDIDATE đầu tiên (do break)
+            assertThat(result.getSchedules().get(0).getCandidateName()).isEqualTo("First Candidate");
+        }
+    }
+
+    // Test Case ID: UTIL-ST45
+    // Mục tiêu: CANDIDATE participant không có name -> candidateName="" (do has("name")=false)
+    @Test
+    @DisplayName("UTIL-ST45: getUpcomingSchedules - CANDIDATE thiếu 'name', candidateName=''")
+    void getUpcomingSchedules_CandidateMissingName_ShouldReturnEmpty() {
+        ObjectNode schedule = objectMapper.createObjectNode();
+        schedule.put("id", 1L);
+        schedule.put("startTime", "2026-04-20T10:00:00");
+
+        ObjectNode candidate = objectMapper.createObjectNode();
+        candidate.put("participantType", "CANDIDATE");
+        // Không có field "name"
+
+        ObjectNode otherType = objectMapper.createObjectNode();
+        otherType.put("participantType", "INTERVIEWER");
+        otherType.put("name", "Mr. X"); // sẽ bị bỏ qua
+
+        // Một participant không có participantType (cover nhánh has("participantType")=false)
+        ObjectNode noType = objectMapper.createObjectNode();
+        noType.put("name", "Unknown");
+
+        schedule.putArray("participants").add(noType).add(otherType).add(candidate);
+
+        try (MockedStatic<SecurityUtil> secUtil = mockStatic(SecurityUtil.class)) {
+            secUtil.when(SecurityUtil::extractEmployeeId).thenReturn(10L);
+            when(communicationServiceClient.getUpcomingSchedules(any(), anyLong(), anyInt()))
+                    .thenReturn(Collections.singletonList(schedule));
+
+            UpcomingScheduleDTO result = statisticsService.getUpcomingSchedules("token", 10);
+
+            // CANDIDATE không có name -> candidateName=""
+            assertThat(result.getSchedules().get(0).getCandidateName()).isEqualTo("");
+        }
+    }
+
+    // Test Case ID: UTIL-ST46
+    // Mục tiêu: schedule không có startTime -> date="", time="", không crash
+    @Test
+    @DisplayName("UTIL-ST46: getUpcomingSchedules - schedule không có 'startTime', không crash, date=''")
+    void getUpcomingSchedules_NoStartTime_ShouldNotCrash() {
+        ObjectNode schedule = objectMapper.createObjectNode();
+        // Không có id, startTime, title, participants, meetingType, status
+        // Cover các nhánh has(...) = false
+
+        try (MockedStatic<SecurityUtil> secUtil = mockStatic(SecurityUtil.class)) {
+            secUtil.when(SecurityUtil::extractEmployeeId).thenReturn(10L);
+            when(communicationServiceClient.getUpcomingSchedules(any(), anyLong(), anyInt()))
+                    .thenReturn(Collections.singletonList(schedule));
+
+            UpcomingScheduleDTO result = statisticsService.getUpcomingSchedules("token", 10);
+
+            assertThat(result.getSchedules()).hasSize(1);
+            UpcomingScheduleDTO.ScheduleItem item = result.getSchedules().get(0);
+            assertThat(item.getDate()).isEqualTo("");
+            assertThat(item.getTime()).isEqualTo("");
+            assertThat(item.getJobTitle()).isEqualTo("");
+            assertThat(item.getCandidateName()).isEqualTo("");
+            // type fallback "Phỏng vấn" khi thiếu meetingType
+            assertThat(item.getType()).isEqualTo("Phỏng vấn");
+            assertThat(item.getStatus()).isEqualTo("");
+        }
+    }
+
+    // Test Case ID: UTIL-ST47
+    // Mục tiêu: role lowercase ("manager", "staff") -> implement gọi toUpperCase() nên vẫn match
+    @Test
+    @DisplayName("UTIL-ST47: getDepartmentIdForStatistics - role lowercase được toUpperCase và match")
+    void getDepartmentId_RoleLowercase_ShouldMatchAfterUpperCase() {
+        try (MockedStatic<SecurityUtil> secUtil = mockStatic(SecurityUtil.class)) {
+            secUtil.when(SecurityUtil::extractUserRole).thenReturn("manager"); // lowercase
+            secUtil.when(SecurityUtil::extractDepartmentCode).thenReturn("IT");
+            secUtil.when(SecurityUtil::extractDepartmentId).thenReturn(7L);
+
+            when(candidateServiceClient.getApplicationsForStatistics(any(), any(), any(), any(), any(), eq(7L)))
+                    .thenReturn(Collections.emptyList());
+            when(communicationServiceClient.getSchedulesForStatistics(any(), any(), any(), any(), any()))
+                    .thenReturn(Collections.emptyList());
+
+            statisticsService.getSummaryStatistics("token", null, null);
+
+            // Verify: role "manager" được toUpperCase -> match MANAGER -> trả departmentId=7
+            verify(candidateServiceClient, times(1)).getApplicationsForStatistics(
+                    any(), isNull(), any(), any(), any(), eq(7L));
+        }
+    }
+
+    // Test Case ID: UTIL-ST48
+    // Mục tiêu: STAFF với departmentCode=null -> equalsIgnoreCase trả false -> lấy departmentId
+    @Test
+    @DisplayName("UTIL-ST48: getDepartmentIdForStatistics - STAFF, departmentCode=null, không NPE")
+    void getDepartmentId_StaffNullDepartmentCode_ShouldUseDepartmentId() {
+        try (MockedStatic<SecurityUtil> secUtil = mockStatic(SecurityUtil.class)) {
+            secUtil.when(SecurityUtil::extractUserRole).thenReturn("STAFF");
+            secUtil.when(SecurityUtil::extractDepartmentCode).thenReturn(null);
+            secUtil.when(SecurityUtil::extractDepartmentId).thenReturn(5L);
+
+            when(candidateServiceClient.getApplicationsForStatistics(any(), any(), any(), any(), any(), eq(5L)))
+                    .thenReturn(Collections.emptyList());
+            when(communicationServiceClient.getSchedulesForStatistics(any(), any(), any(), any(), any()))
+                    .thenReturn(Collections.emptyList());
+
+            statisticsService.getSummaryStatistics("token", null, null);
+
+            verify(candidateServiceClient, times(1)).getApplicationsForStatistics(
+                    any(), isNull(), any(), any(), any(), eq(5L));
+        }
+    }
+
+    // Test Case ID: UTIL-ST49
+    // Mục tiêu: STAFF, departmentCode=IT, departmentId=null -> trả null, không crash
+    @Test
+    @DisplayName("UTIL-ST49: getDepartmentIdForStatistics - STAFF IT, departmentId=null, an toàn")
+    void getDepartmentId_StaffNullDepartmentId_ShouldBeNull() {
+        try (MockedStatic<SecurityUtil> secUtil = mockStatic(SecurityUtil.class)) {
+            secUtil.when(SecurityUtil::extractUserRole).thenReturn("STAFF");
+            secUtil.when(SecurityUtil::extractDepartmentCode).thenReturn("IT");
+            secUtil.when(SecurityUtil::extractDepartmentId).thenReturn(null);
+
+            when(candidateServiceClient.getApplicationsForStatistics(any(), any(), any(), any(), any(), isNull()))
+                    .thenReturn(Collections.emptyList());
+            when(communicationServiceClient.getSchedulesForStatistics(any(), any(), any(), any(), any()))
+                    .thenReturn(Collections.emptyList());
+
+            assertThatCode(() -> statisticsService.getSummaryStatistics("token", null, null))
+                    .doesNotThrowAnyException();
+
+            verify(candidateServiceClient, times(1)).getApplicationsForStatistics(
+                    any(), isNull(), any(), any(), any(), isNull());
+        }
+    }
+
+    // Test Case ID: UTIL-ST49b (bonus)
+    // Mục tiêu: Role ADMIN -> cover case "ADMIN" trong switch (giống CEO)
+    @Test
+    @DisplayName("UTIL-ST49b: getDepartmentIdForStatistics - ADMIN -> departmentId=null (cover branch)")
+    void getDepartmentId_AdminRole_ShouldBeNull() {
+        try (MockedStatic<SecurityUtil> secUtil = mockStatic(SecurityUtil.class)) {
+            secUtil.when(SecurityUtil::extractUserRole).thenReturn("ADMIN");
+            when(candidateServiceClient.getApplicationsForStatistics(any(), any(), any(), any(), any(), isNull()))
+                    .thenReturn(Collections.emptyList());
+            when(communicationServiceClient.getSchedulesForStatistics(any(), any(), any(), any(), any()))
+                    .thenReturn(Collections.emptyList());
+
+            statisticsService.getSummaryStatistics("token", null, null);
+
+            verify(candidateServiceClient, times(1)).getApplicationsForStatistics(
+                    any(), isNull(), any(), any(), any(), isNull());
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // PHẦN 6: Test trực tiếp các private helper qua Reflection
+    // -----------------------------------------------------------------------
+
+    // Test Case ID: UTIL-ST50
+    // Mục tiêu: filterApplicationsByDateRange - appliedDate field absent -> bỏ qua
+    @Test
+    @DisplayName("UTIL-ST50: filterApplicationsByDateRange - appliedDate absent, bỏ qua record")
+    @SuppressWarnings("unchecked")
+    void filterApplications_WithoutAppliedDate_ShouldSkipRecord() throws Exception {
+        Method m = StatisticsService.class.getDeclaredMethod(
+                "filterApplicationsByDateRange", List.class, LocalDate.class, LocalDate.class);
+        m.setAccessible(true);
+
+        ObjectNode noDate = objectMapper.createObjectNode();
+        noDate.put("status", "PENDING"); // Không có "appliedDate"
+
+        List<JsonNode> result = (List<JsonNode>) m.invoke(
+                statisticsService,
+                Arrays.asList((JsonNode) noDate),
+                LocalDate.of(2026, 4, 1),
+                LocalDate.of(2026, 4, 30));
+
+        assertThat(result).isEmpty();
+    }
+
+    // Test Case ID: UTIL-ST51
+    // Mục tiêu: appliedDate đúng bằng startDate (boundary) -> được tính
+    @Test
+    @DisplayName("UTIL-ST51: filterApplicationsByDateRange - appliedDate=startDate, được tính (boundary)")
+    @SuppressWarnings("unchecked")
+    void filterApplications_AppliedDateEqualStartDate_ShouldBeIncluded() throws Exception {
+        Method m = StatisticsService.class.getDeclaredMethod(
+                "filterApplicationsByDateRange", List.class, LocalDate.class, LocalDate.class);
+        m.setAccessible(true);
+
+        List<JsonNode> apps = Arrays.asList(buildApplicationNode("2026-04-01", "PENDING"));
+
+        List<JsonNode> result = (List<JsonNode>) m.invoke(
+                statisticsService, apps,
+                LocalDate.of(2026, 4, 1),
+                LocalDate.of(2026, 4, 30));
+
+        assertThat(result).hasSize(1);
+    }
+
+    // Test Case ID: UTIL-ST52
+    // Mục tiêu: appliedDate đúng bằng endDate (boundary) -> được tính
+    @Test
+    @DisplayName("UTIL-ST52: filterApplicationsByDateRange - appliedDate=endDate, được tính (boundary)")
+    @SuppressWarnings("unchecked")
+    void filterApplications_AppliedDateEqualEndDate_ShouldBeIncluded() throws Exception {
+        Method m = StatisticsService.class.getDeclaredMethod(
+                "filterApplicationsByDateRange", List.class, LocalDate.class, LocalDate.class);
+        m.setAccessible(true);
+
+        List<JsonNode> apps = Arrays.asList(buildApplicationNode("2026-04-30", "PENDING"));
+
+        List<JsonNode> result = (List<JsonNode>) m.invoke(
+                statisticsService, apps,
+                LocalDate.of(2026, 4, 1),
+                LocalDate.of(2026, 4, 30));
+
+        assertThat(result).hasSize(1);
+    }
+
+    // Test Case ID: UTIL-ST53
+    // Mục tiêu: filterApplicationsByDateRangeAndStatus - status case-different ("hired" vs "HIRED")
+    @Test
+    @DisplayName("UTIL-ST53: filterApplicationsByDateRangeAndStatus - case-sensitive 'hired' không match 'HIRED'")
+    @SuppressWarnings("unchecked")
+    void filterApplicationsAndStatus_DifferentCase_ShouldNotMatch() throws Exception {
+        Method m = StatisticsService.class.getDeclaredMethod(
+                "filterApplicationsByDateRangeAndStatus",
+                List.class, LocalDate.class, LocalDate.class, String.class);
+        m.setAccessible(true);
+
+        List<JsonNode> apps = Arrays.asList(buildApplicationNode("2026-04-15", "HIRED"));
+
+        // Truyền "hired" lowercase, app có status "HIRED" -> equals case-sensitive -> không match
+        List<JsonNode> result = (List<JsonNode>) m.invoke(
+                statisticsService, apps,
+                LocalDate.of(2026, 4, 1),
+                LocalDate.of(2026, 4, 30),
+                "hired");
+
+        assertThat(result).isEmpty();
+    }
+
+    // Test Case ID: UTIL-ST54
+    // Mục tiêu: filterApplicationsByDateRangeAndStatus - status=null -> NPE -> catch -> false
+    @Test
+    @DisplayName("UTIL-ST54: filterApplicationsByDateRangeAndStatus - status=null bị NPE bắt, trả empty")
+    @SuppressWarnings("unchecked")
+    void filterApplicationsAndStatus_NullStatus_ShouldReturnEmpty() throws Exception {
+        Method m = StatisticsService.class.getDeclaredMethod(
+                "filterApplicationsByDateRangeAndStatus",
+                List.class, LocalDate.class, LocalDate.class, String.class);
+        m.setAccessible(true);
+
+        List<JsonNode> apps = Arrays.asList(buildApplicationNode("2026-04-15", "HIRED"));
+
+        // status=null -> status.equals(...) ném NPE -> catch -> return false
+        List<JsonNode> result = (List<JsonNode>) m.invoke(
+                statisticsService, apps,
+                LocalDate.of(2026, 4, 1),
+                LocalDate.of(2026, 4, 30),
+                (String) null);
+
+        assertThat(result).isEmpty();
+    }
+
+    // Test Case ID: UTIL-ST54b (bonus)
+    // Mục tiêu: filterApplicationsByDateRangeAndStatus - record không có "status" field -> bỏ qua
+    @Test
+    @DisplayName("UTIL-ST54b: filterApplicationsByDateRangeAndStatus - record thiếu 'status' field")
+    @SuppressWarnings("unchecked")
+    void filterApplicationsAndStatus_RecordMissingStatus_ShouldSkip() throws Exception {
+        Method m = StatisticsService.class.getDeclaredMethod(
+                "filterApplicationsByDateRangeAndStatus",
+                List.class, LocalDate.class, LocalDate.class, String.class);
+        m.setAccessible(true);
+
+        ObjectNode noStatus = objectMapper.createObjectNode();
+        noStatus.put("appliedDate", "2026-04-15");
+
+        List<JsonNode> result = (List<JsonNode>) m.invoke(
+                statisticsService,
+                Arrays.asList((JsonNode) noStatus),
+                LocalDate.of(2026, 4, 1),
+                LocalDate.of(2026, 4, 30),
+                "HIRED");
+
+        assertThat(result).isEmpty();
+    }
+
+    // Test Case ID: UTIL-ST54c (bonus)
+    // Mục tiêu: filterApplicationsByDateRangeAndStatus - record không có "appliedDate" -> bỏ qua
+    @Test
+    @DisplayName("UTIL-ST54c: filterApplicationsByDateRangeAndStatus - record thiếu 'appliedDate' field")
+    @SuppressWarnings("unchecked")
+    void filterApplicationsAndStatus_RecordMissingAppliedDate_ShouldSkip() throws Exception {
+        Method m = StatisticsService.class.getDeclaredMethod(
+                "filterApplicationsByDateRangeAndStatus",
+                List.class, LocalDate.class, LocalDate.class, String.class);
+        m.setAccessible(true);
+
+        ObjectNode noDate = objectMapper.createObjectNode();
+        noDate.put("status", "HIRED");
+        // Không có "appliedDate"
+
+        List<JsonNode> result = (List<JsonNode>) m.invoke(
+                statisticsService,
+                Arrays.asList((JsonNode) noDate),
+                LocalDate.of(2026, 4, 1),
+                LocalDate.of(2026, 4, 30),
+                "HIRED");
+
+        assertThat(result).isEmpty();
+    }
+
+    // Test Case ID: UTIL-ST55
+    // Mục tiêu: filterSchedulesByDateRange - record không có "startTime" -> bỏ qua
+    @Test
+    @DisplayName("UTIL-ST55: filterSchedulesByDateRange - thiếu 'startTime', không NPE, bỏ qua")
+    @SuppressWarnings("unchecked")
+    void filterSchedules_WithoutStartTime_ShouldSkip() throws Exception {
+        Method m = StatisticsService.class.getDeclaredMethod(
+                "filterSchedulesByDateRange", List.class, LocalDate.class, LocalDate.class);
+        m.setAccessible(true);
+
+        ObjectNode noStart = objectMapper.createObjectNode();
+        noStart.put("title", "Interview");
+
+        List<JsonNode> result = (List<JsonNode>) m.invoke(
+                statisticsService,
+                Arrays.asList((JsonNode) noStart),
+                LocalDate.of(2026, 4, 1),
+                LocalDate.of(2026, 4, 30));
+
+        assertThat(result).isEmpty();
+    }
+
+    // Test Case ID: UTIL-ST56
+    // Mục tiêu: filterSchedulesByDateRange - startTime=startDate at 00:00 (boundary) -> tính
+    @Test
+    @DisplayName("UTIL-ST56: filterSchedulesByDateRange - startTime=startDate (boundary)")
+    @SuppressWarnings("unchecked")
+    void filterSchedules_StartTimeEqualStartDate_ShouldBeIncluded() throws Exception {
+        Method m = StatisticsService.class.getDeclaredMethod(
+                "filterSchedulesByDateRange", List.class, LocalDate.class, LocalDate.class);
+        m.setAccessible(true);
+
+        List<JsonNode> schedules = Arrays.asList(buildScheduleNode("2026-04-01T00:00:00"));
+
+        List<JsonNode> result = (List<JsonNode>) m.invoke(
+                statisticsService, schedules,
+                LocalDate.of(2026, 4, 1),
+                LocalDate.of(2026, 4, 30));
+
+        assertThat(result).hasSize(1);
+    }
+
+    // Test Case ID: UTIL-ST57
+    // Mục tiêu: filterSchedulesByDateRange - startTime=endDate at 23:59 (boundary) -> tính
+    @Test
+    @DisplayName("UTIL-ST57: filterSchedulesByDateRange - startTime=endDate (boundary)")
+    @SuppressWarnings("unchecked")
+    void filterSchedules_StartTimeEqualEndDate_ShouldBeIncluded() throws Exception {
+        Method m = StatisticsService.class.getDeclaredMethod(
+                "filterSchedulesByDateRange", List.class, LocalDate.class, LocalDate.class);
+        m.setAccessible(true);
+
+        List<JsonNode> schedules = Arrays.asList(buildScheduleNode("2026-04-30T23:59:00"));
+
+        List<JsonNode> result = (List<JsonNode>) m.invoke(
+                statisticsService, schedules,
+                LocalDate.of(2026, 4, 1),
+                LocalDate.of(2026, 4, 30));
+
+        assertThat(result).hasSize(1);
+    }
+
+    // Test Case ID: UTIL-ST58
+    // Mục tiêu: parseDateTime - input null -> trả null, không ném lỗi
+    @Test
+    @DisplayName("UTIL-ST58: parseDateTime - input null -> trả null")
+    void parseDateTime_NullInput_ShouldReturnNull() throws Exception {
+        Method m = StatisticsService.class.getDeclaredMethod("parseDateTime", String.class);
+        m.setAccessible(true);
+
+        LocalDateTime result = (LocalDateTime) m.invoke(statisticsService, (Object) null);
+        assertThat(result).isNull();
+    }
+
+    // Test Case ID: UTIL-ST59
+    // Mục tiêu: parseDateTime - input "" -> trả null
+    @Test
+    @DisplayName("UTIL-ST59: parseDateTime - input rỗng -> trả null")
+    void parseDateTime_EmptyInput_ShouldReturnNull() throws Exception {
+        Method m = StatisticsService.class.getDeclaredMethod("parseDateTime", String.class);
+        m.setAccessible(true);
+
+        LocalDateTime result = (LocalDateTime) m.invoke(statisticsService, "");
+        assertThat(result).isNull();
+    }
+
+    // Test Case ID: UTIL-ST60
+    // Mục tiêu: parseDateTime - ISO DateTime hợp lệ -> parse đúng LocalDateTime
+    @Test
+    @DisplayName("UTIL-ST60: parseDateTime - ISO DateTime hợp lệ, parse chính xác")
+    void parseDateTime_ValidIso_ShouldParseCorrectly() throws Exception {
+        Method m = StatisticsService.class.getDeclaredMethod("parseDateTime", String.class);
+        m.setAccessible(true);
+
+        LocalDateTime result = (LocalDateTime) m.invoke(statisticsService, "2026-04-20T10:30:00");
+        assertThat(result).isEqualTo(LocalDateTime.of(2026, 4, 20, 10, 30, 0));
+    }
+
+    // Test Case ID: UTIL-ST61
+    // Mục tiêu: convertToJsonNode - object là String "abc" -> JsonNode text
+    @Test
+    @DisplayName("UTIL-ST61: convertToJsonNode - String 'abc' -> TextNode")
+    void convertToJsonNode_String_ShouldReturnTextNode() throws Exception {
+        Method m = StatisticsService.class.getDeclaredMethod("convertToJsonNode", Object.class);
+        m.setAccessible(true);
+
+        JsonNode result = (JsonNode) m.invoke(statisticsService, "abc");
+        assertThat(result).isNotNull();
+        assertThat(result.isTextual()).isTrue();
+        assertThat(result.asText()).isEqualTo("abc");
+    }
+
+    // Test Case ID: UTIL-ST62
+    // Mục tiêu: convertToJsonNode - Map.of("id",1) -> JsonNode có field id
+    @Test
+    @DisplayName("UTIL-ST62: convertToJsonNode - Map -> ObjectNode có field 'id'")
+    void convertToJsonNode_Map_ShouldReturnObjectNodeWithIdField() throws Exception {
+        Method m = StatisticsService.class.getDeclaredMethod("convertToJsonNode", Object.class);
+        m.setAccessible(true);
+
+        Map<String, Object> map = new HashMap<>();
+        map.put("id", 1);
+
+        JsonNode result = (JsonNode) m.invoke(statisticsService, map);
+        assertThat(result).isNotNull();
+        assertThat(result.has("id")).isTrue();
+        assertThat(result.get("id").asInt()).isEqualTo(1);
+    }
+
+    // Test Case ID: UTIL-ST63
+    // Mục tiêu: convertToJsonNode - List rỗng -> ArrayNode rỗng
+    @Test
+    @DisplayName("UTIL-ST63: convertToJsonNode - List rỗng -> ArrayNode rỗng")
+    void convertToJsonNode_EmptyList_ShouldReturnEmptyArray() throws Exception {
+        Method m = StatisticsService.class.getDeclaredMethod("convertToJsonNode", Object.class);
+        m.setAccessible(true);
+
+        JsonNode result = (JsonNode) m.invoke(statisticsService, Collections.emptyList());
+        assertThat(result).isNotNull();
+        assertThat(result.isArray()).isTrue();
+        assertThat(result.size()).isEqualTo(0);
+    }
+
+    // Test Case ID: UTIL-ST63b (bonus)
+    // Mục tiêu: convertToJsonNode - object đã là JsonNode -> trả về chính nó
+    @Test
+    @DisplayName("UTIL-ST63b: convertToJsonNode - đã là JsonNode -> trả về chính nó (cover branch)")
+    void convertToJsonNode_AlreadyJsonNode_ShouldReturnItself() throws Exception {
+        Method m = StatisticsService.class.getDeclaredMethod("convertToJsonNode", Object.class);
+        m.setAccessible(true);
+
+        ObjectNode jn = objectMapper.createObjectNode();
+        jn.put("k", "v");
+
+        JsonNode result = (JsonNode) m.invoke(statisticsService, jn);
+        assertThat(result).isSameAs(jn);
+    }
+
+    // -----------------------------------------------------------------------
+    // PHẦN 7: Bổ sung test cho các nhánh has(...) trong getJobOpenings/getUpcomingSchedules
+    // để đạt độ phủ branch 100%
+    // -----------------------------------------------------------------------
+
+    // BONUS-1: getJobOpenings - JsonNode hoàn toàn rỗng (KHÔNG có field nào)
+    // Mục đích cover các nhánh has(...)=false: title, employmentType, isRemote, location,
+    // applicationCount, salaryMin, salaryMax đều không tồn tại.
+    @Test
+    @DisplayName("BONUS-1: getJobOpenings - JsonNode rỗng tuyệt đối, dùng default an toàn (cover has=false)")
+    void getJobOpenings_NodeMissingAllFields_ShouldUseDefaults() {
+        ObjectNode minimal = objectMapper.createObjectNode(); // hoàn toàn rỗng
+
+        PaginationDTO dto = new PaginationDTO();
+        dto.setResult(Arrays.asList(minimal));
+
+        try (MockedStatic<SecurityUtil> secUtil = mockStatic(SecurityUtil.class)) {
+            secUtil.when(SecurityUtil::extractUserRole).thenReturn("CEO");
+            when(jobServiceClient.getJobPositions(any(), any(), anyInt(), anyInt())).thenReturn(dto);
+
+            List<JobOpeningDTO> res = statisticsService.getJobOpenings("token", 1, 10);
+
+            assertThat(res).hasSize(1);
+            JobOpeningDTO job = res.get(0);
+            assertThat(job.getTitle()).isEqualTo("");
+            assertThat(job.getEmploymentType()).isEqualTo("Full-time"); // default
+            assertThat(job.getWorkLocation()).isEqualTo("On-site"); // default (no isRemote, no location)
+            assertThat(job.getApplicantCount()).isEqualTo(0);
+            assertThat(job.getSalaryMin()).isNull();
+            assertThat(job.getSalaryMax()).isNull();
+            assertThat(job.getSalaryDisplay()).isEqualTo("");
+        }
+    }
+
+    // BONUS-1b: getJobOpenings - JsonNode có salaryMin/salaryMax = NullNode (putNull)
+    // Mục đích cover các nhánh has=true && isNull()=true.
+    @Test
+    @DisplayName("BONUS-1b: getJobOpenings - salaryMin/salaryMax putNull (cover isNull()=true)")
+    void getJobOpenings_NodeWithNullSalaryNodes_ShouldHandleNullValueNodes() {
+        ObjectNode node = objectMapper.createObjectNode();
+        node.put("title", "Engineer");
+        node.put("employmentType", "Full-time");
+        node.put("applicationCount", 3);
+        node.put("isRemote", false);
+        node.put("location", "Ha Noi");
+        node.putNull("salaryMin"); // NullNode -> isNull()=true
+        node.putNull("salaryMax"); // NullNode -> isNull()=true
+
+        PaginationDTO dto = new PaginationDTO();
+        dto.setResult(Arrays.asList(node));
+
+        try (MockedStatic<SecurityUtil> secUtil = mockStatic(SecurityUtil.class)) {
+            secUtil.when(SecurityUtil::extractUserRole).thenReturn("CEO");
+            when(jobServiceClient.getJobPositions(any(), any(), anyInt(), anyInt())).thenReturn(dto);
+
+            List<JobOpeningDTO> res = statisticsService.getJobOpenings("token", 1, 10);
+            assertThat(res).hasSize(1);
+            assertThat(res.get(0).getSalaryMin()).isNull();
+            assertThat(res.get(0).getSalaryMax()).isNull();
+        }
+    }
+
+    // BONUS-2: getJobOpenings - isRemote=false (chỉ field tồn tại) + location chứa "Hybrid" thật sự
+    // Mục đích cover nhánh has("isRemote")=true, asBoolean()=false
+    @Test
+    @DisplayName("BONUS-2: getJobOpenings - isRemote field tồn tại nhưng false, có Hybrid -> 'Hybrid'")
+    void getJobOpenings_IsRemoteFalseWithHybrid_ShouldBeHybrid() {
+        JsonNode pos = buildJobPositionNode(false, "HCM - Hybrid", "10000000", "20000000");
+        PaginationDTO dto = new PaginationDTO();
+        dto.setResult(Arrays.asList(pos));
+
+        try (MockedStatic<SecurityUtil> secUtil = mockStatic(SecurityUtil.class)) {
+            secUtil.when(SecurityUtil::extractUserRole).thenReturn("CEO");
+            when(jobServiceClient.getJobPositions(any(), any(), anyInt(), anyInt())).thenReturn(dto);
+
+            List<JobOpeningDTO> res = statisticsService.getJobOpenings("token", 1, 10);
+            assertThat(res.get(0).getWorkLocation()).isEqualTo("Hybrid");
+        }
+    }
+
+    // BONUS-3: getUpcomingSchedules - participants không phải array (cover isArray()=false)
+    @Test
+    @DisplayName("BONUS-3: getUpcomingSchedules - participants không phải array -> candidateName=''")
+    void getUpcomingSchedules_ParticipantsNotArray_ShouldNotCrash() {
+        ObjectNode schedule = objectMapper.createObjectNode();
+        schedule.put("id", 1L);
+        schedule.put("startTime", "2026-04-20T10:00:00");
+        schedule.put("title", "Interview");
+        schedule.put("participants", "not-an-array"); // String, không phải array
+        schedule.put("meetingType", "ONLINE");
+        schedule.put("status", "SCHEDULED");
+
+        try (MockedStatic<SecurityUtil> secUtil = mockStatic(SecurityUtil.class)) {
+            secUtil.when(SecurityUtil::extractEmployeeId).thenReturn(10L);
+            when(communicationServiceClient.getUpcomingSchedules(any(), anyLong(), anyInt()))
+                    .thenReturn(Collections.singletonList(schedule));
+
+            UpcomingScheduleDTO result = statisticsService.getUpcomingSchedules("token", 10);
+
+            assertThat(result.getSchedules()).hasSize(1);
+            assertThat(result.getSchedules().get(0).getCandidateName()).isEqualTo("");
+        }
+    }
+
+    // BONUS-4: getUpcomingSchedules - convertToJsonNode trả null (cover schedule == null branch)
+    // Đẩy 1 phần tử raw không thể convert được (Object thường) thì valueToTree trả về node, KHÔNG null.
+    // -> Để đạt schedule == null, phần tử phải là null trong list.
+    @Test
+    @DisplayName("BONUS-4: getUpcomingSchedules - phần tử null trong list -> bị filter ra")
+    void getUpcomingSchedules_NullElementInList_ShouldBeFiltered() {
+        // List<JsonNode> chứa null
+        List<JsonNode> list = Arrays.asList((JsonNode) null);
+
+        try (MockedStatic<SecurityUtil> secUtil = mockStatic(SecurityUtil.class)) {
+            secUtil.when(SecurityUtil::extractEmployeeId).thenReturn(10L);
+            when(communicationServiceClient.getUpcomingSchedules(any(), anyLong(), anyInt()))
+                    .thenReturn(list);
+
+            UpcomingScheduleDTO result = statisticsService.getUpcomingSchedules("token", 10);
+
+            assertThat(result.getSchedules()).isEmpty();
+        }
+    }
+
+    // BONUS-5: formatVND - amount có giá trị âm (longValue()/1_000_000 < 0) -> chạy nhánh thousands
+    // hoặc test các giá trị biên.
+    @Test
+    @DisplayName("BONUS-5: formatVND - amount=0 -> trả về '0' (cover thousands branch)")
+    void formatVND_ZeroAmount_ShouldReturnZero() throws Exception {
+        Method m = StatisticsService.class.getDeclaredMethod("formatVND", BigDecimal.class);
+        m.setAccessible(true);
+
+        String result = (String) m.invoke(statisticsService, BigDecimal.ZERO);
+        // 0 / 1_000_000 = 0 -> không > 0, rơi vào nhánh thousands -> 0/1000 = 0
+        assertThat(result).isEqualTo("0");
+    }
+
+    // BONUS-6: filterApplicationsByDateRange - appliedDate AFTER end -> bỏ qua
+    // Mục đích cover nhánh !isAfter(end)=false ở L311
+    @Test
+    @DisplayName("BONUS-6: filterApplicationsByDateRange - appliedDate sau endDate, bỏ qua (cover isAfter=true)")
+    @SuppressWarnings("unchecked")
+    void filterApplications_AppliedDateAfterEnd_ShouldBeExcluded() throws Exception {
+        Method m = StatisticsService.class.getDeclaredMethod(
+                "filterApplicationsByDateRange", List.class, LocalDate.class, LocalDate.class);
+        m.setAccessible(true);
+
+        List<JsonNode> apps = Arrays.asList(buildApplicationNode("2026-05-15", "PENDING"));
+
+        List<JsonNode> result = (List<JsonNode>) m.invoke(
+                statisticsService, apps,
+                LocalDate.of(2026, 4, 1),
+                LocalDate.of(2026, 4, 30));
+
+        assertThat(result).isEmpty();
+    }
+
+    // BONUS-7: filterApplicationsByDateRangeAndStatus - appliedDate AFTER end với status match
+    // Mục đích cover nhánh !isAfter(end)=false ở L338
+    @Test
+    @DisplayName("BONUS-7: filterApplicationsByDateRangeAndStatus - appliedDate sau endDate (cover isAfter=true)")
+    @SuppressWarnings("unchecked")
+    void filterApplicationsAndStatus_AppliedDateAfterEnd_ShouldBeExcluded() throws Exception {
+        Method m = StatisticsService.class.getDeclaredMethod(
+                "filterApplicationsByDateRangeAndStatus",
+                List.class, LocalDate.class, LocalDate.class, String.class);
+        m.setAccessible(true);
+
+        List<JsonNode> apps = Arrays.asList(buildApplicationNode("2026-05-15", "HIRED"));
+
+        List<JsonNode> result = (List<JsonNode>) m.invoke(
+                statisticsService, apps,
+                LocalDate.of(2026, 4, 1),
+                LocalDate.of(2026, 4, 30),
+                "HIRED");
+
+        assertThat(result).isEmpty();
+    }
+
+    // BONUS-8: filterSchedulesByDateRange - scheduleDate BEFORE start -> bỏ qua
+    // Mục đích cover nhánh !isBefore(start)=false ở L360
+    @Test
+    @DisplayName("BONUS-8: filterSchedulesByDateRange - schedule trước startDate (cover isBefore=true)")
+    @SuppressWarnings("unchecked")
+    void filterSchedules_StartTimeBeforeStartDate_ShouldBeExcluded() throws Exception {
+        Method m = StatisticsService.class.getDeclaredMethod(
+                "filterSchedulesByDateRange", List.class, LocalDate.class, LocalDate.class);
+        m.setAccessible(true);
+
+        List<JsonNode> schedules = Arrays.asList(buildScheduleNode("2026-03-15T10:00:00"));
+
+        List<JsonNode> result = (List<JsonNode>) m.invoke(
+                statisticsService, schedules,
+                LocalDate.of(2026, 4, 1),
+                LocalDate.of(2026, 4, 30));
+
+        assertThat(result).isEmpty();
+    }
+
+    // BONUS-9: filterSchedulesByDateRange - scheduleDate AFTER end -> bỏ qua
+    // Mục đích cover nhánh !isAfter(end)=false ở L361
+    @Test
+    @DisplayName("BONUS-9: filterSchedulesByDateRange - schedule sau endDate (cover isAfter=true)")
+    @SuppressWarnings("unchecked")
+    void filterSchedules_StartTimeAfterEndDate_ShouldBeExcluded() throws Exception {
+        Method m = StatisticsService.class.getDeclaredMethod(
+                "filterSchedulesByDateRange", List.class, LocalDate.class, LocalDate.class);
+        m.setAccessible(true);
+
+        List<JsonNode> schedules = Arrays.asList(buildScheduleNode("2026-05-15T10:00:00"));
+
+        List<JsonNode> result = (List<JsonNode>) m.invoke(
+                statisticsService, schedules,
+                LocalDate.of(2026, 4, 1),
+                LocalDate.of(2026, 4, 30));
+
+        assertThat(result).isEmpty();
+    }
+
+    // BONUS-10: getJobOpenings - location.asText() trả null bằng Mockito mock
+    // Mục đích cover nhánh "location != null" = false ở L119 (defensive null-check unreachable
+    // bằng JsonNode thật của Jackson, nhưng vẫn có trong bytecode -> dùng mock JsonNode).
+    @Test
+    @DisplayName("BONUS-10: getJobOpenings - location.asText()=null (mock) -> workLocation default 'On-site'")
+    void getJobOpenings_LocationAsTextReturnsNull_ShouldUseDefaultOnSite() {
+        // Mock JsonNode để location.asText() trả null (covering branch defensive null-check)
+        JsonNode mockPosNode = mock(JsonNode.class);
+        JsonNode mockLocationNode = mock(JsonNode.class);
+
+        // Title trả về "Test"
+        when(mockPosNode.has("title")).thenReturn(true);
+        when(mockPosNode.get("title")).thenReturn(com.fasterxml.jackson.databind.node.TextNode.valueOf("Mock"));
+
+        // employmentType: false để dùng default "Full-time"
+        when(mockPosNode.has("employmentType")).thenReturn(false);
+
+        // isRemote: false để rẽ vào nhánh else if (location)
+        when(mockPosNode.has("isRemote")).thenReturn(false);
+
+        // location: tồn tại nhưng asText() trả null -> branch (location != null) = false
+        when(mockPosNode.has("location")).thenReturn(true);
+        when(mockPosNode.get("location")).thenReturn(mockLocationNode);
+        when(mockLocationNode.asText()).thenReturn(null);
+
+        // applicationCount: false để dùng default 0
+        when(mockPosNode.has("applicationCount")).thenReturn(false);
+
+        // salaryMin/Max: false để dùng default null
+        when(mockPosNode.has("salaryMin")).thenReturn(false);
+        when(mockPosNode.has("salaryMax")).thenReturn(false);
+
+        PaginationDTO dto = new PaginationDTO();
+        dto.setResult(Arrays.asList(mockPosNode));
+
+        try (MockedStatic<SecurityUtil> secUtil = mockStatic(SecurityUtil.class)) {
+            secUtil.when(SecurityUtil::extractUserRole).thenReturn("CEO");
+            when(jobServiceClient.getJobPositions(any(), any(), anyInt(), anyInt())).thenReturn(dto);
+
+            List<JobOpeningDTO> res = statisticsService.getJobOpenings("token", 1, 10);
+
+            assertThat(res).hasSize(1);
+            // location null -> short-circuit '&&' -> không vào nhánh "Hybrid" -> giữ default
+            assertThat(res.get(0).getWorkLocation()).isEqualTo("On-site");
+            assertThat(res.get(0).getTitle()).isEqualTo("Mock");
         }
     }
 }
