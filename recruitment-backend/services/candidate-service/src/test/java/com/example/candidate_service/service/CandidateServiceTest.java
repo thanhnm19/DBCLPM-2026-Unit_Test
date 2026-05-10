@@ -12,6 +12,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.io.IOException;
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
@@ -48,6 +49,7 @@ import com.example.candidate_service.utils.enums.CandidateStatus;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.NullNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 
 @ExtendWith(MockitoExtension.class)
@@ -1427,6 +1429,614 @@ class CandidateServiceTest {
                 assertThatThrownBy(() -> candidateService.convertCandidateToEmployee(95L, 1L, 2L, token))
                                 .isInstanceOf(IdInvalidException.class)
                                 .hasMessageContaining("Unknown error");
+        }
+
+        // =========================
+        // JaCoCo: bổ sung nhánh / lambda (100% statement + branch cho CandidateService)
+        // =========================
+
+        @Test
+        @DisplayName("Coverage: updateCandidateStatus - ứng viên không tồn tại -> IdInvalidException (lambda orElseThrow)")
+        void coverage_updateCandidateStatus_notFound() {
+                when(candidateRepository.findById(888L)).thenReturn(Optional.empty());
+                assertThatThrownBy(() -> candidateService.updateCandidateStatus(888L, "OFFER", null, 1L))
+                                .isInstanceOf(IdInvalidException.class)
+                                .hasMessageContaining("Ứng viên không tồn tại");
+                verify(candidateRepository, never()).save(any(Candidate.class));
+        }
+
+        @Test
+        @DisplayName("Coverage: getCandidateDetailById - ứng viên không tồn tại -> IdInvalidException (lambda orElseThrow)")
+        void coverage_getCandidateDetailById_notFound() {
+                when(candidateRepository.findById(888L)).thenReturn(Optional.empty());
+                assertThatThrownBy(() -> candidateService.getCandidateDetailById(888L, token))
+                                .isInstanceOf(IdInvalidException.class)
+                                .hasMessageContaining("Ứng viên không tồn tại");
+        }
+
+        @Test
+        @DisplayName("Coverage: getAllWithFilters - token null -> không enrich; có candidate jobPositionId null")
+        void coverage_getAllWithFilters_tokenNull_andNullJobPositionId() {
+                Candidate noJp = buildCandidate(3L, "NoJp", "noj@gmail.com", null);
+                Pageable pageable = PageRequest.of(0, 10);
+                Page<Candidate> page = new PageImpl<>(List.of(candidate1, noJp), pageable, 2);
+                when(candidateRepository.findByFilters(
+                                eq(null), eq(null), eq(null),
+                                eq(null), eq(null),
+                                eq(null), eq(null), eq(pageable)))
+                                .thenReturn(page);
+
+                PaginationDTO result = candidateService.getAllWithFilters(
+                                null, null, null, null, null, null, null, pageable, null);
+
+                @SuppressWarnings("unchecked")
+                List<CandidateGetAllResponseDTO> dtos = (List<CandidateGetAllResponseDTO>) result.getResult();
+                assertThat(dtos).hasSize(2);
+                verify(jobService, never()).getJobPositionsByIdsSimple(anyList(), any());
+        }
+
+        @Test
+        @DisplayName("Coverage: getAllWithFilters - enrich: map thiếu jp -> body null; JSON không title; rr null / không departmentId")
+        void coverage_getAllWithFilters_enrichPartialJsonNodes() {
+                Pageable pageable = PageRequest.of(0, 10);
+                Candidate c103 = buildCandidate(4L, "D", "d@gmail.com", 103L);
+                Page<Candidate> page = new PageImpl<>(List.of(candidate1, c103), pageable, 2);
+                when(candidateRepository.findByFilters(
+                                eq(null), eq(null), eq(null),
+                                any(LocalDate.class), any(LocalDate.class),
+                                eq(null), eq(null), eq(pageable)))
+                                .thenReturn(page);
+
+                ObjectNode onlyDeptNoTitle = objectMapper.createObjectNode();
+                ObjectNode rr1 = objectMapper.createObjectNode();
+                rr1.put("departmentId", 7L);
+                onlyDeptNoTitle.set("recruitmentRequest", rr1);
+
+                ObjectNode titleOnly = objectMapper.createObjectNode();
+                titleOnly.put("title", "Title Only");
+
+                when(jobService.getJobPositionsByIdsSimple(anyList(), eq(token)))
+                                .thenReturn(Map.of(
+                                                101L, onlyDeptNoTitle,
+                                                103L, titleOnly));
+
+                PaginationDTO result = candidateService.getAllWithFilters(
+                                null, null, null,
+                                "2026-01-01", "2026-01-31", null,
+                                null, pageable, token);
+
+                @SuppressWarnings("unchecked")
+                List<CandidateGetAllResponseDTO> dtos = (List<CandidateGetAllResponseDTO>) result.getResult();
+                assertThat(dtos).hasSize(2);
+                CandidateGetAllResponseDTO dto101 = dtos.stream()
+                                .filter(d -> d.getJobPositionId().equals(101L)).findFirst().orElseThrow();
+                assertThat(dto101.getJobPositionTitle()).isNull();
+                assertThat(dto101.getDepartmentId()).isEqualTo(7L);
+        }
+
+        @Test
+        @DisplayName("Coverage: getCandidateDetailById - 2xx nhưng body null; object không phải array và không có data")
+        void coverage_getCandidateDetailById_schedulesNoArrayNoData() throws Exception {
+                Candidate existing = buildCandidate(96L, "A", "sch2@x.com", 101L);
+                existing.setComments(null);
+                when(candidateRepository.findById(96L)).thenReturn(Optional.of(existing));
+                when(reviewCandidateService.getByCandidateId(96L, token)).thenReturn(List.of());
+                when(jobService.getJobPositionById(101L, token))
+                                .thenReturn(ResponseEntity.ok(buildJobPositionJson(101L, "JP", 1L)));
+
+                ObjectNode body = objectMapper.createObjectNode().put("message", "ok");
+                when(communicationService.getUpcomingSchedulesForCandidate(96L, token))
+                                .thenReturn(new ResponseEntity<>(body, HttpStatus.OK));
+
+                CandidateDetailResponseDTO dto = candidateService.getCandidateDetailById(96L, token);
+                assertThat(dto.getUpcomingSchedules()).isNull();
+
+                when(communicationService.getUpcomingSchedulesForCandidate(96L, token))
+                                .thenReturn(new ResponseEntity<>(null, HttpStatus.OK));
+                CandidateDetailResponseDTO dto2 = candidateService.getCandidateDetailById(96L, token);
+                assertThat(dto2.getUpcomingSchedules()).isNull();
+        }
+
+        @Test
+        @DisplayName("Coverage: getDepartmentIdByCandidateId - jobPositionId null; rr không có departmentId")
+        void coverage_getDepartmentIdByCandidateId_edgeBranches() {
+                Candidate noJp = buildCandidate(97L, "A", "njp@x.com", null);
+                when(candidateRepository.findById(97L)).thenReturn(Optional.of(noJp));
+                assertThat(candidateService.getDepartmentIdByCandidateId(97L, token)).isNull();
+
+                Candidate ok = buildCandidate(98L, "B", "b@x.com", 101L);
+                when(candidateRepository.findById(98L)).thenReturn(Optional.of(ok));
+                ObjectNode jp = objectMapper.createObjectNode();
+                jp.set("recruitmentRequest", objectMapper.createObjectNode());
+                when(jobService.getJobPositionByIdSimple(101L, token)).thenReturn(ResponseEntity.ok(jp));
+                assertThat(candidateService.getDepartmentIdByCandidateId(98L, token)).isNull();
+        }
+
+        @Test
+        @DisplayName("Coverage: getCandidatesByInterviewer - token null; candidate jobPositionId null; map thiếu jp")
+        void coverage_getCandidatesByInterviewer_tokenNull_nullJp_partialMap() {
+                Candidate noJp = buildCandidate(99L, "NJ", "nj@x.com", null);
+                when(communicationService.getCandidateIdsByInterviewer(20L, null)).thenReturn(List.of(1L, 99L));
+                when(candidateRepository.findAllById(List.of(1L, 99L))).thenReturn(List.of(candidate1, noJp));
+
+                List<CandidateGetAllResponseDTO> out = candidateService.getCandidatesByInterviewer(20L, null);
+                assertThat(out).hasSize(2);
+                verify(jobService, never()).getJobPositionsByIdsSimple(anyList(), any());
+
+                when(communicationService.getCandidateIdsByInterviewer(21L, token)).thenReturn(List.of(1L));
+                when(candidateRepository.findAllById(List.of(1L))).thenReturn(List.of(candidate1));
+                when(jobService.getJobPositionsByIdsSimple(anyList(), eq(token)))
+                                .thenReturn(Map.of());
+                assertThat(candidateService.getCandidatesByInterviewer(21L, token)).hasSize(1);
+        }
+
+        @Test
+        @DisplayName("Coverage: convertCandidateToEmployee - wrap data + departmentId từ recruitmentRequest; job response không 2xx")
+        void coverage_convertCandidateToEmployee_wrappedRecruitmentRequest_andNon2xxJob() throws Exception {
+                Candidate existing = buildCandidate(100L, "A", "wraprr@x.com", 101L);
+                when(candidateRepository.findById(100L)).thenReturn(Optional.of(existing));
+
+                ObjectNode wrapped = objectMapper.createObjectNode();
+                ObjectNode data = objectMapper.createObjectNode();
+                ObjectNode rr = objectMapper.createObjectNode();
+                rr.put("departmentId", 77L);
+                data.set("recruitmentRequest", rr);
+                wrapped.set("data", data);
+                when(jobService.getJobPositionById(101L, token)).thenReturn(ResponseEntity.ok(wrapped));
+
+                ObjectNode employeeNode = objectMapper.createObjectNode().put("employeeId", 10000);
+                when(userService.createEmployeeFromCandidate(
+                                eq(100L), any(), any(), any(), any(), any(), any(), any(), any(), any(),
+                                eq(77L), eq(3L), any(), eq(token)))
+                                .thenReturn(new ResponseEntity<>(employeeNode, HttpStatus.OK));
+
+                JsonNode ok = candidateService.convertCandidateToEmployee(100L, null, 3L, token);
+                assertThat(ok.get("employeeId").asInt()).isEqualTo(10000);
+
+                when(candidateRepository.findById(101L)).thenReturn(Optional.of(buildCandidate(101L, "B", "b@x.com", 105L)));
+                when(jobService.getJobPositionById(105L, token))
+                                .thenReturn(new ResponseEntity<>(objectMapper.createObjectNode(), HttpStatus.BAD_REQUEST));
+                assertThatThrownBy(() -> candidateService.convertCandidateToEmployee(101L, null, 3L, token))
+                                .isInstanceOf(IdInvalidException.class)
+                                .hasMessageContaining("Department ID là bắt buộc");
+        }
+
+        @Test
+        @DisplayName("Coverage: convertCandidateToEmployee - try/catch nuốt lỗi job-service")
+        void coverage_convertCandidateToEmployee_jobServiceThrows_swallowed() {
+                Candidate existing = buildCandidate(102L, "C", "c@x.com", 106L);
+                when(candidateRepository.findById(102L)).thenReturn(Optional.of(existing));
+                when(jobService.getJobPositionById(106L, token)).thenThrow(new RuntimeException("network"));
+
+                assertThatThrownBy(() -> candidateService.convertCandidateToEmployee(102L, null, 3L, token))
+                                .isInstanceOf(IdInvalidException.class)
+                                .hasMessageContaining("Department ID là bắt buộc");
+        }
+
+        @Test
+        @DisplayName("Coverage: convertCandidateToEmployee - 2xx nhưng body null -> không fallback department")
+        void coverage_convertCandidateToEmployee_job2xxNullBody() {
+                Candidate existing = buildCandidate(103L, "D", "d@x.com", 107L);
+                when(candidateRepository.findById(103L)).thenReturn(Optional.of(existing));
+                when(jobService.getJobPositionById(107L, token)).thenReturn(new ResponseEntity<>(null, HttpStatus.OK));
+
+                assertThatThrownBy(() -> candidateService.convertCandidateToEmployee(103L, null, 3L, token))
+                                .isInstanceOf(IdInvalidException.class)
+                                .hasMessageContaining("Department ID là bắt buộc");
+        }
+
+        @Test
+        @DisplayName("Coverage: getCandidatesForStatistics - parse ngày lỗi + token rỗng + candidate jobPositionId null")
+        void coverage_getCandidatesForStatistics_invalidDates_emptyToken_nullJp() {
+                Pageable pageable = PageRequest.of(0, 10000);
+                Candidate noJp = buildCandidate(200L, "NP", "np@x.com", null);
+                Page<Candidate> page = new PageImpl<>(List.of(candidate1, noJp), pageable, 2);
+                when(candidateRepository.findByFilters(
+                                eq(null), eq(null), eq(null),
+                                eq(null), eq(null),
+                                eq(null), eq(null), any(Pageable.class)))
+                                .thenReturn(page);
+
+                List<CandidateStatisticsDTO> emptyToken = candidateService.getCandidatesForStatistics(
+                                null, "not-a-date", "also-bad", null, null, "");
+                assertThat(emptyToken).hasSize(2);
+                verify(jobService, never()).getJobPositionsByIds(anyList(), any());
+        }
+
+        @Test
+        @DisplayName("Coverage: getCandidatesForStatistics - job JSON chỉ có title (không departmentId)")
+        void coverage_getCandidatesForStatistics_titleOnly_noDepartmentInMap() {
+                Pageable pageable = PageRequest.of(0, 10000);
+                Page<Candidate> page = new PageImpl<>(List.of(candidate1), pageable, 1);
+                when(candidateRepository.findByFilters(
+                                eq(null), eq(null), eq(null),
+                                any(LocalDate.class), any(LocalDate.class),
+                                eq(null), eq(null), any(Pageable.class)))
+                                .thenReturn(page);
+                when(jobService.getJobPositionsByIds(anyList(), eq(token)))
+                                .thenReturn(Map.of(101L, objectMapper.createObjectNode().put("title", "only-title")));
+
+                List<CandidateStatisticsDTO> mapped = candidateService.getCandidatesForStatistics(
+                                null, "2026-01-01", "2026-01-31", null, null, token);
+                assertThat(mapped).hasSize(1);
+                assertThat(mapped.get(0).getDepartmentId()).isNull();
+        }
+
+        @Test
+        @DisplayName("Coverage: getCandidatesForStatistics - filter department loại candidate không map được dept")
+        void coverage_getCandidatesForStatistics_filterDepartment_skipsUnknownDept() {
+                Pageable pageable = PageRequest.of(0, 10000);
+                Page<Candidate> page = new PageImpl<>(List.of(candidate1, candidate2), pageable, 2);
+                when(candidateRepository.findByFilters(
+                                eq(null), eq(null), eq(null),
+                                any(LocalDate.class), any(LocalDate.class),
+                                eq(null), eq(null), any(Pageable.class)))
+                                .thenReturn(page);
+                when(jobService.getJobPositionsByIds(anyList(), eq(token)))
+                                .thenReturn(Map.of(
+                                                101L, buildJobPositionJson(101L, "J", 10L),
+                                                102L, objectMapper.createObjectNode().put("title", "no-rr")));
+
+                List<CandidateStatisticsDTO> filtered = candidateService.getCandidatesForStatistics(
+                                null, "2026-01-01", "2026-01-31", null, 10L, token);
+                assertThat(filtered).hasSize(1);
+                assertThat(filtered.get(0).getJobPositionId()).isEqualTo(101L);
+                assertThat(filtered.get(0).getDepartmentId()).isEqualTo(10L);
+        }
+
+        @Test
+        @DisplayName("Coverage: update - set GPA (BigDecimal)")
+        void coverage_update_setsGpa() throws Exception {
+                Candidate existing = buildCandidate(105L, "G", "g@x.com", 101L);
+                when(candidateRepository.findById(105L)).thenReturn(Optional.of(existing));
+                when(candidateRepository.save(any(Candidate.class))).thenAnswer(inv -> inv.getArgument(0, Candidate.class));
+                UpdateCandidateDTO dto = new UpdateCandidateDTO();
+                dto.setGpa(new BigDecimal("3.50"));
+                CandidateDetailResponseDTO out = candidateService.update(105L, dto);
+                assertThat(out.getGpa()).isEqualByComparingTo("3.50");
+        }
+
+        @Test
+        @DisplayName("Coverage: CandidateService constructor - khởi tạo thủ công (field injection không gọi <init>)")
+        void coverage_candidateService_constructor() {
+                CandidateService svc = new CandidateService(
+                                candidateRepository,
+                                jobService,
+                                communicationService,
+                                commentService,
+                                reviewCandidateService,
+                                userService);
+                assertThat(svc).isNotNull();
+        }
+
+        @Test
+        @DisplayName("Coverage: getAllWithFilters - uniqueJobIds rỗng nhưng token khác null/rỗng (full evaluate điều kiện &&)")
+        void coverage_getAllWithFilters_uniqueJobIdsEmpty_nonEmptyToken() {
+                Candidate noJp = buildCandidate(300L, "Z", "z@gmail.com", null);
+                Pageable pageable = PageRequest.of(0, 5);
+                Page<Candidate> page = new PageImpl<>(List.of(noJp), pageable, 1);
+                when(candidateRepository.findByFilters(
+                                eq(null), eq(null), eq(null),
+                                eq(null), eq(null),
+                                eq(null), eq(null), eq(pageable)))
+                                .thenReturn(page);
+
+                PaginationDTO result = candidateService.getAllWithFilters(
+                                null, null, null, null, null, null, null, pageable, token);
+
+                assertThat(result.getMeta().getTotal()).isEqualTo(1);
+                verify(jobService, never()).getJobPositionsByIdsSimple(anyList(), any());
+        }
+
+        @Test
+        @DisplayName("Coverage: getAllWithFilters - recruitmentRequest JSON null; departmentId JSON null")
+        void coverage_getAllWithFilters_enrichRecruitmentRequestNull_andDeptIdNull() {
+                Pageable pageable = PageRequest.of(0, 10);
+                Page<Candidate> page = new PageImpl<>(List.of(candidate1, candidate2), pageable, 2);
+                when(candidateRepository.findByFilters(
+                                eq(null), eq(null), eq(null),
+                                any(LocalDate.class), any(LocalDate.class),
+                                eq(null), eq(null), eq(pageable)))
+                                .thenReturn(page);
+
+                ObjectNode rrNull = objectMapper.createObjectNode();
+                rrNull.put("title", "T1");
+                rrNull.set("recruitmentRequest", NullNode.instance);
+
+                ObjectNode deptNull = objectMapper.createObjectNode();
+                deptNull.put("title", "T2");
+                ObjectNode rr = objectMapper.createObjectNode();
+                rr.set("departmentId", NullNode.instance);
+                deptNull.set("recruitmentRequest", rr);
+
+                when(jobService.getJobPositionsByIdsSimple(anyList(), eq(token)))
+                                .thenReturn(Map.of(101L, rrNull, 102L, deptNull));
+
+                PaginationDTO result = candidateService.getAllWithFilters(
+                                null, null, null,
+                                "2026-01-01", "2026-01-31", null,
+                                null, pageable, token);
+
+                @SuppressWarnings("unchecked")
+                List<CandidateGetAllResponseDTO> dtos = (List<CandidateGetAllResponseDTO>) result.getResult();
+                assertThat(dtos).extracting(CandidateGetAllResponseDTO::getDepartmentId).containsOnlyNulls();
+        }
+
+        @Test
+        @DisplayName("Coverage: getCandidateDetailById - candidate.id null -> không gọi schedule-service")
+        void coverage_getCandidateDetailById_nullCandidateId_skipsSchedules() throws Exception {
+                Candidate existing = buildCandidate(null, "Noid", "noid@x.com", null);
+                existing.setComments(null);
+                when(candidateRepository.findById(400L)).thenReturn(Optional.of(existing));
+                when(reviewCandidateService.getByCandidateId(null, token)).thenReturn(List.of());
+
+                CandidateDetailResponseDTO dto = candidateService.getCandidateDetailById(400L, token);
+
+                assertThat(dto.getId()).isNull();
+                verify(communicationService, never()).getUpcomingSchedulesForCandidate(any(), any());
+        }
+
+        @Test
+        @DisplayName("Coverage: getDepartmentIdByCandidateId - 2xx nhưng body null")
+        void coverage_getDepartmentIdByCandidateId_okButNullBody() {
+                Candidate existing = buildCandidate(401L, "A", "b401@x.com", 101L);
+                when(candidateRepository.findById(401L)).thenReturn(Optional.of(existing));
+                when(jobService.getJobPositionByIdSimple(101L, token))
+                                .thenReturn(new ResponseEntity<>(null, HttpStatus.OK));
+                assertThat(candidateService.getDepartmentIdByCandidateId(401L, token)).isNull();
+        }
+
+        @Test
+        @DisplayName("Coverage: getDepartmentIdByCandidateId - recruitmentRequest có departmentId null JSON")
+        void coverage_getDepartmentIdByCandidateId_departmentIdJsonNull() {
+                Candidate existing = buildCandidate(402L, "A", "b402@x.com", 101L);
+                when(candidateRepository.findById(402L)).thenReturn(Optional.of(existing));
+                ObjectNode jp = objectMapper.createObjectNode();
+                ObjectNode rr = objectMapper.createObjectNode();
+                rr.set("departmentId", NullNode.instance);
+                jp.set("recruitmentRequest", rr);
+                when(jobService.getJobPositionByIdSimple(101L, token)).thenReturn(ResponseEntity.ok(jp));
+                assertThat(candidateService.getDepartmentIdByCandidateId(402L, token)).isNull();
+        }
+
+        @Test
+        @DisplayName("Coverage: getCandidatesByInterviewer - chỉ candidate jobPositionId null -> không gọi job-service")
+        void coverage_getCandidatesByInterviewer_onlyNullJobPositionIds() {
+                Candidate noJp = buildCandidate(403L, "NJ", "nj403@x.com", null);
+                when(communicationService.getCandidateIdsByInterviewer(22L, token)).thenReturn(List.of(403L));
+                when(candidateRepository.findAllById(List.of(403L))).thenReturn(List.of(noJp));
+
+                List<CandidateGetAllResponseDTO> out = candidateService.getCandidatesByInterviewer(22L, token);
+                assertThat(out).hasSize(1);
+                verify(jobService, never()).getJobPositionsByIdsSimple(anyList(), any());
+        }
+
+        @Test
+        @DisplayName("Coverage: convertCandidateToEmployee - candidate không có jobPositionId -> không gọi job-service")
+        void coverage_convertCandidateToEmployee_noJobPositionId_skipsJobFetch() throws Exception {
+                Candidate existing = buildCandidate(404L, "NP", "np404@x.com", null);
+                when(candidateRepository.findById(404L)).thenReturn(Optional.of(existing));
+                ObjectNode employeeNode = objectMapper.createObjectNode().put("employeeId", 40400);
+                when(userService.createEmployeeFromCandidate(
+                                eq(404L), any(), any(), any(), any(), any(), any(), any(), any(), any(),
+                                eq(8L), eq(4L), any(), eq(token)))
+                                .thenReturn(new ResponseEntity<>(employeeNode, HttpStatus.OK));
+
+                JsonNode res = candidateService.convertCandidateToEmployee(404L, 8L, 4L, token);
+                assertThat(res.get("employeeId").asInt()).isEqualTo(40400);
+                verify(jobService, never()).getJobPositionById(anyLong(), any());
+        }
+
+        @Test
+        @DisplayName("Coverage: convertCandidateToEmployee - đã có departmentId param, thiếu positionId -> vẫn parse job nhưng không lấy dept từ JSON; fail vì thiếu position")
+        void coverage_convertCandidateToEmployee_paramDept_skipsJobDeptExtraction_missingPosition() {
+                Candidate existing = buildCandidate(405L, "X", "x405@x.com", 110L);
+                when(candidateRepository.findById(405L)).thenReturn(Optional.of(existing));
+
+                ObjectNode jobWithDept = objectMapper.createObjectNode();
+                jobWithDept.put("departmentId", 999L);
+                when(jobService.getJobPositionById(110L, token)).thenReturn(ResponseEntity.ok(jobWithDept));
+
+                assertThatThrownBy(() -> candidateService.convertCandidateToEmployee(405L, 12L, null, token))
+                                .isInstanceOf(IdInvalidException.class)
+                                .hasMessageContaining("Position ID là bắt buộc");
+                verify(jobService, times(1)).getJobPositionById(110L, token);
+                verify(userService, never()).createEmployeeFromCandidate(
+                                anyLong(), any(), any(), any(), any(), any(), any(), any(), any(), any(),
+                                anyLong(), anyLong(), any(), any());
+        }
+
+        @Test
+        @DisplayName("Coverage: getCandidatesForStatistics - startDate null / endDate null (nhánh parse)")
+        void coverage_getCandidatesForStatistics_nullDates() {
+                Pageable pageable = PageRequest.of(0, 10000);
+                Page<Candidate> page = new PageImpl<>(List.of(candidate1), pageable, 1);
+                when(candidateRepository.findByFilters(
+                                eq(null), eq(null), eq(null),
+                                any(), any(),
+                                eq(null), eq(null), any(Pageable.class)))
+                                .thenReturn(page);
+
+                candidateService.getCandidatesForStatistics(null, null, "2026-01-31", null, null, "");
+                candidateService.getCandidatesForStatistics(null, "2026-01-01", null, null, null, "");
+                verify(candidateRepository, times(2)).findByFilters(
+                                eq(null), eq(null), eq(null),
+                                any(), any(),
+                                eq(null), eq(null), any(Pageable.class));
+        }
+
+        @Test
+        @DisplayName("Coverage: getCandidatesForStatistics - uniqueJobIds rỗng + token khác rỗng")
+        void coverage_getCandidatesForStatistics_emptyJobIds_nonEmptyToken() {
+                Pageable pageable = PageRequest.of(0, 10000);
+                Candidate noJp = buildCandidate(406L, "E", "e406@x.com", null);
+                Page<Candidate> page = new PageImpl<>(List.of(noJp), pageable, 1);
+                when(candidateRepository.findByFilters(
+                                eq(null), eq(null), eq(null),
+                                any(LocalDate.class), any(LocalDate.class),
+                                eq(null), eq(null), any(Pageable.class)))
+                                .thenReturn(page);
+
+                List<CandidateStatisticsDTO> stats = candidateService.getCandidatesForStatistics(
+                                null, "2026-01-01", "2026-01-31", null, null, token);
+                assertThat(stats).hasSize(1);
+                verify(jobService, never()).getJobPositionsByIds(anyList(), any());
+        }
+
+        @Test
+        @DisplayName("Coverage: getCandidatesForStatistics - startDate/endDate chuỗi rỗng (không parse)")
+        void coverage_getCandidatesForStatistics_emptyStringDates() {
+                Pageable pageable = PageRequest.of(0, 10000);
+                Page<Candidate> page = new PageImpl<>(List.of(candidate1), pageable, 1);
+                when(candidateRepository.findByFilters(
+                                eq(null), eq(null), eq(null),
+                                any(), any(),
+                                eq(null), eq(null), any(Pageable.class)))
+                                .thenReturn(page);
+                candidateService.getCandidatesForStatistics(null, "", "2026-01-31", null, null, "");
+                candidateService.getCandidatesForStatistics(null, "2026-01-01", "", null, null, "");
+                verify(candidateRepository, times(2)).findByFilters(
+                                eq(null), eq(null), eq(null),
+                                any(), any(),
+                                eq(null), eq(null), any(Pageable.class));
+        }
+
+        @Test
+        @DisplayName("Coverage: getCandidatesForStatistics - token null nhưng có jobPositionId -> không gọi job-service")
+        void coverage_getCandidatesForStatistics_tokenNull_skipsJobMap() {
+                Pageable pageable = PageRequest.of(0, 10000);
+                Page<Candidate> page = new PageImpl<>(List.of(candidate1), pageable, 1);
+                when(candidateRepository.findByFilters(
+                                eq(null), eq(null), eq(null),
+                                any(LocalDate.class), any(LocalDate.class),
+                                eq(null), eq(null), any(Pageable.class)))
+                                .thenReturn(page);
+                List<CandidateStatisticsDTO> stats = candidateService.getCandidatesForStatistics(
+                                null, "2026-01-01", "2026-01-31", null, null, null);
+                assertThat(stats).hasSize(1);
+                verify(jobService, never()).getJobPositionsByIds(anyList(), any());
+        }
+
+        @Test
+        @DisplayName("Coverage: getDepartmentIdByCandidateId - JSON không có field recruitmentRequest")
+        void coverage_getDepartmentIdByCandidateId_noRecruitmentRequestField() {
+                Candidate existing = buildCandidate(407L, "A", "b407@x.com", 101L);
+                when(candidateRepository.findById(407L)).thenReturn(Optional.of(existing));
+                ObjectNode jp = objectMapper.createObjectNode().put("id", 101L).put("title", "T");
+                when(jobService.getJobPositionByIdSimple(101L, token)).thenReturn(ResponseEntity.ok(jp));
+                assertThat(candidateService.getDepartmentIdByCandidateId(407L, token)).isNull();
+        }
+
+        @Test
+        @DisplayName("Coverage: getCandidatesByInterviewer - token null, có jobPosition -> không enrich")
+        void coverage_getCandidatesByInterviewer_tokenNull_skipsEnrich() {
+                when(communicationService.getCandidateIdsByInterviewer(23L, null)).thenReturn(List.of(1L));
+                when(candidateRepository.findAllById(List.of(1L))).thenReturn(List.of(candidate1));
+                List<CandidateGetAllResponseDTO> out = candidateService.getCandidatesByInterviewer(23L, null);
+                assertThat(out.get(0).getJobPositionTitle()).isNull();
+                verify(jobService, never()).getJobPositionsByIdsSimple(anyList(), any());
+        }
+
+        @Test
+        @DisplayName("Coverage: convertCandidateToEmployee - departmentId null từ param (short-circuit ||), position có -> parse job")
+        void coverage_convertCandidateToEmployee_nullDeptParam_shortCircuitOr() throws Exception {
+                Candidate existing = buildCandidate(408L, "Y", "y408@x.com", 111L);
+                when(candidateRepository.findById(408L)).thenReturn(Optional.of(existing));
+                ObjectNode job = objectMapper.createObjectNode();
+                job.put("departmentId", 44L);
+                when(jobService.getJobPositionById(111L, token)).thenReturn(ResponseEntity.ok(job));
+                ObjectNode employeeNode = objectMapper.createObjectNode().put("employeeId", 40800);
+                when(userService.createEmployeeFromCandidate(
+                                eq(408L), any(), any(), any(), any(), any(), any(), any(), any(), any(),
+                                eq(44L), eq(6L), any(), eq(token)))
+                                .thenReturn(new ResponseEntity<>(employeeNode, HttpStatus.OK));
+                JsonNode res = candidateService.convertCandidateToEmployee(408L, null, 6L, token);
+                assertThat(res.get("employeeId").asInt()).isEqualTo(40800);
+        }
+
+        @Test
+        @DisplayName("Coverage: getCandidatesForStatistics - loop map: deptId null -> không put idToDepartmentId")
+        void coverage_getCandidatesForStatistics_deptIdNull_skipPut() {
+                Pageable pageable = PageRequest.of(0, 10000);
+                Page<Candidate> page = new PageImpl<>(List.of(candidate1), pageable, 1);
+                when(candidateRepository.findByFilters(
+                                eq(null), eq(null), eq(null),
+                                any(LocalDate.class), any(LocalDate.class),
+                                eq(null), eq(null), any(Pageable.class)))
+                                .thenReturn(page);
+                ObjectNode bodyNoDept = objectMapper.createObjectNode();
+                ObjectNode rr = objectMapper.createObjectNode();
+                bodyNoDept.set("recruitmentRequest", rr);
+                when(jobService.getJobPositionsByIds(anyList(), eq(token)))
+                                .thenReturn(Map.of(101L, bodyNoDept));
+                List<CandidateStatisticsDTO> stats = candidateService.getCandidatesForStatistics(
+                                null, "2026-01-01", "2026-01-31", null, null, token);
+                assertThat(stats.get(0).getDepartmentId()).isNull();
+        }
+
+        @Test
+        @DisplayName("Coverage: getCandidatesByInterviewer - body null / không title trong map job positions")
+        void coverage_getCandidatesByInterviewer_partialJobBodies() {
+                when(communicationService.getCandidateIdsByInterviewer(24L, token)).thenReturn(List.of(1L, 2L));
+                when(candidateRepository.findAllById(List.of(1L, 2L))).thenReturn(List.of(candidate1, candidate2));
+                ObjectNode empty = objectMapper.createObjectNode();
+                ObjectNode noTitle = (ObjectNode) buildJobPositionJson(102L, "QA", 11L);
+                noTitle.remove("title");
+                when(jobService.getJobPositionsByIdsSimple(anyList(), eq(token)))
+                                .thenReturn(Map.of(
+                                                101L, empty,
+                                                102L, noTitle));
+                List<CandidateGetAllResponseDTO> out = candidateService.getCandidatesByInterviewer(24L, token);
+                assertThat(out).hasSize(2);
+                assertThat(out.stream().filter(d -> d.getJobPositionId().equals(101L)).findFirst().orElseThrow()
+                                .getJobPositionTitle()).isNull();
+        }
+
+        @Test
+        @DisplayName("Coverage: convertCandidateToEmployee - jobPosition không có departmentId root nhưng có recruitmentRequest (else-if)")
+        void coverage_convertCandidateToEmployee_onlyRecruitmentRequestDept() throws Exception {
+                Candidate existing = buildCandidate(409L, "Z", "z409@x.com", 112L);
+                when(candidateRepository.findById(409L)).thenReturn(Optional.of(existing));
+                ObjectNode job = objectMapper.createObjectNode();
+                ObjectNode rr = objectMapper.createObjectNode();
+                rr.put("departmentId", 88L);
+                job.set("recruitmentRequest", rr);
+                when(jobService.getJobPositionById(112L, token)).thenReturn(ResponseEntity.ok(job));
+                ObjectNode employeeNode = objectMapper.createObjectNode().put("employeeId", 40900);
+                when(userService.createEmployeeFromCandidate(
+                                eq(409L), any(), any(), any(), any(), any(), any(), any(), any(), any(),
+                                eq(88L), eq(7L), any(), eq(token)))
+                                .thenReturn(new ResponseEntity<>(employeeNode, HttpStatus.OK));
+                JsonNode res = candidateService.convertCandidateToEmployee(409L, null, 7L, token);
+                assertThat(res.get("employeeId").asInt()).isEqualTo(40900);
+        }
+
+        @Test
+        @DisplayName("Coverage: getCandidatesForStatistics - job JSON có recruitmentRequest null; rr không có departmentId")
+        void coverage_getCandidatesForStatistics_recruitmentRequestVariants() {
+                Pageable pageable = PageRequest.of(0, 10000);
+                Page<Candidate> page = new PageImpl<>(List.of(candidate1, candidate2), pageable, 2);
+                when(candidateRepository.findByFilters(
+                                eq(null), eq(null), eq(null),
+                                any(LocalDate.class), any(LocalDate.class),
+                                eq(null), eq(null), any(Pageable.class)))
+                                .thenReturn(page);
+
+                ObjectNode rrMissingDept = objectMapper.createObjectNode();
+                rrMissingDept.put("foo", "bar");
+                ObjectNode j101 = objectMapper.createObjectNode();
+                j101.set("recruitmentRequest", rrMissingDept);
+
+                ObjectNode j102 = objectMapper.createObjectNode();
+                j102.set("recruitmentRequest", NullNode.instance);
+
+                when(jobService.getJobPositionsByIds(anyList(), eq(token)))
+                                .thenReturn(Map.of(101L, j101, 102L, j102));
+
+                List<CandidateStatisticsDTO> stats = candidateService.getCandidatesForStatistics(
+                                null, "2026-01-01", "2026-01-31", null, null, token);
+                assertThat(stats).hasSize(2);
+                assertThat(stats).extracting(CandidateStatisticsDTO::getDepartmentId).containsOnlyNulls();
         }
 
         // ============== helpers ==============
