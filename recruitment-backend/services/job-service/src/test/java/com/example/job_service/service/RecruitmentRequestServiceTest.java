@@ -227,7 +227,12 @@ class RecruitmentRequestServiceTest {
      *     • isActive = true (khác APPROVED/REJECTED)
      *     • ownerUserId = requesterId (sao chép)
      *     • title, salaryMin được lưu đúng giá trị
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Kiểm tra tính chính xác của dữ liệu trả về hoặc trạng thái assert.
+     * - Check DB: So sánh tổng số lượng bản ghi trong DB trước và sau khi thực thi qua .count() và truy vấn DB bằng findById() để xác minh.
      */
+
     @Test
     @DisplayName("[RR-TC01][N1] create() - Input hợp lệ → status=DRAFT, isActive=true, các trường lưu đúng")
     void tc01_create_validInput_persistsAllFieldsWithDraftStatus() {
@@ -246,12 +251,14 @@ class RecruitmentRequestServiceTest {
         dto.setDepartmentId(5L);
 
         // Lưu số lượng record TRƯỚC khi create()
+        // Check DB
         long countBefore = recruitmentRequestRepository.count();
 
         // ============================================================
         // ACT: Gọi service method
         // ============================================================
         
+        // Act
         RecruitmentRequest result = recruitmentRequestService.create(dto);
 
         // ============================================================
@@ -302,7 +309,12 @@ class RecruitmentRequestServiceTest {
      *     • Status = PENDING (từ DRAFT)
      *     • submittedAt != null (ghi nhận thời gian submit)
      *     • ownerUserId giữ nguyên (không bị overwrite)
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Kiểm tra tính chính xác của dữ liệu trả về hoặc trạng thái assert.
+     * - Check DB: Không tương tác/kiểm tra trực tiếp Repository trong test case này.
      */
+
     @Test
     @DisplayName("[RR-TC02][N2] submit() - DRAFT → PENDING, submittedAt được ghi, ownerUserId giữ nguyên")
     void tc02_submit_fromDraft_setsPendingAndRecordsSubmittedAt() throws IdInvalidException {
@@ -310,18 +322,21 @@ class RecruitmentRequestServiceTest {
         // PRECONDITION: Xác minh state của fixture
         // ============================================================
         
+        // Assert
         assertNull(draftRequest.getSubmittedAt(), "Precondition: submittedAt phải null trước khi submit");
 
         // ============================================================
         // ACT: Gọi submit()
         // ============================================================
         
+        // Act
         recruitmentRequestService.submit(draftRequest.getId(), OWNER_ID, TOKEN);
 
         // ============================================================
         // CHECKDB: Truy vấn lại từ DB, xác minh state change
         // ============================================================
         
+        // Check DB
         RecruitmentRequest saved = recruitmentRequestRepository.findById(draftRequest.getId()).orElseThrow();
         assertAll("BUG: submit() không cập nhật đúng dữ liệu",
                 () -> assertEquals(RecruitmentRequestStatus.PENDING, saved.getStatus(),
@@ -343,7 +358,12 @@ class RecruitmentRequestServiceTest {
      *   - Arrange: Tạo request ở trạng thái RETURNED
      *   - Act: Gọi submit() từ RETURNED status
      *   - Assert: Status phải thành PENDING (submit lại được phép)
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Kiểm tra tính chính xác của dữ liệu trả về hoặc trạng thái assert.
+     * - Check DB: Không tương tác/kiểm tra trực tiếp Repository trong test case này.
      */
+
     @Test
     @DisplayName("[RR-TC03][N3] submit() - RETURNED → PENDING (submit lại hợp lệ)")
     void tc03_submit_fromReturned_transitionsToPending() throws IdInvalidException {
@@ -359,12 +379,14 @@ class RecruitmentRequestServiceTest {
         // ACT: Submit lại từ RETURNED
         // ============================================================
         
+        // Act
         recruitmentRequestService.submit(returnedRequest.getId(), OWNER_ID, TOKEN);
 
         // ============================================================
         // ASSERT: Status phải là PENDING
         // ============================================================
         
+        // Check DB
         RecruitmentRequest saved = recruitmentRequestRepository.findById(returnedRequest.getId()).orElseThrow();
         assertEquals(RecruitmentRequestStatus.PENDING, saved.getStatus(),
                 "BUG: Không cho phép submit từ RETURNED → workflow bị kẹt");
@@ -381,7 +403,12 @@ class RecruitmentRequestServiceTest {
      *   - Act: Gọi submit() trên request đang PENDING
      *   - Assert-1: Exception được ném (IllegalStateException)
      *   - CheckDB: Status vẫn là PENDING (DB không đổi)
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Kiểm tra tính chính xác của dữ liệu trả về hoặc trạng thái assert.
+     * - Check DB: Không tương tác/kiểm tra trực tiếp Repository trong test case này.
      */
+
     @Test
     @DisplayName("[RR-TC04][N4] submit() - PENDING → IllegalStateException; DB giữ nguyên PENDING")
     void tc04_submit_fromPending_throwsIllegalStateException_dbUnchanged() {
@@ -389,6 +416,7 @@ class RecruitmentRequestServiceTest {
         // PRECONDITION: Xác minh fixture đang PENDING
         // ============================================================
         
+        // Assert
         assertEquals(RecruitmentRequestStatus.PENDING, pendingRequest.getStatus(),
                 "Precondition: fixture phải ở trạng thái PENDING");
 
@@ -396,6 +424,7 @@ class RecruitmentRequestServiceTest {
         // ACT + ASSERT: Submit từ PENDING phải ném exception
         // ============================================================
         
+        // Act & Assert
         assertThrows(IllegalStateException.class,
                 () -> recruitmentRequestService.submit(pendingRequest.getId(), OWNER_ID, TOKEN),
                 "BUG: Không ném exception khi submit PENDING request → cho submit lại sai logic");
@@ -404,6 +433,7 @@ class RecruitmentRequestServiceTest {
         // CHECKDB: Status vẫn PENDING (DB không bị modify)
         // ============================================================
         
+        // Check DB
         RecruitmentRequest saved = recruitmentRequestRepository.findById(pendingRequest.getId()).orElseThrow();
         assertEquals(RecruitmentRequestStatus.PENDING, saved.getStatus(),
                 "BUG: Status bị thay đổi sau khi ném exception → transaction không rollback đúng");
@@ -416,13 +446,19 @@ class RecruitmentRequestServiceTest {
      * Nhánh [N5]: APPROVED → IllegalStateException
      *
      * Bug bị bắt: Cho phép submit yêu cầu đã APPROVED → tạo tracking trùng lặp
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Xác minh service ném ra Exception phù hợp và luồng thực thi bị chặn.
+     * - Check DB: Không tương tác/kiểm tra trực tiếp Repository trong test case này.
      */
+
     @Test
     @DisplayName("[RR-TC05][N5] submit() - APPROVED → IllegalStateException")
     void tc05_submit_fromApproved_throwsIllegalStateException() {
         pendingRequest.setStatus(RecruitmentRequestStatus.APPROVED);
         recruitmentRequestRepository.save(pendingRequest);
 
+        // Act & Assert
         assertThrows(IllegalStateException.class,
                 () -> recruitmentRequestService.submit(pendingRequest.getId(), OWNER_ID, TOKEN),
                 "BUG: Cho phép submit yêu cầu đã APPROVED");
@@ -433,7 +469,12 @@ class RecruitmentRequestServiceTest {
      * Nhánh [N6]: ownerUserId=null → được gán actorId khi submit
      *
      * Bug bị bắt: Không set ownerUserId khi null → owner không được xác định → không ai có thể withdraw
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Kiểm tra tính chính xác của dữ liệu trả về hoặc trạng thái assert.
+     * - Check DB: Không tương tác/kiểm tra trực tiếp Repository trong test case này.
      */
+
     @Test
     @DisplayName("[RR-TC06][N6] submit() - ownerUserId=null → được gán actorId sau submit")
     void tc06_submit_nullOwnerUserId_assignsActorId() throws IdInvalidException {
@@ -452,10 +493,16 @@ class RecruitmentRequestServiceTest {
     /**
      * Test Case ID: RR-TC07
      * Nhánh [N7]: ID không tồn tại → IdInvalidException
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Xác minh service ném ra Exception phù hợp và luồng thực thi bị chặn.
+     * - Check DB: Không tương tác/kiểm tra trực tiếp Repository trong test case này.
      */
+
     @Test
     @DisplayName("[RR-TC07][N7] submit() - ID không tồn tại → IdInvalidException")
     void tc07_submit_nonExistentId_throwsIdInvalidException() {
+        // Act & Assert
         assertThrows(IdInvalidException.class,
                 () -> recruitmentRequestService.submit(99999L, OWNER_ID, TOKEN),
                 "BUG: Không ném IdInvalidException khi ID không tồn tại");
@@ -475,13 +522,19 @@ class RecruitmentRequestServiceTest {
      * Bug bị bắt: Code tự set status=APPROVED thay vì để workflow-service xử lý
      *
      * CheckDB: Status vẫn là PENDING sau approveStep
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Kiểm tra tính chính xác của dữ liệu trả về hoặc trạng thái assert.
+     * - Check DB: Không tương tác/kiểm tra trực tiếp Repository trong test case này.
      */
+
     @Test
     @DisplayName("[RR-TC08][N8] approveStep() - PENDING → giữ PENDING (workflow-service xử lý APPROVED sau)")
     void tc08_approveStep_fromPending_keepsPendingAndPublishesEvent() throws IdInvalidException {
         ApproveRecruitmentRequestDTO dto = new ApproveRecruitmentRequestDTO();
         dto.setApprovalNotes("Đồng ý tuyển dụng");
 
+        // Act
         recruitmentRequestService.approveStep(pendingRequest.getId(), dto, OWNER_ID, TOKEN);
 
         // CHECK DB: phải vẫn PENDING (workflow-service chưa xác nhận xong)
@@ -498,17 +551,25 @@ class RecruitmentRequestServiceTest {
      * Bug bị bắt: Cho phép approve yêu cầu chưa được submit → phê duyệt khi chưa qua workflow
      *
      * CheckDB: Status vẫn là DRAFT
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Xác minh service ném ra Exception phù hợp và luồng thực thi bị chặn.
+     * - Check DB: Truy vấn DB bằng findById() để assert các trường thay đổi như status, isActive, v.v.
      */
+
     @Test
     @DisplayName("[RR-TC09][N10] approveStep() - DRAFT → IllegalStateException; status DB vẫn DRAFT")
     void tc09_approveStep_fromDraft_throwsIllegalStateException_dbUnchanged() {
         ApproveRecruitmentRequestDTO dto = new ApproveRecruitmentRequestDTO();
 
+        // Act & Assert
         assertThrows(IllegalStateException.class,
                 () -> recruitmentRequestService.approveStep(draftRequest.getId(), dto, OWNER_ID, TOKEN),
                 "BUG: Cho phép approve yêu cầu ở trạng thái DRAFT");
 
+        // Assert
         assertEquals(RecruitmentRequestStatus.DRAFT,
+                // Check DB
                 recruitmentRequestRepository.findById(draftRequest.getId()).orElseThrow().getStatus(),
                 "BUG: Status trong DB bị thay đổi dù approveStep thất bại");
     }
@@ -518,13 +579,19 @@ class RecruitmentRequestServiceTest {
      * Nhánh [N11]: đã APPROVED → IllegalStateException
      *
      * Bug bị bắt: Cho phép approve lại yêu cầu đã APPROVED → dữ liệu event bị ghi đè
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Xác minh service ném ra Exception phù hợp và luồng thực thi bị chặn.
+     * - Check DB: Không tương tác/kiểm tra trực tiếp Repository trong test case này.
      */
+
     @Test
     @DisplayName("[RR-TC10][N11] approveStep() - đã APPROVED → IllegalStateException")
     void tc10_approveStep_fromApproved_throwsIllegalStateException() {
         pendingRequest.setStatus(RecruitmentRequestStatus.APPROVED);
         recruitmentRequestRepository.save(pendingRequest);
 
+        // Act & Assert
         assertThrows(IllegalStateException.class,
                 () -> recruitmentRequestService.approveStep(
                         pendingRequest.getId(), new ApproveRecruitmentRequestDTO(), OWNER_ID, TOKEN),
@@ -544,16 +611,24 @@ class RecruitmentRequestServiceTest {
      *   - Event không được publish → workflow-service không biết để cập nhật tracking
      *
      * CheckDB: Status phải là REJECTED
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Kiểm tra tính chính xác của dữ liệu trả về hoặc trạng thái assert.
+     * - Check DB: Truy vấn DB bằng findById() để assert các trường thay đổi như status, isActive, v.v.
      */
+
     @Test
     @DisplayName("[RR-TC11][N12] rejectStep() - PENDING → status=REJECTED trong DB")
     void tc11_rejectStep_fromPending_setsRejectedInDb() throws IdInvalidException {
         RejectRecruitmentRequestDTO dto = new RejectRecruitmentRequestDTO();
         dto.setReason("Không đủ ngân sách");
 
+        // Act
         recruitmentRequestService.rejectStep(pendingRequest.getId(), dto, OWNER_ID, TOKEN);
 
+        // Assert
         assertEquals(RecruitmentRequestStatus.REJECTED,
+                // Check DB
                 recruitmentRequestRepository.findById(pendingRequest.getId()).orElseThrow().getStatus(),
                 "BUG: Status không được đổi thành REJECTED sau khi từ chối");
     }
@@ -563,18 +638,26 @@ class RecruitmentRequestServiceTest {
      * Nhánh [N13]: DRAFT → IllegalStateException, DB không đổi
      *
      * Bug bị bắt: Cho phép reject yêu cầu chưa submit → đảo lộn luồng phê duyệt
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Xác minh service ném ra Exception phù hợp và luồng thực thi bị chặn.
+     * - Check DB: Truy vấn DB bằng findById() để assert các trường thay đổi như status, isActive, v.v.
      */
+
     @Test
     @DisplayName("[RR-TC12][N13] rejectStep() - DRAFT → IllegalStateException; DB giữ nguyên DRAFT")
     void tc12_rejectStep_fromDraft_throwsIllegalStateException_dbUnchanged() {
         RejectRecruitmentRequestDTO dto = new RejectRecruitmentRequestDTO();
         dto.setReason("lý do");
 
+        // Act & Assert
         assertThrows(IllegalStateException.class,
                 () -> recruitmentRequestService.rejectStep(draftRequest.getId(), dto, OWNER_ID, TOKEN),
                 "BUG: Cho phép reject yêu cầu ở trạng thái DRAFT");
 
+        // Assert
         assertEquals(RecruitmentRequestStatus.DRAFT,
+                // Check DB
                 recruitmentRequestRepository.findById(draftRequest.getId()).orElseThrow().getStatus(),
                 "BUG: Status bị thay đổi dù rejectStep thất bại");
     }
@@ -584,13 +667,19 @@ class RecruitmentRequestServiceTest {
      * Nhánh [N14]: CANCELLED → IllegalStateException
      *
      * Bug bị bắt: Cho phép reject yêu cầu đã CANCELLED → thêm event sai vào queue
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Xác minh service ném ra Exception phù hợp và luồng thực thi bị chặn.
+     * - Check DB: Không tương tác/kiểm tra trực tiếp Repository trong test case này.
      */
+
     @Test
     @DisplayName("[RR-TC13][N14] rejectStep() - CANCELLED → IllegalStateException")
     void tc13_rejectStep_fromCancelled_throwsIllegalStateException() {
         pendingRequest.setStatus(RecruitmentRequestStatus.CANCELLED);
         recruitmentRequestRepository.save(pendingRequest);
 
+        // Act & Assert
         assertThrows(IllegalStateException.class,
                 () -> recruitmentRequestService.rejectStep(
                         pendingRequest.getId(), new RejectRecruitmentRequestDTO(), OWNER_ID, TOKEN),
@@ -610,7 +699,12 @@ class RecruitmentRequestServiceTest {
      *   - Event publish thiếu returnedToStepId → workflow-service không biết trả về bước nào
      *
      * CheckDB: Status phải là RETURNED
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Kiểm tra tính chính xác của dữ liệu trả về hoặc trạng thái assert.
+     * - Check DB: Truy vấn DB bằng findById() để assert các trường thay đổi như status, isActive, v.v.
      */
+
     @Test
     @DisplayName("[RR-TC14][N15] returnRequest() - PENDING → status=RETURNED trong DB")
     void tc14_returnRequest_fromPending_setsReturnedInDb() throws IdInvalidException {
@@ -618,9 +712,12 @@ class RecruitmentRequestServiceTest {
         dto.setReason("Cần bổ sung mô tả công việc");
         dto.setReturnedToStepId(1L);
 
+        // Act
         recruitmentRequestService.returnRequest(pendingRequest.getId(), dto, OWNER_ID, TOKEN);
 
+        // Assert
         assertEquals(RecruitmentRequestStatus.RETURNED,
+                // Check DB
                 recruitmentRequestRepository.findById(pendingRequest.getId()).orElseThrow().getStatus(),
                 "BUG: Status không được đổi thành RETURNED");
     }
@@ -630,18 +727,26 @@ class RecruitmentRequestServiceTest {
      * Nhánh [N16]: DRAFT → IllegalStateException, DB không đổi
      *
      * Bug bị bắt: Return yêu cầu chưa submit → tracking không tồn tại ở workflow-service
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Xác minh service ném ra Exception phù hợp và luồng thực thi bị chặn.
+     * - Check DB: Truy vấn DB bằng findById() để assert các trường thay đổi như status, isActive, v.v.
      */
+
     @Test
     @DisplayName("[RR-TC15][N16] returnRequest() - DRAFT → IllegalStateException; DB không đổi")
     void tc15_returnRequest_fromDraft_throwsIllegalStateException_dbUnchanged() {
         ReturnRecruitmentRequestDTO dto = new ReturnRecruitmentRequestDTO();
         dto.setReason("lý do");
 
+        // Act & Assert
         assertThrows(IllegalStateException.class,
                 () -> recruitmentRequestService.returnRequest(draftRequest.getId(), dto, OWNER_ID, TOKEN),
                 "BUG: Cho phép trả về yêu cầu ở trạng thái DRAFT");
 
+        // Assert
         assertEquals(RecruitmentRequestStatus.DRAFT,
+                // Check DB
                 recruitmentRequestRepository.findById(draftRequest.getId()).orElseThrow().getStatus(),
                 "BUG: Status bị thay đổi dù returnRequest thất bại");
     }
@@ -651,13 +756,19 @@ class RecruitmentRequestServiceTest {
      * Nhánh [N17]: APPROVED → IllegalStateException
      *
      * Bug bị bắt: Trả về yêu cầu đã APPROVED → mở lại quy trình đã hoàn thành
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Xác minh service ném ra Exception phù hợp và luồng thực thi bị chặn.
+     * - Check DB: Không tương tác/kiểm tra trực tiếp Repository trong test case này.
      */
+
     @Test
     @DisplayName("[RR-TC16][N17] returnRequest() - APPROVED → IllegalStateException")
     void tc16_returnRequest_fromApproved_throwsIllegalStateException() {
         pendingRequest.setStatus(RecruitmentRequestStatus.APPROVED);
         recruitmentRequestRepository.save(pendingRequest);
 
+        // Act & Assert
         assertThrows(IllegalStateException.class,
                 () -> recruitmentRequestService.returnRequest(
                         pendingRequest.getId(), new ReturnRecruitmentRequestDTO(), OWNER_ID, TOKEN),
@@ -673,15 +784,23 @@ class RecruitmentRequestServiceTest {
      * Nhánh [N18]: DRAFT → CANCELLED
      *
      * Bug bị bắt: Không cho phép cancel DRAFT → người dùng không thể hủy bỏ nháp
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Kiểm tra tính chính xác của dữ liệu trả về hoặc trạng thái assert.
+     * - Check DB: Truy vấn DB bằng findById() để assert các trường thay đổi như status, isActive, v.v.
      */
+
     @Test
     @DisplayName("[RR-TC17][N18] cancel() - DRAFT → status=CANCELLED trong DB")
     void tc17_cancel_fromDraft_setsCancelledInDb() throws IdInvalidException {
         CancelRecruitmentRequestDTO dto = buildCancelDto("Không còn nhu cầu");
 
+        // Act
         recruitmentRequestService.cancel(draftRequest.getId(), dto, OWNER_ID, TOKEN);
 
+        // Assert
         assertEquals(RecruitmentRequestStatus.CANCELLED,
+                // Check DB
                 recruitmentRequestRepository.findById(draftRequest.getId()).orElseThrow().getStatus(),
                 "BUG: Status không được đổi thành CANCELLED từ DRAFT");
     }
@@ -691,15 +810,23 @@ class RecruitmentRequestServiceTest {
      * Nhánh [N19]: PENDING → CANCELLED (hủy khi đang chờ duyệt)
      *
      * Bug bị bắt: Không cho phép cancel PENDING → người dùng bị kẹt chờ duyệt mãi
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Kiểm tra tính chính xác của dữ liệu trả về hoặc trạng thái assert.
+     * - Check DB: Truy vấn DB bằng findById() để assert các trường thay đổi như status, isActive, v.v.
      */
+
     @Test
     @DisplayName("[RR-TC18][N19] cancel() - PENDING → status=CANCELLED trong DB")
     void tc18_cancel_fromPending_setsCancelledInDb() throws IdInvalidException {
         CancelRecruitmentRequestDTO dto = buildCancelDto("Hủy do thay đổi kế hoạch");
 
+        // Act
         recruitmentRequestService.cancel(pendingRequest.getId(), dto, OWNER_ID, TOKEN);
 
+        // Assert
         assertEquals(RecruitmentRequestStatus.CANCELLED,
+                // Check DB
                 recruitmentRequestRepository.findById(pendingRequest.getId()).orElseThrow().getStatus(),
                 "BUG: Status không được đổi thành CANCELLED từ PENDING");
     }
@@ -711,7 +838,12 @@ class RecruitmentRequestServiceTest {
      * Đặc tả: Cancel lần 2 phải an toàn (idempotent) — không gây lỗi, không tạo event thừa.
      *
      * Bug bị bắt: Ném exception khi cancel lần 2 → UI không thể retry khi lỗi mạng
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Kiểm tra tính chính xác của dữ liệu trả về hoặc trạng thái assert.
+     * - Check DB: Không tương tác/kiểm tra trực tiếp Repository trong test case này.
      */
+
     @Test
     @DisplayName("[RR-TC19][N20] cancel() - đã CANCELLED → idempotent, trả về nguyên, không exception")
     void tc19_cancel_alreadyCancelled_isIdempotentNoException() throws IdInvalidException {
@@ -722,6 +854,7 @@ class RecruitmentRequestServiceTest {
                 () -> recruitmentRequestService.cancel(draftRequest.getId(), buildCancelDto("lý do"), OWNER_ID, TOKEN),
                 "BUG: Ném exception khi cancel yêu cầu đã CANCELLED - vi phạm idempotency");
 
+        // Assert
         assertEquals(RecruitmentRequestStatus.CANCELLED, result.getStatus(),
                 "BUG: Status bị thay đổi sau cancel idempotent - phải giữ nguyên CANCELLED");
     }
@@ -733,7 +866,12 @@ class RecruitmentRequestServiceTest {
      * Bug bị bắt: Cho phép hủy yêu cầu đã APPROVED → xóa kết quả phê duyệt hợp lệ
      *
      * CheckDB: Status vẫn là APPROVED
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Xác minh service ném ra Exception phù hợp và luồng thực thi bị chặn.
+     * - Check DB: Truy vấn DB bằng findById() để assert các trường thay đổi như status, isActive, v.v.
      */
+
     @Test
     @DisplayName("[RR-TC20][N21] cancel() - APPROVED → IllegalStateException; DB giữ nguyên APPROVED")
     void tc20_cancel_fromApproved_throwsIllegalStateException_dbUnchanged() {
@@ -744,10 +882,13 @@ class RecruitmentRequestServiceTest {
                 () -> recruitmentRequestService.cancel(pendingRequest.getId(), buildCancelDto("x"), OWNER_ID, TOKEN),
                 "BUG: Cho phép cancel yêu cầu đã APPROVED");
 
+        // Assert
         assertTrue(ex.getMessage().contains("APPROVED") || ex.getMessage().contains("REJECTED"),
                 "BUG: Message không đề cập đến lý do không thể cancel");
 
+        // Assert
         assertEquals(RecruitmentRequestStatus.APPROVED,
+                // Check DB
                 recruitmentRequestRepository.findById(pendingRequest.getId()).orElseThrow().getStatus(),
                 "BUG: Status APPROVED bị thay đổi dù cancel thất bại");
     }
@@ -757,13 +898,19 @@ class RecruitmentRequestServiceTest {
      * Nhánh [N22]: REJECTED → IllegalStateException
      *
      * Bug bị bắt: Cho phép cancel yêu cầu đã REJECTED → mâu thuẫn dữ liệu với workflow-service
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Xác minh service ném ra Exception phù hợp và luồng thực thi bị chặn.
+     * - Check DB: Không tương tác/kiểm tra trực tiếp Repository trong test case này.
      */
+
     @Test
     @DisplayName("[RR-TC21][N22] cancel() - REJECTED → IllegalStateException")
     void tc21_cancel_fromRejected_throwsIllegalStateException() {
         pendingRequest.setStatus(RecruitmentRequestStatus.REJECTED);
         recruitmentRequestRepository.save(pendingRequest);
 
+        // Act & Assert
         assertThrows(IllegalStateException.class,
                 () -> recruitmentRequestService.cancel(pendingRequest.getId(), buildCancelDto("x"), OWNER_ID, TOKEN),
                 "BUG: Cho phép cancel yêu cầu đã REJECTED");
@@ -780,13 +927,20 @@ class RecruitmentRequestServiceTest {
      * Bug bị bắt:
      *   - Status không được đổi thành WITHDRAWN
      *   - Owner bị từ chối quyền withdraw yêu cầu của chính mình
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Kiểm tra tính chính xác của dữ liệu trả về hoặc trạng thái assert.
+     * - Check DB: Truy vấn DB bằng findById() để assert các trường thay đổi như status, isActive, v.v.
      */
+
     @Test
     @DisplayName("[RR-TC22][N23] withdraw() - PENDING + actor=owner → status=WITHDRAWN trong DB")
     void tc22_withdraw_fromPending_ownerIsActor_setsWithdrawn() throws IdInvalidException {
         recruitmentRequestService.withdraw(pendingRequest.getId(), OWNER_ID, TOKEN);
 
+        // Assert
         assertEquals(RecruitmentRequestStatus.WITHDRAWN,
+                // Check DB
                 recruitmentRequestRepository.findById(pendingRequest.getId()).orElseThrow().getStatus(),
                 "BUG: Status không được đổi thành WITHDRAWN khi owner withdraw");
     }
@@ -797,7 +951,12 @@ class RecruitmentRequestServiceTest {
      *
      * Chuẩn bị: ownerUserId khác requesterId
      * Bug bị bắt: Chỉ cho phép owner, không cho requester → người submit bị từ chối quyền rút
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Kiểm tra tính chính xác của dữ liệu trả về hoặc trạng thái assert.
+     * - Check DB: Truy vấn DB bằng findById() để assert các trường thay đổi như status, isActive, v.v.
      */
+
     @Test
     @DisplayName("[RR-TC23][N24] withdraw() - PENDING + actor=requester (≠owner) → WITHDRAWN")
     void tc23_withdraw_fromPending_requesterIsActor_setsWithdrawn() throws IdInvalidException {
@@ -806,9 +965,12 @@ class RecruitmentRequestServiceTest {
                 "Test Withdraw", RecruitmentRequestStatus.PENDING, REQUESTER_ID, 77L, 5L, 1L));
         // requester=10L, owner=77L → actor=10L (requester) phải được phép
 
+        // Act
         recruitmentRequestService.withdraw(r.getId(), REQUESTER_ID, TOKEN);
 
+        // Assert
         assertEquals(RecruitmentRequestStatus.WITHDRAWN,
+                // Check DB
                 recruitmentRequestRepository.findById(r.getId()).orElseThrow().getStatus(),
                 "BUG: Requester bị từ chối quyền withdraw dù đặc tả cho phép");
     }
@@ -820,7 +982,12 @@ class RecruitmentRequestServiceTest {
      * Bug bị bắt: Không kiểm tra quyền → ai cũng withdraw được
      *
      * CheckDB: Status vẫn là PENDING
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Xác minh service ném ra Exception phù hợp và luồng thực thi bị chặn.
+     * - Check DB: Truy vấn DB bằng findById() để assert các trường thay đổi như status, isActive, v.v.
      */
+
     @Test
     @DisplayName("[RR-TC24][N25] withdraw() - actor không phải owner/requester → IllegalStateException; DB không đổi")
     void tc24_withdraw_wrongActor_throwsIllegalStateException_dbUnchanged() {
@@ -828,10 +995,13 @@ class RecruitmentRequestServiceTest {
                 () -> recruitmentRequestService.withdraw(pendingRequest.getId(), OTHER_ACTOR, TOKEN),
                 "BUG: Không kiểm tra quyền withdraw → ai cũng rút được");
 
+        // Assert
         assertTrue(ex.getMessage().contains("submitter") || ex.getMessage().contains("owner"),
                 "BUG: Message không đề cập đến quyền submitter/owner");
 
+        // Assert
         assertEquals(RecruitmentRequestStatus.PENDING,
+                // Check DB
                 recruitmentRequestRepository.findById(pendingRequest.getId()).orElseThrow().getStatus(),
                 "BUG: Status bị thay đổi dù withdraw bị từ chối");
     }
@@ -841,10 +1011,16 @@ class RecruitmentRequestServiceTest {
      * Nhánh [N26]: DRAFT → IllegalStateException (chỉ SUBMITTED/PENDING mới được withdraw)
      *
      * Bug bị bắt: Cho phép withdraw DRAFT → rút yêu cầu chưa submit là vô nghĩa
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Xác minh service ném ra Exception phù hợp và luồng thực thi bị chặn.
+     * - Check DB: Không tương tác/kiểm tra trực tiếp Repository trong test case này.
      */
+
     @Test
     @DisplayName("[RR-TC25][N26] withdraw() - DRAFT → IllegalStateException")
     void tc25_withdraw_fromDraft_throwsIllegalStateException() {
+        // Act & Assert
         assertThrows(IllegalStateException.class,
                 () -> recruitmentRequestService.withdraw(draftRequest.getId(), OWNER_ID, TOKEN),
                 "BUG: Cho phép withdraw yêu cầu đang DRAFT");
@@ -855,13 +1031,19 @@ class RecruitmentRequestServiceTest {
      * Nhánh [N27]: APPROVED → IllegalStateException (không thể rút yêu cầu đã được phê duyệt)
      *
      * Bug bị bắt: Cho phép withdraw APPROVED → hủy bỏ kết quả phê duyệt đã hoàn tất
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Xác minh service ném ra Exception phù hợp và luồng thực thi bị chặn.
+     * - Check DB: Không tương tác/kiểm tra trực tiếp Repository trong test case này.
      */
+
     @Test
     @DisplayName("[RR-TC26][N27] withdraw() - APPROVED → IllegalStateException")
     void tc26_withdraw_fromApproved_throwsIllegalStateException() {
         pendingRequest.setStatus(RecruitmentRequestStatus.APPROVED);
         recruitmentRequestRepository.save(pendingRequest);
 
+        // Act & Assert
         assertThrows(IllegalStateException.class,
                 () -> recruitmentRequestService.withdraw(pendingRequest.getId(), OWNER_ID, TOKEN),
                 "BUG: Cho phép withdraw yêu cầu đã APPROVED");
@@ -876,7 +1058,12 @@ class RecruitmentRequestServiceTest {
      * Nhánh [N28]: status string không hợp lệ → không exception, filter bị bỏ qua (trả về tất cả)
      *
      * Bug bị bắt: Ném exception khi gặp status hợp lệ → frontend bị crash khi nhập query lạ
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Kiểm tra tính chính xác của dữ liệu trả về hoặc trạng thái assert.
+     * - Check DB: Không tương tác/kiểm tra trực tiếp Repository trong test case này.
      */
+
     @Test
     @DisplayName("[RR-TC27][N28] findAllWithFilters() - status không hợp lệ → không exception, trả về tất cả")
     void tc27_findAllWithFilters_invalidStatus_ignoresFilterNoException() {
@@ -913,6 +1100,7 @@ class RecruitmentRequestServiceTest {
         boolean hasDraft   = result.stream().anyMatch(r -> r.getStatus() == RecruitmentRequestStatus.DRAFT);
         boolean hasPending = result.stream().anyMatch(r -> r.getStatus() == RecruitmentRequestStatus.PENDING);
         assertTrue(hasDraft,   "BUG: Dắt record không có trong kết quả — filter sai");
+        // Assert
         assertTrue(hasPending, "BUG: Pending record không có trong kết quả — filter sai");
     }
 
@@ -921,14 +1109,21 @@ class RecruitmentRequestServiceTest {
      * Nhánh [N29]: status=PENDING → chỉ trả về PENDING, không lẫn DRAFT
      *
      * Bug bị bắt: Filter status không hoạt động → trả về tất cả trạng thái
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Kiểm tra tính chính xác của dữ liệu trả về hoặc trạng thái assert.
+     * - Check DB: Không tương tác/kiểm tra trực tiếp Repository trong test case này.
      */
+
     @Test
     @DisplayName("[RR-TC28][N29] findAllWithFilters() - status=PENDING → tất cả kết quả là PENDING")
     void tc28_findAllWithFilters_pendingStatus_returnsOnlyPending() {
         List<RecruitmentRequest> result = recruitmentRequestService
                 .findAllWithFilters(null, "PENDING", null, null);
 
+        // Assert
         assertFalse(result.isEmpty(), "BUG: Không tìm thấy record PENDING");
+        // Assert
         assertTrue(result.stream().allMatch(r -> r.getStatus() == RecruitmentRequestStatus.PENDING),
                 "BUG: Kết quả lẫn status khác PENDING - filter status không hoạt động");
     }
@@ -938,7 +1133,12 @@ class RecruitmentRequestServiceTest {
      * Nhánh [N30]: filter departmentId → chỉ trả về đúng department, loại trừ department khác
      *
      * Bug bị bắt: Filter departmentId không hoạt động → lộ dữ liệu của phòng ban khác
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Kiểm tra tính chính xác của dữ liệu trả về hoặc trạng thái assert.
+     * - Check DB: Không tương tác/kiểm tra trực tiếp Repository trong test case này.
      */
+
     @Test
     @DisplayName("[RR-TC29][N30] findAllWithFilters() - departmentId → chỉ trả về department đó")
     void tc29_findAllWithFilters_filterByDepartment_excludesOtherDepts() {
@@ -949,7 +1149,9 @@ class RecruitmentRequestServiceTest {
         List<RecruitmentRequest> result = recruitmentRequestService
                 .findAllWithFilters(5L, null, null, null);
 
+        // Assert
         assertFalse(result.isEmpty(), "BUG: Không tìm thấy record của department 5");
+        // Assert
         assertTrue(result.stream().allMatch(r -> Long.valueOf(5L).equals(r.getDepartmentId())),
                 "BUG: Kết quả lẫn record của department khác - filter departmentId không hoạt động");
     }
@@ -960,14 +1162,21 @@ class RecruitmentRequestServiceTest {
      *
      * Bug bị bắt: Filter keyword không hoạt động → trả về tất cả dù không khớp
      * Hoặc: case-sensitive → "java" không tìm thấy "Java"
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Kiểm tra tính chính xác của dữ liệu trả về hoặc trạng thái assert.
+     * - Check DB: Không tương tác/kiểm tra trực tiếp Repository trong test case này.
      */
+
     @Test
     @DisplayName("[RR-TC30][N31] findAllWithFilters() - keyword → chỉ trả về khớp title/reason (case-insensitive)")
     void tc30_findAllWithFilters_filterByKeyword_returnOnlyMatches() {
         List<RecruitmentRequest> result = recruitmentRequestService
                 .findAllWithFilters(null, null, null, "kỹ sư"); // viết thường
 
+        // Assert
         assertFalse(result.isEmpty(), "BUG: Không tìm thấy 'Tuyển Kỹ Sư Java' khi search 'kỹ sư' - case-sensitive?");
+        // Assert
         assertTrue(result.stream().allMatch(r ->
                         r.getTitle().toLowerCase().contains("kỹ sư")
                         || (r.getReason() != null && r.getReason().toLowerCase().contains("kỹ sư"))),
@@ -977,7 +1186,12 @@ class RecruitmentRequestServiceTest {
     /**
      * Test Case ID: RR-TC52
      * getAllByDepartmentId(): chỉ trả về record thuộc department được yêu cầu
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Kiểm tra tính chính xác của dữ liệu trả về hoặc trạng thái assert.
+     * - Check DB: Không tương tác/kiểm tra trực tiếp Repository trong test case này.
      */
+
     @Test
     @DisplayName("[RR-TC52] getAllByDepartmentId() - chỉ trả về record của department")
     void tc52_getAllByDepartmentId_returnsOnlyThatDepartment() {
@@ -985,8 +1199,10 @@ class RecruitmentRequestServiceTest {
         recruitmentRequestRepository.save(buildRequest(
                 "Dept 99", RecruitmentRequestStatus.DRAFT, REQUESTER_ID, OWNER_ID, 99L, null));
 
+        // Act
         List<RecruitmentRequest> result = recruitmentRequestService.getAllByDepartmentId(5L);
         assertFalse(result.isEmpty());
+        // Assert
         assertTrue(result.stream().allMatch(r -> Long.valueOf(5L).equals(r.getDepartmentId())),
                 "BUG: Kết quả chứa record không thuộc department 5");
     }
@@ -1000,12 +1216,19 @@ class RecruitmentRequestServiceTest {
      * Nhánh [N32]: ID tồn tại → trả về đúng entity với đủ trường
      *
      * Bug bị bắt: Mapping thiếu trường, trả về entity khác
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Kiểm tra tính chính xác của dữ liệu trả về hoặc trạng thái assert.
+     * - Check DB: Không tương tác/kiểm tra trực tiếp Repository trong test case này.
      */
+
     @Test
     @DisplayName("[RR-TC31][N32] findById() - ID tồn tại → đúng entity với đủ trường")
     void tc31_findById_existingId_returnsCorrectEntity() throws IdInvalidException {
+        // Act
         RecruitmentRequest result = recruitmentRequestService.findById(draftRequest.getId());
 
+        // Assert
         assertAll("BUG: Entity trả về không đúng",
                 () -> assertEquals(draftRequest.getId(), result.getId(), "id sai"),
                 () -> assertEquals("Tuyển Kỹ Sư Java", result.getTitle(), "title sai"),
@@ -1020,10 +1243,16 @@ class RecruitmentRequestServiceTest {
      *
      * Bug bị bắt: Trả về null → NullPointerException ở caller;
      * Hoặc ném RuntimeException thay vì IdInvalidException → caller xử lý sai exception
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Xác minh service ném ra Exception phù hợp và luồng thực thi bị chặn.
+     * - Check DB: Không tương tác/kiểm tra trực tiếp Repository trong test case này.
      */
+
     @Test
     @DisplayName("[RR-TC32][N33] findById() - ID không tồn tại → IdInvalidException (đúng loại exception)")
     void tc32_findById_nonExistentId_throwsIdInvalidException() {
+        // Act & Assert
         assertThrows(IdInvalidException.class,
                 () -> recruitmentRequestService.findById(99999L),
                 "BUG: Không ném IdInvalidException - có thể trả về null hoặc ném exception sai loại");
@@ -1038,16 +1267,25 @@ class RecruitmentRequestServiceTest {
      * Nhánh [N34]: Thay đổi status bất kỳ → DB cập nhật đúng, trả về true
      *
      * Bug bị bắt: Status không được lưu; trả về false khi không cần
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Kiểm tra tính chính xác của dữ liệu trả về hoặc trạng thái assert.
+     * - Check DB: Truy vấn DB bằng findById() để assert các trường thay đổi như status, isActive, v.v.
      */
+
     @Test
     @DisplayName("[RR-TC33][N34] changeStatus() - DRAFT → PENDING → DB cập nhật, trả về true")
     void tc33_changeStatus_updatesDbAndReturnsTrue() throws IdInvalidException {
+        // Act
         boolean result = recruitmentRequestService.changeStatus(
                 draftRequest.getId(), RecruitmentRequestStatus.APPROVED);
 
+        // Assert
         assertTrue(result, "BUG: changeStatus() phải trả về true khi thành công");
 
+        // Assert
         assertEquals(RecruitmentRequestStatus.APPROVED,
+                // Check DB
                 recruitmentRequestRepository.findById(draftRequest.getId()).orElseThrow().getStatus(),
                 "BUG: Status trong DB không được cập nhật");
     }
@@ -1061,7 +1299,12 @@ class RecruitmentRequestServiceTest {
      * Nhánh [N35]: getAll() chỉ trả về isActive=true, loại bỏ inactive
      *
      * Bug bị bắt: Không filter isActive → trả về cả record đã bị soft-delete
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Kiểm tra tính chính xác của dữ liệu trả về hoặc trạng thái assert.
+     * - Check DB: Không tương tác/kiểm tra trực tiếp Repository trong test case này.
      */
+
     @Test
     @DisplayName("[RR-TC34][N35] getAll() - chỉ trả về isActive=true; loại bỏ inactive")
     void tc34_getAll_returnsOnlyActiveRecords() {
@@ -1074,6 +1317,7 @@ class RecruitmentRequestServiceTest {
         List<RecruitmentRequest> result = recruitmentRequestService.getAll();
 
         assertFalse(result.isEmpty(), "BUG: Không tìm thấy record active nào");
+        // Assert
         assertTrue(result.stream().allMatch(RecruitmentRequest::isActive),
                 "BUG: Kết quả lẫn record isActive=false - không filter đúng");
         result.forEach(r -> assertNotEquals(inactive.getId(), r.getId(),
@@ -1094,18 +1338,26 @@ class RecruitmentRequestServiceTest {
      *   - delete() trả về false
      *
      * CheckDB: existsById vẫn true; isActive=false
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Kiểm tra tính chính xác của dữ liệu trả về hoặc trạng thái assert.
+     * - Check DB: Truy vấn DB bằng findById() để assert các trường thay đổi như status, isActive, v.v.
      */
+
     @Test
     @DisplayName("[RR-TC35][N36] delete() - ID tồn tại → soft delete: isActive=false, record vẫn còn")
     void tc35_delete_existingId_softDeleteKeepsRecordSetsInactive() throws IdInvalidException {
         Long id = draftRequest.getId();
+        // Assert
         assertTrue(draftRequest.isActive(), "Precondition: phải active trước khi delete");
 
         boolean result = recruitmentRequestService.delete(id);
 
+        // Assert
         assertTrue(result, "BUG: delete() trả về false dù thành công");
 
         // CHECK DB: record vẫn còn (soft delete)
+        // Assert
         assertTrue(recruitmentRequestRepository.existsById(id),
                 "BUG: Record bị xóa khỏi DB (hard delete) thay vì soft delete");
 
@@ -1119,10 +1371,16 @@ class RecruitmentRequestServiceTest {
      * Nhánh [N37]: ID không tồn tại → IdInvalidException
      *
      * Bug bị bắt: Không kiểm tra tồn tại → delete silent fail (không exception, không làm gì)
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Xác minh service ném ra Exception phù hợp và luồng thực thi bị chặn.
+     * - Check DB: Không tương tác/kiểm tra trực tiếp Repository trong test case này.
      */
+
     @Test
     @DisplayName("[RR-TC36][N37] delete() - ID không tồn tại → IdInvalidException")
     void tc36_delete_nonExistentId_throwsIdInvalidException() {
+        // Act & Assert
         assertThrows(IdInvalidException.class,
                 () -> recruitmentRequestService.delete(99998L),
                 "BUG: Không ném exception khi delete ID không tồn tại");
@@ -1135,7 +1393,12 @@ class RecruitmentRequestServiceTest {
         /**
          * Test Case ID: RR-TC50
          * update(): ID tồn tại → cập nhật các trường và lưu vào DB
-         */
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Kiểm tra tính chính xác của dữ liệu trả về hoặc trạng thái assert.
+     * - Check DB: Không tương tác/kiểm tra trực tiếp Repository trong test case này.
+     */
+
         @Test
         @DisplayName("[RR-TC50] update() - ID tồn tại → cập nhật trường và lưu vào DB")
         void tc50_update_existingId_updatesFields() throws IdInvalidException {
@@ -1147,23 +1410,33 @@ class RecruitmentRequestServiceTest {
                 dto.setSalaryMax(new BigDecimal("22000000"));
                 dto.setDepartmentId(7L);
 
+                // Act
                 RecruitmentRequest updated = recruitmentRequestService.update(draftRequest.getId(), dto);
 
+                // Assert
                 assertEquals("Updated Title", updated.getTitle());
+                // Assert
                 assertEquals(3, updated.getQuantity());
+                // Assert
                 assertEquals(Long.valueOf(7L), updated.getDepartmentId());
         }
 
         /**
          * Test Case ID: RR-TC51
          * update(): ID không tồn tại → IdInvalidException
-         */
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Xác minh service ném ra Exception phù hợp và luồng thực thi bị chặn.
+     * - Check DB: Không tương tác/kiểm tra trực tiếp Repository trong test case này.
+     */
+
         @Test
         @DisplayName("[RR-TC51] update() - ID không tồn tại → IdInvalidException")
         void tc51_update_nonExistentId_throwsIdInvalidException() {
                 CreateRecruitmentRequestDTO dto = new CreateRecruitmentRequestDTO();
                 dto.setTitle("X");
 
+                // Act & Assert
                 assertThrows(IdInvalidException.class,
                                 () -> recruitmentRequestService.update(999999L, dto),
                                 "BUG: Không ném IdInvalidException khi update ID không tồn tại");
@@ -1179,7 +1452,12 @@ class RecruitmentRequestServiceTest {
      * Mục tiêu: xác minh nhánh TRUE của điều kiện `status == SUBMITTED`.
      *
      * Bug bị bắt: Thiếu kiểm tra SUBMITTED → chỉ PENDING mới được approve, SUBMITTED bị từ chối.
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Kiểm tra tính chính xác của dữ liệu trả về hoặc trạng thái assert.
+     * - Check DB: Không tương tác/kiểm tra trực tiếp Repository trong test case này.
      */
+
     @Test
     @DisplayName("[RR-TC37][N9] approveStep() - SUBMITTED → giống PENDING: giữ nguyên status, publish event")
     void tc37_approveStep_fromSubmitted_keepsPendingStatusAndPublishesEvent() throws IdInvalidException {
@@ -1207,7 +1485,12 @@ class RecruitmentRequestServiceTest {
      * Nhánh [N]: rejectStep() — status=SUBMITTED → REJECTED (nhánh TRUE của status==SUBMITTED).
      *
      * Bug bị bắt: Chỉ cho reject PENDING, SUBMITTED bị ném exception → reject từ SUBMITTED thất bại.
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Kiểm tra tính chính xác của dữ liệu trả về hoặc trạng thái assert.
+     * - Check DB: Truy vấn DB bằng findById() để assert các trường thay đổi như status, isActive, v.v.
      */
+
     @Test
     @DisplayName("[RR-TC38] rejectStep() - SUBMITTED → status=REJECTED trong DB")
     void tc38_rejectStep_fromSubmitted_setsRejected() throws IdInvalidException {
@@ -1234,7 +1517,12 @@ class RecruitmentRequestServiceTest {
      * Nhánh [N]: returnRequest() — status=SUBMITTED → RETURNED (nhánh TRUE của status==SUBMITTED).
      *
      * Bug bị bắt: Chỉ cho return PENDING, SUBMITTED bị từ chối.
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Kiểm tra tính chính xác của dữ liệu trả về hoặc trạng thái assert.
+     * - Check DB: Truy vấn DB bằng findById() để assert các trường thay đổi như status, isActive, v.v.
      */
+
     @Test
     @DisplayName("[RR-TC39] returnRequest() - SUBMITTED → status=RETURNED trong DB")
     void tc39_returnRequest_fromSubmitted_setsReturned() throws IdInvalidException {
@@ -1262,7 +1550,12 @@ class RecruitmentRequestServiceTest {
      * Nhánh [N]: withdraw() — status=SUBMITTED → WITHDRAWN (điều kiện status==SUBMITTED).
      *
      * Bug bị bắt: Thiếu SUBMITTED trong điều kiện → từ chối withdraw yêu cầu đang SUBMITTED.
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Kiểm tra tính chính xác của dữ liệu trả về hoặc trạng thái assert.
+     * - Check DB: Truy vấn DB bằng findById() để assert các trường thay đổi như status, isActive, v.v.
      */
+
     @Test
     @DisplayName("[RR-TC40] withdraw() - SUBMITTED + actor=owner → status=WITHDRAWN")
     void tc40_withdraw_fromSubmitted_ownerIsActor_setsWithdrawn() throws IdInvalidException {
@@ -1291,7 +1584,12 @@ class RecruitmentRequestServiceTest {
      * Đặc tả: departmentId=1 là sentinel value "tất cả phòng ban" → bỏ qua filter.
      *
      * Bug bị bắt: departmentId=1 bị dùng như filter thật → lọc ra chỉ phòng ban có id=1.
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Kiểm tra tính chính xác của dữ liệu trả về hoặc trạng thái assert.
+     * - Check DB: Không tương tác/kiểm tra trực tiếp Repository trong test case này.
      */
+
     @Test
     @DisplayName("[RR-TC41] getAllWithFilters() - departmentId=1 → bị reset thành null (không filter dept)")
     void tc41_getAllWithFilters_departmentId1_treatedAsNoFilter() {
@@ -1308,6 +1606,7 @@ class RecruitmentRequestServiceTest {
         // Nếu departmentId=1 không bị reset thành null, sẽ chỉ trả về dept=1 → thiếu draftRequest (dept=5)
         assertNotNull(result, "BUG: Kết quả null");
         assertNotNull(result.getMeta(), "BUG: Meta null");
+        // Assert
         assertTrue(result.getMeta().getTotal() >= 3,
                 "BUG: departmentId=1 không được reset thành null → đang filter dept=1 thay vì trả tất cả");
     }
@@ -1318,7 +1617,12 @@ class RecruitmentRequestServiceTest {
      * status string không hợp lệ → statusEnum=null → không filter.
      *
      * Bug bị bắt: Ném exception thay vì bỏ qua → frontend crash khi query lạ.
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Kiểm tra tính chính xác của dữ liệu trả về hoặc trạng thái assert.
+     * - Check DB: Không tương tác/kiểm tra trực tiếp Repository trong test case này.
      */
+
     @Test
     @DisplayName("[RR-TC42] getAllWithFilters() - status không hợp lệ → không exception, trả về tất cả")
     void tc42_getAllWithFilters_invalidStatus_ignoresFilterReturnsAll() {
@@ -1344,7 +1648,12 @@ class RecruitmentRequestServiceTest {
      * requesterId=null → không gọi userService.getEmployeeById().
      *
      * Bug bị bắt: Gọi getEmployeeById(null, token) → NPE hoặc HTTP 400.
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Kiểm tra tính chính xác của dữ liệu trả về hoặc trạng thái assert.
+     * - Check DB: Không tương tác/kiểm tra trực tiếp Repository trong test case này.
      */
+
     @Test
     @DisplayName("[RR-TC43] getByIdWithUser() - requesterId=null → không gọi UserClient, không NPE")
     void tc43_getByIdWithUser_nullRequesterId_skipsUserClientCall() {
@@ -1365,7 +1674,12 @@ class RecruitmentRequestServiceTest {
      * UserClient trả về 200 → dto.setRequester() được gọi.
      *
      * Bug bị bắt: Luôn throw exception dù response 2xx → getByIdWithUser luôn fail.
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Kiểm tra tính chính xác của dữ liệu trả về hoặc trạng thái assert.
+     * - Check DB: Không tương tác/kiểm tra trực tiếp Repository trong test case này.
      */
+
     @Test
     @DisplayName("[RR-TC44] getByIdWithUser() - UserClient 2xx → dto.requester được set, không throw")
     void tc44_getByIdWithUser_requesterResponse2xx_setsRequesterDto() {
@@ -1396,7 +1710,12 @@ class RecruitmentRequestServiceTest {
      * UserClient trả về lỗi (4xx/5xx) → ném UserClientException.
      *
      * Bug bị bắt: Nuốt lỗi từ UserClient → dto.requester = null mà không thông báo lỗi.
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Kiểm tra tính chính xác của dữ liệu trả về hoặc trạng thái assert.
+     * - Check DB: Không tương tác/kiểm tra trực tiếp Repository trong test case này.
      */
+
     @Test
     @DisplayName("[RR-TC45] getByIdWithUser() - UserClient 4xx → ném UserClientException")
     void tc45_getByIdWithUser_requesterResponseError_throwsUserClientException() {
@@ -1418,7 +1737,12 @@ class RecruitmentRequestServiceTest {
      * departmentId=null → không gọi getDepartmentById().
      *
      * Bug bị bắt: Gọi getDepartmentById(null, token) → NPE.
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Kiểm tra tính chính xác của dữ liệu trả về hoặc trạng thái assert.
+     * - Check DB: Không tương tác/kiểm tra trực tiếp Repository trong test case này.
      */
+
     @Test
     @DisplayName("[RR-TC46] getByIdWithUser() - departmentId=null → không gọi getDepartmentById, không NPE")
     void tc46_getByIdWithUser_nullDepartmentId_skipsDepartmentCall() {
@@ -1447,7 +1771,12 @@ class RecruitmentRequestServiceTest {
      * Bug bị bắt:
      *   - Department 2xx bị bỏ qua → dto.department null
      *   - workflowInfo != null nhưng không được set vào dto
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Kiểm tra tính chính xác của dữ liệu trả về hoặc trạng thái assert.
+     * - Check DB: Không tương tác/kiểm tra trực tiếp Repository trong test case này.
      */
+
     @Test
     @DisplayName("[RR-TC47] getByIdWithUser() - dept 2xx + workflowInfo != null → cả hai được set vào dto")
     void tc47_getByIdWithUser_departmentAndWorkflowInfoSet() {
@@ -1488,7 +1817,12 @@ class RecruitmentRequestServiceTest {
      * Nhánh FALSE của `if (workflowInfo != null)` → dto.workflowInfo không được set (giữ null).
      *
      * Bug bị bắt: Set workflowInfo=null vào dto → ghi đè giá trị mặc định bằng null (không ảnh hưởng nhưng sai logic).
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Kiểm tra tính chính xác của dữ liệu trả về hoặc trạng thái assert.
+     * - Check DB: Không tương tác/kiểm tra trực tiếp Repository trong test case này.
      */
+
     @Test
     @DisplayName("[RR-TC48] getByIdWithUser() - workflowServiceClient trả null → dto.workflowInfo không được set")
     void tc48_getByIdWithUser_nullWorkflowInfo_dtoWorkflowInfoRemainsNull() {
@@ -1517,7 +1851,12 @@ class RecruitmentRequestServiceTest {
     /**
      * Test Case ID: RR-TC53
      * getByIdWithUserAndMetadata(): trả về SingleResponseDTO chứa dto và metadata
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Kiểm tra tính chính xác của dữ liệu trả về hoặc trạng thái assert.
+     * - Check DB: Không tương tác/kiểm tra trực tiếp Repository trong test case này.
      */
+
     @Test
     @DisplayName("[RR-TC53] getByIdWithUserAndMetadata() - trả về dto và characterLimits metadata")
     void tc53_getByIdWithUserAndMetadata_returnsDtoWithMetadata() {
@@ -1533,12 +1872,16 @@ class RecruitmentRequestServiceTest {
                 .thenReturn(new com.fasterxml.jackson.databind.ObjectMapper().createObjectNode());
 
         var result = assertDoesNotThrow(() ->
+                // Act
                 recruitmentRequestService.getByIdWithUserAndMetadata(draftRequest.getId(), TOKEN),
                 "BUG: Exception khi gọi getByIdWithUserAndMetadata");
 
+        // Assert
         assertNotNull(result);
+        // Assert
         assertNotNull(result.getData(), "BUG: DTO data null");
         // SingleResponseDTO wraps data + characterLimits (không có getMeta())
+        // Assert
         assertNotNull(result.getCharacterLimits(), "BUG: characterLimits null - metadata không được set");
     }
 
@@ -1549,7 +1892,12 @@ class RecruitmentRequestServiceTest {
      *   - D1=FALSE: employee không có "department" node → skip, dto.department=null
      *
      * Bug bị bắt: NPE khi employee.get("department") trả null mà không kiểm tra.
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Kiểm tra tính chính xác của dữ liệu trả về hoặc trạng thái assert.
+     * - Check DB: Không tương tác/kiểm tra trực tiếp Repository trong test case này.
      */
+
     @Test
     @DisplayName("[RR-TC49] getAllWithFilters() - employee không có department node → dto.department=null, không NPE")
     void tc49_getAllWithFilters_employeeWithoutDepartmentNode_skipsDeptMapping() {
@@ -1567,12 +1915,14 @@ class RecruitmentRequestServiceTest {
             var result = recruitmentRequestService.getAllWithFilters(
                     null, null, null, null, TOKEN,
                     org.springframework.data.domain.PageRequest.of(0, 10));
+            // Assert
             assertNotNull(result, "BUG: Kết quả null");
             // Department trong DTO phải null (không crash)
             @SuppressWarnings("unchecked")
             java.util.List<com.example.job_service.dto.recruitment.RecruitmentRequestAllWithUserDTO> list =
                     (java.util.List<com.example.job_service.dto.recruitment.RecruitmentRequestAllWithUserDTO>)
                     result.getResult();
+            // Assert
             assertNotNull(list, "BUG: Result list null");
             // Xác minh không có NPE khi không có department
         }, "BUG: NPE khi employee không có department node trong convertToWithUserDTOList()");
@@ -1581,7 +1931,12 @@ class RecruitmentRequestServiceTest {
     /**
      * Test Case ID: RR-TC54
      * getAllWithFilters() convertToWithUserDTOList D1=TRUE: employee.has("department") → dto.department được set
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Kiểm tra tính chính xác của dữ liệu trả về hoặc trạng thái assert.
+     * - Check DB: Không tương tác/kiểm tra trực tiếp Repository trong test case này.
      */
+
     @Test
     @DisplayName("[RR-TC54] getAllWithFilters() - employee có department → dto.department được set")
     void tc54_getAllWithFilters_employeeWithDepartment_setsDeptInDto() {
@@ -1605,8 +1960,10 @@ class RecruitmentRequestServiceTest {
         java.util.List<com.example.job_service.dto.recruitment.RecruitmentRequestAllWithUserDTO> list =
                 (java.util.List<com.example.job_service.dto.recruitment.RecruitmentRequestAllWithUserDTO>) result.getResult();
 
+        // Assert
         assertNotNull(list);
         // At least one dto should have department set (converted from employee)
+        // Assert
         assertTrue(list.stream().anyMatch(d -> d.getDepartment() != null),
                 "BUG: dto.department không được set từ employee.department");
     }
@@ -1621,12 +1978,19 @@ class RecruitmentRequestServiceTest {
      *
      * Bug bị bắt: Method getById() không được test → không phát hiện nếu
      * implementation sai (ví dụ gọi sai repository method, mapping sai).
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Kiểm tra tính chính xác của dữ liệu trả về hoặc trạng thái assert.
+     * - Check DB: Không tương tác/kiểm tra trực tiếp Repository trong test case này.
      */
+
     @Test
     @DisplayName("[RR-TC55] getById() - ID tồn tại → trả về đúng entity")
     void tc55_getById_existingId_returnsCorrectEntity() throws IdInvalidException {
+        // Act
         RecruitmentRequest result = recruitmentRequestService.getById(draftRequest.getId());
 
+        // Assert
         assertAll("BUG: getById() trả về entity không đúng",
                 () -> assertEquals(draftRequest.getId(), result.getId(),
                         "BUG: id sai"),
@@ -1645,10 +2009,16 @@ class RecruitmentRequestServiceTest {
      *
      * Bug bị bắt: Trả về null thay vì ném exception → NullPointerException ở caller.
      * lambda$1 (dòng 127) chưa được kích hoạt bởi bất kỳ test nào.
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Xác minh service ném ra Exception phù hợp và luồng thực thi bị chặn.
+     * - Check DB: Không tương tác/kiểm tra trực tiếp Repository trong test case này.
      */
+
     @Test
     @DisplayName("[RR-TC56] getById() - ID không tồn tại → IdInvalidException")
     void tc56_getById_nonExistentId_throwsIdInvalidException() {
+        // Act & Assert
         assertThrows(IdInvalidException.class,
                 () -> recruitmentRequestService.getById(99999L),
                 "BUG: getById() không ném IdInvalidException khi ID không tồn tại");
@@ -1664,7 +2034,12 @@ class RecruitmentRequestServiceTest {
      *
      * Nhánh: dòng 139 — `!status.trim().isEmpty()` = FALSE khi status = ""
      * Bug bị bắt: Ném exception hoặc parse "" thành status → filter bị sai.
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Kiểm tra tính chính xác của dữ liệu trả về hoặc trạng thái assert.
+     * - Check DB: Không tương tác/kiểm tra trực tiếp Repository trong test case này.
      */
+
     @Test
     @DisplayName("[RR-TC57] findAllWithFilters() - status=\"\" (rỗng) → bỏ qua filter, không exception")
     void tc57_findAllWithFilters_emptyStatus_ignoresFilterNoException() {
@@ -1672,7 +2047,9 @@ class RecruitmentRequestServiceTest {
                 () -> recruitmentRequestService.findAllWithFilters(null, "", null, null),
                 "BUG: Ném exception khi status là chuỗi rỗng");
 
+        // Assert
         assertNotNull(result, "BUG: Kết quả null");
+        // Assert
         assertTrue(result.size() >= 2,
                 "BUG: status rỗng làm mất kết quả - phải bỏ qua filter");
     }
@@ -1683,16 +2060,25 @@ class RecruitmentRequestServiceTest {
      *
      * Nhánh: dòng 169 — `!status.trim().isEmpty()` = FALSE khi status = "   "
      * Bug bị bắt: Ném exception hoặc parse khoảng trắng thành status không hợp lệ.
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Kiểm tra tính chính xác của dữ liệu trả về hoặc trạng thái assert.
+     * - Check DB: Không tương tác/kiểm tra trực tiếp Repository trong test case này.
      */
+
     @Test
     @DisplayName("[RR-TC58] getAllWithFilters() - status=\"   \" (khoảng trắng) → bỏ qua filter, không exception")
     void tc58_getAllWithFilters_whitespaceStatus_ignoresFilterNoException() {
+        // Act & Assert
         assertDoesNotThrow(() -> {
+            // Act
             var result = recruitmentRequestService.getAllWithFilters(
                     null, "   ", null, null, TOKEN,
                     org.springframework.data.domain.PageRequest.of(0, 50));
 
+            // Assert
             assertNotNull(result, "BUG: Kết quả null");
+            // Assert
             assertTrue(result.getMeta().getTotal() >= 2,
                     "BUG: status khoảng trắng làm mất kết quả - phải bỏ qua filter");
         }, "BUG: Ném exception khi status là chuỗi khoảng trắng");
@@ -1711,7 +2097,12 @@ class RecruitmentRequestServiceTest {
      *
      * Lưu ý: Test RR-TC45 đã test lỗi cho requester (getEmployeeById 4xx).
      * Test này bổ sung lỗi cho department (getDepartmentById 4xx).
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Kiểm tra tính chính xác của dữ liệu trả về hoặc trạng thái assert.
+     * - Check DB: Không tương tác/kiểm tra trực tiếp Repository trong test case này.
      */
+
     @Test
     @DisplayName("[RR-TC59] getByIdWithUser() - getDepartmentById() 4xx → ném UserClientException")
     void tc59_getByIdWithUser_departmentResponseError_throwsUserClientException() {
@@ -1745,7 +2136,12 @@ class RecruitmentRequestServiceTest {
      *
      * Bug bị bắt: NPE khi requesterId=null mà code vẫn gọi
      * employeeMap.get(null) hoặc request.getRequesterId() mà không kiểm tra null.
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Kiểm tra tính chính xác của dữ liệu trả về hoặc trạng thái assert.
+     * - Check DB: Không tương tác/kiểm tra trực tiếp Repository trong test case này.
      */
+
     @Test
     @DisplayName("[RR-TC60] getAllWithFilters() - request có requesterId=null → không NPE, dto.requester=null")
     void tc60_getAllWithFilters_requestWithNullRequesterId_noNpeRequesterIsNull() {
@@ -1763,7 +2159,9 @@ class RecruitmentRequestServiceTest {
                     null, null, null, null, TOKEN,
                     org.springframework.data.domain.PageRequest.of(0, 50));
 
+            // Assert
             assertNotNull(result, "BUG: Kết quả null");
+            // Assert
             assertNotNull(result.getResult(), "BUG: Result list null");
 
             // Request với requesterId=null: dto.requester phải null (không crash)
@@ -1772,6 +2170,7 @@ class RecruitmentRequestServiceTest {
                     (java.util.List<com.example.job_service.dto.recruitment.RecruitmentRequestAllWithUserDTO>)
                     result.getResult();
 
+            // Assert
             assertTrue(list.stream().anyMatch(d -> d.getRequester() == null),
                     "BUG: Không có dto nào có requester=null dù request có requesterId=null");
         }, "BUG: NPE khi requesterId=null trong convertToWithUserDTOList()");
@@ -1781,7 +2180,12 @@ class RecruitmentRequestServiceTest {
      * Test Case ID: RR-TC61
      * getAllWithFilters(): employee có node "department" nhưng là NullNode
      * → nhánh `if (dept != null && dept.has("id"))` = FALSE.
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Kiểm tra tính chính xác của dữ liệu trả về hoặc trạng thái assert.
+     * - Check DB: Không tương tác/kiểm tra trực tiếp Repository trong test case này.
      */
+
     @Test
     @DisplayName("[RR-TC61] getAllWithFilters() - employee có department là NullNode → không crash")
     void tc61_getAllWithFilters_nullDepartmentNode_noNpe() {
@@ -1793,6 +2197,7 @@ class RecruitmentRequestServiceTest {
         when(userClient.getEmployeesByIds(any(), any()))
                 .thenReturn(Map.of(REQUESTER_ID, employee));
 
+        // Act & Assert
         assertDoesNotThrow(() -> recruitmentRequestService.getAllWithFilters(
                 null, null, null, null, TOKEN, org.springframework.data.domain.PageRequest.of(0, 10)));
     }
@@ -1801,7 +2206,12 @@ class RecruitmentRequestServiceTest {
      * Test Case ID: RR-TC62
      * getAllWithFilters(): employee có department nhưng thiếu "id"
      * → nhánh `if (dept.has("id"))` = FALSE.
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Kiểm tra tính chính xác của dữ liệu trả về hoặc trạng thái assert.
+     * - Check DB: Không tương tác/kiểm tra trực tiếp Repository trong test case này.
      */
+
     @Test
     @DisplayName("[RR-TC62] getAllWithFilters() - department thiếu id → không crash")
     void tc62_getAllWithFilters_departmentMissingId_noNpe() {
@@ -1813,6 +2223,7 @@ class RecruitmentRequestServiceTest {
         when(userClient.getEmployeesByIds(any(), any()))
                 .thenReturn(Map.of(REQUESTER_ID, employee));
 
+        // Act & Assert
         assertDoesNotThrow(() -> recruitmentRequestService.getAllWithFilters(
                 null, null, null, null, TOKEN, org.springframework.data.domain.PageRequest.of(0, 10)));
     }
@@ -1821,7 +2232,12 @@ class RecruitmentRequestServiceTest {
      * Test Case ID: RR-TC63
      * getAllWithFilters(): employeeMap không chứa ID của requester
      * → `employeeMap.get(id)` trả về null → nhánh `if (employee != null)` = FALSE.
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Kiểm tra tính chính xác của dữ liệu trả về hoặc trạng thái assert.
+     * - Check DB: Không tương tác/kiểm tra trực tiếp Repository trong test case này.
      */
+
     @Test
     @DisplayName("[RR-TC63] getAllWithFilters() - employeeMap thiếu ID → không crash, dto.requester=null")
     void tc63_getAllWithFilters_missingEmployeeInMap_noNpe() {
@@ -1834,19 +2250,26 @@ class RecruitmentRequestServiceTest {
         @SuppressWarnings("unchecked")
         java.util.List<com.example.job_service.dto.recruitment.RecruitmentRequestAllWithUserDTO> list =
                 (java.util.List<com.example.job_service.dto.recruitment.RecruitmentRequestAllWithUserDTO>) result.getResult();
+        // Assert
         assertTrue(list.stream().anyMatch(d -> d.getRequester() == null));
     }
 
     /**
      * Test Case ID: RR-TC64
      * submit() - Trạng thái SUBMITTED → IllegalStateException
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Xác minh service ném ra Exception phù hợp và luồng thực thi bị chặn.
+     * - Check DB: Không tương tác/kiểm tra trực tiếp Repository trong test case này.
      */
+
     @Test
     @DisplayName("[RR-TC64] submit() - SUBMITTED → IllegalStateException")
     void tc64_submit_fromSubmitted_throwsIllegalStateException() {
         pendingRequest.setStatus(RecruitmentRequestStatus.SUBMITTED);
         recruitmentRequestRepository.save(pendingRequest);
 
+        // Act & Assert
         assertThrows(IllegalStateException.class,
                 () -> recruitmentRequestService.submit(pendingRequest.getId(), OWNER_ID, TOKEN));
     }
@@ -1854,13 +2277,19 @@ class RecruitmentRequestServiceTest {
     /**
      * Test Case ID: RR-TC65
      * approveStep() - Trạng thái REJECTED → IllegalStateException
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Xác minh service ném ra Exception phù hợp và luồng thực thi bị chặn.
+     * - Check DB: Không tương tác/kiểm tra trực tiếp Repository trong test case này.
      */
+
     @Test
     @DisplayName("[RR-TC65] approveStep() - REJECTED → IllegalStateException")
     void tc65_approveStep_fromRejected_throwsIllegalStateException() {
         pendingRequest.setStatus(RecruitmentRequestStatus.REJECTED);
         recruitmentRequestRepository.save(pendingRequest);
 
+        // Act & Assert
         assertThrows(IllegalStateException.class,
                 () -> recruitmentRequestService.approveStep(pendingRequest.getId(), new ApproveRecruitmentRequestDTO(), OWNER_ID, TOKEN));
     }
@@ -1868,13 +2297,19 @@ class RecruitmentRequestServiceTest {
     /**
      * Test Case ID: RR-TC66
      * rejectStep() - Trạng thái APPROVED → IllegalStateException
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Xác minh service ném ra Exception phù hợp và luồng thực thi bị chặn.
+     * - Check DB: Không tương tác/kiểm tra trực tiếp Repository trong test case này.
      */
+
     @Test
     @DisplayName("[RR-TC66] rejectStep() - APPROVED → IllegalStateException")
     void tc66_rejectStep_fromApproved_throwsIllegalStateException() {
         pendingRequest.setStatus(RecruitmentRequestStatus.APPROVED);
         recruitmentRequestRepository.save(pendingRequest);
 
+        // Act & Assert
         assertThrows(IllegalStateException.class,
                 () -> recruitmentRequestService.rejectStep(pendingRequest.getId(), new RejectRecruitmentRequestDTO(), OWNER_ID, TOKEN));
     }
@@ -1882,13 +2317,19 @@ class RecruitmentRequestServiceTest {
     /**
      * Test Case ID: RR-TC67
      * returnRequest() - Trạng thái CANCELLED → IllegalStateException
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Xác minh service ném ra Exception phù hợp và luồng thực thi bị chặn.
+     * - Check DB: Không tương tác/kiểm tra trực tiếp Repository trong test case này.
      */
+
     @Test
     @DisplayName("[RR-TC67] returnRequest() - CANCELLED → IllegalStateException")
     void tc67_returnRequest_fromCancelled_throwsIllegalStateException() {
         pendingRequest.setStatus(RecruitmentRequestStatus.CANCELLED);
         recruitmentRequestRepository.save(pendingRequest);
 
+        // Act & Assert
         assertThrows(IllegalStateException.class,
                 () -> recruitmentRequestService.returnRequest(pendingRequest.getId(), new ReturnRecruitmentRequestDTO(), OWNER_ID, TOKEN));
     }
@@ -1896,18 +2337,30 @@ class RecruitmentRequestServiceTest {
     /**
      * Test Case ID: RR-TC68
      * findAllWithFilters() - status="   " (khoảng trắng) → bỏ qua filter
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Kiểm tra tính chính xác của dữ liệu trả về hoặc trạng thái assert.
+     * - Check DB: Không tương tác/kiểm tra trực tiếp Repository trong test case này.
      */
+
     @Test
     @DisplayName("[RR-TC68] findAllWithFilters() - status=\"   \" → bỏ qua filter")
     void tc68_findAllWithFilters_whitespaceStatus_ignoresFilter() {
+        // Act
         List<RecruitmentRequest> result = recruitmentRequestService.findAllWithFilters(null, "   ", null, null);
+        // Assert
         assertTrue(result.size() >= 2);
     }
 
     /**
      * Test Case ID: RR-TC69
      * getByIdWithUser() - getDepartmentById() 500 → UserClientException
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Kiểm tra tính chính xác của dữ liệu trả về hoặc trạng thái assert.
+     * - Check DB: Không tương tác/kiểm tra trực tiếp Repository trong test case này.
      */
+
     @Test
     @DisplayName("[RR-TC69] getByIdWithUser() - getDepartmentById() 500 → UserClientException")
     void tc69_getByIdWithUser_department500_throwsUserClientException() {
@@ -1920,6 +2373,7 @@ class RecruitmentRequestServiceTest {
         when(userClient.getDepartmentById(any(), eq(TOKEN)))
                 .thenReturn(org.springframework.http.ResponseEntity.status(500).build());
 
+        // Act & Assert
         assertThrows(com.example.job_service.exception.UserClientException.class,
                 () -> recruitmentRequestService.getByIdWithUser(draftRequest.getId(), TOKEN));
     }
@@ -1935,7 +2389,12 @@ class RecruitmentRequestServiceTest {
     /**
      * Test Case ID: RR-TC70
      * Phủ nhánh includeWorkflow = false
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Kiểm tra tính chính xác của dữ liệu trả về hoặc trạng thái assert.
+     * - Check DB: Không tương tác/kiểm tra trực tiếp Repository trong test case này.
      */
+
     @Test
     @DisplayName("[RR-TC70] convertToWithUserDTO - includeWorkflow=false")
     void tc70_convertToWithUserDTO_noWorkflow() throws Exception {
@@ -1962,14 +2421,21 @@ class RecruitmentRequestServiceTest {
         var result = (com.example.job_service.dto.recruitment.RecruitmentRequestWithUserDTO) 
                 org.springframework.util.ReflectionUtils.invokeMethod(method, service, draftRequest, TOKEN, true, false);
 
+        // Assert
         assertNotNull(result);
+        // Assert
         assertNull(result.getWorkflowInfo()); 
     }
 
     /**
      * Test Case ID: RR-TC71
      * Phủ nhánh includeEmployee = false
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Kiểm tra tính chính xác của dữ liệu trả về hoặc trạng thái assert.
+     * - Check DB: Không tương tác/kiểm tra trực tiếp Repository trong test case này.
      */
+
     @Test
     @DisplayName("[RR-TC71] convertToWithUserDTO - truncateText=false")
     void tc71_convertToWithUserDTO_noTruncate() throws Exception {
@@ -1996,14 +2462,21 @@ class RecruitmentRequestServiceTest {
         var result = (com.example.job_service.dto.recruitment.RecruitmentRequestWithUserDTO) 
                 org.springframework.util.ReflectionUtils.invokeMethod(method, service, draftRequest, TOKEN, false, true);
 
+        // Assert
         assertNotNull(result);
+        // Assert
         assertNotNull(result.getRequester());
     }
 
     /**
      * Test Case ID: RR-TC72
      * changeStatus() - Phủ nhánh Repository trả về null
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Kiểm tra tính chính xác của dữ liệu trả về hoặc trạng thái assert.
+     * - Check DB: Không tương tác/kiểm tra trực tiếp Repository trong test case này.
      */
+
     @Test
     @DisplayName("[RR-TC72] changeStatus() - Repository trả null")
     void tc72_changeStatus_repoReturnsNull() throws Exception {
@@ -2019,6 +2492,7 @@ class RecruitmentRequestServiceTest {
 
         try {
             boolean result = service.changeStatus(draftRequest.getId(), RecruitmentRequestStatus.PENDING);
+            // Assert
             assertFalse(result);
         } finally {
             field.set(service, originalRepo);
@@ -2028,11 +2502,17 @@ class RecruitmentRequestServiceTest {
     /**
      * Test Case ID: RR-TC73
      * getAllWithFilters() - Phủ nhánh status rỗng
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Kiểm tra tính chính xác của dữ liệu trả về hoặc trạng thái assert.
+     * - Check DB: Không tương tác/kiểm tra trực tiếp Repository trong test case này.
      */
+
     @Test
     @DisplayName("[RR-TC73] getAllWithFilters() - status hợp lệ")
     void tc73_getAllWithFilters_validStatus() {
         // Phủ dòng 171: gọi valueOf với status hợp lệ
+        // Act & Assert
         assertDoesNotThrow(() -> recruitmentRequestService.getAllWithFilters(
                 null, "DRAFT", null, null, TOKEN, org.springframework.data.domain.PageRequest.of(0, 10)));
     }
@@ -2040,7 +2520,12 @@ class RecruitmentRequestServiceTest {
     /**
      * Test Case ID: RR-TC74
      * convertToWithUserDTOList - Phủ nhánh tổ hợp logic A && B (NullNode)
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Kiểm tra tính chính xác của dữ liệu trả về hoặc trạng thái assert.
+     * - Check DB: Không tương tác/kiểm tra trực tiếp Repository trong test case này.
      */
+
     @Test
     @DisplayName("[RR-TC74] convertToWithUserDTOList - JSON logic coverage (NullNode vs Missing)")
     void tc74_convertToWithUserDTOList_jsonBranches() throws Exception {
@@ -2070,17 +2555,24 @@ class RecruitmentRequestServiceTest {
         org.springframework.util.ReflectionUtils.makeAccessible(method);
         
         var result = org.springframework.util.ReflectionUtils.invokeMethod(method, service, page, TOKEN);
+        // Assert
         assertNotNull(result);
     }
 
     /**
      * Test Case ID: RR-TC75
      * getAllWithFilters() - Phủ nhánh Pageable.unpaged()
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Kiểm tra tính chính xác của dữ liệu trả về hoặc trạng thái assert.
+     * - Check DB: Không tương tác/kiểm tra trực tiếp Repository trong test case này.
      */
+
     @Test
     @DisplayName("[RR-TC75] getAllWithFilters() - Pageable.unpaged()")
     void tc75_getAllWithFilters_unpaged() {
         // Phủ nhánh pageable.isPaged() = false
+        // Act & Assert
         assertDoesNotThrow(() -> recruitmentRequestService.getAllWithFilters(
                 null, null, null, null, TOKEN, org.springframework.data.domain.Pageable.unpaged()));
     }
