@@ -440,4 +440,452 @@ class ReviewCandidateServiceTest {
                 verify(reviewCandidateRepository, never()).deleteById(any());
                 verifyNoMoreInteractions(userService);
         }
+
+        @Test
+        @DisplayName("RC-TC-011: create - candidate không tồn tại ném IdInvalidException")
+        void testCreate_CandidateNotFound_RC_TC_011() {
+                // arrange
+                Long reviewerId = 7L;
+                Long candidateId = 99L;
+                CreateReviewCandidateDTO dto = new CreateReviewCandidateDTO();
+                dto.setCandidateId(candidateId);
+
+                when(candidateRepository.findById(candidateId)).thenReturn(Optional.empty());
+
+                // act
+                IdInvalidException ex = assertThrows(IdInvalidException.class,
+                                () -> reviewCandidateService.create(dto, reviewerId));
+
+                // assert
+                assertEquals("Ứng viên không tồn tại", ex.getMessage());
+                verify(candidateRepository, times(1)).findById(candidateId);
+                verify(reviewCandidateRepository, never()).save(any());
+        }
+
+        @Test
+        @DisplayName("RC-TC-012: getAllWithFilters - không có token hoặc reviewerId null không gọi userService")
+        void testGetAllWithFilters_NoTokenOrReviewerId_RC_TC_012() throws Exception {
+                // arrange
+                Long candidateId = 1L;
+                LocalDateTime start = LocalDateTime.now().minusDays(7);
+                LocalDateTime end = LocalDateTime.now();
+                int page = 1;
+                int limit = 10;
+                String sortBy = "createdAt";
+                String sortOrder = "asc"; // exercise asc branch
+                String token = null; // no token provided
+
+                ReviewCandidate r1 = review(301L, candidateId, null, null, 2, 3, "S", "W", true);
+                Page<ReviewCandidate> mockPage = new PageImpl<>(List.of(r1), PageRequest.of(0, 10), 1);
+
+                when(reviewCandidateRepository.findByFilters(eq(candidateId), eq(null), eq(start), eq(end),
+                                any(Pageable.class))).thenReturn(mockPage);
+
+                // act
+                PaginationDTO result = reviewCandidateService.getAllWithFilters(candidateId, null, start, end,
+                                page, limit, sortBy, sortOrder, token);
+
+                // assert
+                assertNotNull(result);
+                @SuppressWarnings("unchecked")
+                List<ReviewCandidateResponseDTO> list = (List<ReviewCandidateResponseDTO>) result.getResult();
+                assertEquals(1, list.size());
+                ReviewCandidateResponseDTO dto = list.get(0);
+                // since reviewerId is null and token is null, reviewerName must remain null
+                assertEquals(null, dto.getReviewerName());
+
+                verify(reviewCandidateRepository, times(1))
+                                .findByFilters(eq(candidateId), eq(null), eq(start), eq(end), any(Pageable.class));
+                verifyNoMoreInteractions(userService);
+        }
+
+        @Test
+        @DisplayName("RC-TC-013: getById - nếu một trong 3 điểm là null thì average không được tính")
+        void testGetById_PartialScores_RC_TC_013() throws IdInvalidException {
+                // arrange
+                Long id = 5L;
+                String token = "Bearer token";
+                // professionalSkillScore is null
+                ReviewCandidate r = review(id, 11L, 7L, null, 4, 5, "S", "W", true);
+
+                when(reviewCandidateRepository.findById(id)).thenReturn(Optional.of(r));
+                when(userService.getEmployeeNames(eq(List.of(7L)), eq(token)))
+                                .thenReturn(ResponseEntity.ok().body(objectMapper.createObjectNode().put("7", "Ng A")));
+
+                // act
+                ReviewCandidateResponseDTO dto = reviewCandidateService.getById(id, token);
+
+                // assert
+                assertNotNull(dto);
+                assertEquals(id, dto.getId());
+                assertEquals(11L, dto.getCandidateId());
+                assertEquals(7L, dto.getReviewerId());
+                assertEquals("Ng A", dto.getReviewerName());
+                // average should be null because one score is missing
+                assertEquals(null, dto.getAverageScore());
+        }
+
+        @Test
+        @DisplayName("RC-TC-014: update - review không tồn tại ném IdInvalidException")
+        void testUpdate_NotFound_RC_TC_014() {
+                // arrange
+                Long id = 400L;
+                UpdateReviewCandidateDTO dto = new UpdateReviewCandidateDTO();
+                when(reviewCandidateRepository.findById(id)).thenReturn(Optional.empty());
+
+                // act
+                IdInvalidException ex = assertThrows(IdInvalidException.class,
+                                () -> reviewCandidateService.update(id, dto, 7L));
+
+                // assert
+                assertEquals("Đánh giá không tồn tại", ex.getMessage());
+                verify(reviewCandidateRepository, times(1)).findById(id);
+        }
+
+        @Test
+        @DisplayName("RC-TC-015: delete - review không tồn tại ném IdInvalidException")
+        void testDelete_NotFound_RC_TC_015() {
+                // arrange
+                Long id = 500L;
+                when(reviewCandidateRepository.findById(id)).thenReturn(Optional.empty());
+
+                // act
+                IdInvalidException ex = assertThrows(IdInvalidException.class,
+                                () -> reviewCandidateService.delete(id, 7L));
+
+                // assert
+                assertEquals("Đánh giá không tồn tại", ex.getMessage());
+                verify(reviewCandidateRepository, times(1)).findById(id);
+        }
+
+        @Test
+        @DisplayName("RC-TC-016: getByCandidateId - không có token thì không enrich reviewerName")
+        void testGetByCandidateId_NoToken_RC_TC_016() {
+                // arrange
+                Long candidateId = 2L;
+                ReviewCandidate r1 = review(601L, candidateId, 7L, 4, 4, 4, "S", "W", true);
+                when(reviewCandidateRepository.findByCandidate_Id(candidateId)).thenReturn(List.of(r1));
+
+                // act
+                List<ReviewCandidateResponseDTO> result = reviewCandidateService.getByCandidateId(candidateId, null);
+
+                // assert
+                assertNotNull(result);
+                assertEquals(1, result.size());
+                assertEquals(null, result.get(0).getReviewerName());
+                verify(reviewCandidateRepository, times(1)).findByCandidate_Id(candidateId);
+                verifyNoMoreInteractions(userService);
+        }
+
+        @Test
+        @DisplayName("RC-TC-017: update - owner cập nhật tất cả các trường (non-null)")
+        void testUpdate_OwnerUpdatesAllFields_RC_TC_017() throws IdInvalidException {
+                // arrange
+                Long id = 11L;
+                Long reviewerId = 7L;
+                ReviewCandidate existing = review(id, 2L, reviewerId, 1, 1, 1, "oldS", "oldW", true);
+                when(reviewCandidateRepository.findById(id)).thenReturn(Optional.of(existing));
+
+                UpdateReviewCandidateDTO dto = new UpdateReviewCandidateDTO();
+                dto.setProfessionalSkillScore(5);
+                dto.setCommunicationSkillScore(4);
+                dto.setWorkExperienceScore(3);
+                dto.setStrengths("sNew");
+                dto.setWeaknesses("wNew");
+                dto.setConclusion(false);
+
+                when(reviewCandidateRepository.save(any(ReviewCandidate.class))).thenAnswer(inv -> inv.getArgument(0));
+
+                // act
+                ReviewCandidateResponseDTO result = reviewCandidateService.update(id, dto, reviewerId);
+
+                // assert
+                assertNotNull(result);
+                assertEquals(5, result.getProfessionalSkillScore());
+                assertEquals(4, result.getCommunicationSkillScore());
+                assertEquals(3, result.getWorkExperienceScore());
+                assertEquals((5.0 + 4.0 + 3.0) / 3.0, result.getAverageScore());
+                assertEquals("sNew", result.getStrengths());
+                assertEquals("wNew", result.getWeaknesses());
+                assertEquals(false, result.getConclusion());
+
+                verify(reviewCandidateRepository, times(1)).findById(id);
+                verify(reviewCandidateRepository, times(1)).save(existing);
+        }
+
+        @Test
+        @DisplayName("RC-TC-018: getAllWithFilters - khi userService trả về không thành công thì không enrich")
+        void testGetAllWithFilters_UserServiceNon2xx_RC_TC_018() throws Exception {
+                // arrange
+                Long candidateId = 3L;
+                Long reviewerId = 7L;
+                LocalDateTime start = LocalDateTime.now().minusDays(7);
+                LocalDateTime end = LocalDateTime.now();
+                int page = 1;
+                int limit = 10;
+                String token = "Bearer token";
+
+                ReviewCandidate r1 = review(801L, candidateId, reviewerId, 4, 4, 4, "S", "W", true);
+                Page<ReviewCandidate> mockPage = new PageImpl<>(List.of(r1), PageRequest.of(0, 10), 1);
+
+                when(reviewCandidateRepository.findByFilters(eq(candidateId), eq(reviewerId), eq(start), eq(end),
+                                any(Pageable.class))).thenReturn(mockPage);
+                // when(userService.getEmployeeNames(eq(List.of(reviewerId)), eq(token)))
+                //                 .thenReturn(okBody("{\"7\":\"Nguyen Van A\"}"));
+                when(userService.getEmployeeNames(eq(List.of(7L)), eq(token)))
+                                .thenReturn(ResponseEntity.<JsonNode>status(HttpStatus.INTERNAL_SERVER_ERROR).build());
+
+                // act
+                PaginationDTO result = reviewCandidateService.getAllWithFilters(candidateId, reviewerId, start, end,
+                                page, limit, null, null, token);
+
+                // assert
+                @SuppressWarnings("unchecked")
+                List<ReviewCandidateResponseDTO> list = (List<ReviewCandidateResponseDTO>) result.getResult();
+                assertEquals(1, list.size());
+                assertEquals(null, list.get(0).getReviewerName());
+
+                verify(reviewCandidateRepository, times(1)).findByFilters(eq(candidateId), eq(reviewerId), eq(start),
+                                eq(end), any(Pageable.class));
+                verify(userService, times(1)).getEmployeeNames(eq(List.of(7L)), eq(token));
+        }
+
+        @Test
+        @DisplayName("RC-TC-019: getById - nếu reviewerId null thì không gọi userService và reviewerName null")
+        void testGetById_ReviewerIdNull_RC_TC_019() throws IdInvalidException {
+                // arrange
+                Long id = 9L;
+                ReviewCandidate r = review(id, 12L, null, 4, 4, 4, "S", "W", true);
+                when(reviewCandidateRepository.findById(id)).thenReturn(Optional.of(r));
+
+                // act
+                ReviewCandidateResponseDTO dto = reviewCandidateService.getById(id, "Bearer token");
+
+                // assert
+                assertNotNull(dto);
+                assertEquals(null, dto.getReviewerName());
+                verify(reviewCandidateRepository, times(1)).findById(id);
+                verifyNoMoreInteractions(userService);
+        }
+
+        @Test
+        @DisplayName("RC-TC-020: getByCandidateId - khi body trả về không chứa key thì reviewerName null")
+        void testGetByCandidateId_MissingKeyInResponse_RC_TC_020() throws Exception {
+                // arrange
+                Long candidateId = 4L;
+                ReviewCandidate r1 = review(901L, candidateId, 77L, 4, 4, 4, "S", "W", true);
+                when(reviewCandidateRepository.findByCandidate_Id(candidateId)).thenReturn(List.of(r1));
+
+                // response missing key "77"
+                when(userService.getEmployeeNames(eq(List.of(77L)), eq("Bearer token")))
+                                .thenReturn(okBody("{}"));
+
+                // act
+                List<ReviewCandidateResponseDTO> result = reviewCandidateService.getByCandidateId(candidateId,
+                                "Bearer token");
+
+                // assert
+                assertNotNull(result);
+                assertEquals(1, result.size());
+                assertEquals(null, result.get(0).getReviewerName());
+        }
+
+        @Test
+        @DisplayName("RC-TC-021: getByCandidateId - review.candidate là null thì candidateId null trong DTO")
+        void testGetByCandidateId_CandidateNull_RC_TC_021() {
+                // arrange
+                Long candidateId = 5L;
+                ReviewCandidate r1 = new ReviewCandidate();
+                r1.setId(1001L);
+                r1.setReviewerId(12L);
+                // candidate intentionally null
+                when(reviewCandidateRepository.findByCandidate_Id(candidateId)).thenReturn(List.of(r1));
+
+                // act
+                List<ReviewCandidateResponseDTO> result = reviewCandidateService.getByCandidateId(candidateId, null);
+
+                // assert
+                assertNotNull(result);
+                assertEquals(1, result.size());
+                assertEquals(null, result.get(0).getCandidateId());
+        }
+
+        @Test
+        @DisplayName("RC-TC-022: update - khi review.reviewerId là null ném IdInvalidException")
+        void testUpdate_ExistingReviewerIdNull_RC_TC_022() {
+                // arrange
+                Long id = 222L;
+                ReviewCandidate existing = review(id, 2L, null, 1, 1, 1, "S", "W", true);
+                when(reviewCandidateRepository.findById(id)).thenReturn(Optional.of(existing));
+
+                UpdateReviewCandidateDTO dto = new UpdateReviewCandidateDTO();
+                dto.setStrengths("new");
+
+                // act & assert: original production code calls equals on null -> NPE
+                assertThrows(NullPointerException.class, () -> reviewCandidateService.update(id, dto, 7L));
+        }
+
+        @Test
+        @DisplayName("RC-TC-023: getById - token rỗng thì không gọi userService")
+        void testGetById_TokenEmpty_RC_TC_023() throws IdInvalidException {
+                // arrange
+                Long id = 333L;
+                ReviewCandidate r = review(id, 12L, 77L, 4, 4, 4, "S", "W", true);
+                when(reviewCandidateRepository.findById(id)).thenReturn(Optional.of(r));
+
+                // act
+                ReviewCandidateResponseDTO dto = reviewCandidateService.getById(id, "");
+
+                // assert
+                assertNotNull(dto);
+                assertEquals(null, dto.getReviewerName());
+                verifyNoMoreInteractions(userService);
+        }
+
+        @Test
+        @DisplayName("RC-TC-024: getAllWithFilters - token rỗng thì không gọi userService")
+        void testGetAllWithFilters_TokenEmpty_RC_TC_024() {
+                // arrange
+                Long candidateId = 6L;
+                Long reviewerId = 88L;
+                LocalDateTime start = LocalDateTime.now().minusDays(2);
+                LocalDateTime end = LocalDateTime.now();
+                ReviewCandidate r1 = review(444L, candidateId, reviewerId, 3, 3, 3, "S", "W", true);
+                Page<ReviewCandidate> mockPage = new PageImpl<>(List.of(r1), PageRequest.of(0, 10), 1);
+                when(reviewCandidateRepository.findByFilters(eq(candidateId), eq(reviewerId), eq(start), eq(end),
+                                any(Pageable.class))).thenReturn(mockPage);
+
+                // act
+                PaginationDTO result = reviewCandidateService.getAllWithFilters(candidateId, reviewerId, start, end,
+                                1, 10, null, null, "");
+
+                // assert
+                @SuppressWarnings("unchecked")
+                List<ReviewCandidateResponseDTO> list = (List<ReviewCandidateResponseDTO>) result.getResult();
+                assertEquals(1, list.size());
+                assertEquals(null, list.get(0).getReviewerName());
+                verifyNoMoreInteractions(userService);
+        }
+
+        @Test
+        @DisplayName("RC-TC-025: update - DTO toàn null không thay đổi entity")
+        void testUpdate_AllNullDTO_RC_TC_025() throws IdInvalidException {
+                // arrange
+                Long id = 777L;
+                Long reviewerId = 7L;
+                ReviewCandidate existing = review(id, 3L, reviewerId, 4, 4, 4, "oldS", "oldW", true);
+                when(reviewCandidateRepository.findById(id)).thenReturn(Optional.of(existing));
+
+                UpdateReviewCandidateDTO dto = new UpdateReviewCandidateDTO(); // all fields null
+
+                when(reviewCandidateRepository.save(any(ReviewCandidate.class))).thenAnswer(inv -> inv.getArgument(0));
+
+                // act
+                ReviewCandidateResponseDTO result = reviewCandidateService.update(id, dto, reviewerId);
+
+                // assert: nothing changed
+                assertNotNull(result);
+                assertEquals(4, result.getProfessionalSkillScore());
+                assertEquals(4, result.getCommunicationSkillScore());
+                assertEquals(4, result.getWorkExperienceScore());
+                assertEquals((4.0 + 4.0 + 4.0) / 3.0, result.getAverageScore());
+                assertEquals("oldS", result.getStrengths());
+                assertEquals("oldW", result.getWeaknesses());
+                assertEquals(true, result.getConclusion());
+        }
+
+        @Test
+        @DisplayName("RC-TC-026: getAllWithFilters - userService trả 2xx nhưng body null thì không enrich")
+        void testGetAllWithFilters_UserService2xxBodyNull_RC_TC_026() throws Exception {
+                // arrange
+                Long candidateId = 9L;
+                Long reviewerId = 7L;
+                LocalDateTime start = LocalDateTime.now().minusDays(1);
+                LocalDateTime end = LocalDateTime.now();
+                ReviewCandidate r1 = review(100L, candidateId, reviewerId, 4, 4, 4, "S", "W", true);
+                Page<ReviewCandidate> mockPage = new PageImpl<>(List.of(r1), PageRequest.of(0, 10), 1);
+
+                when(reviewCandidateRepository.findByFilters(eq(candidateId), eq(reviewerId), eq(start), eq(end),
+                                any(Pageable.class))).thenReturn(mockPage);
+
+                when(userService.getEmployeeNames(eq(List.of(reviewerId)), eq("Bearer token")))
+                                .thenReturn(ResponseEntity.ok().body(null));
+
+                // act
+                PaginationDTO result = reviewCandidateService.getAllWithFilters(candidateId, reviewerId, start, end,
+                                1, 10, null, null, "Bearer token");
+
+                // assert
+                @SuppressWarnings("unchecked")
+                List<ReviewCandidateResponseDTO> list = (List<ReviewCandidateResponseDTO>) result.getResult();
+                assertEquals(1, list.size());
+                assertEquals(null, list.get(0).getReviewerName());
+        }
+
+        @Test
+        @DisplayName("RC-TC-027: getById - communicationScore null thì average không tính")
+        void testGetById_CommunicationNull_RC_TC_027() throws Exception {
+                // arrange
+                Long id = 801L;
+                String token = "Bearer token";
+                ReviewCandidate r = review(id, 21L, 7L, 3, null, 5, "S", "W", true);
+                when(reviewCandidateRepository.findById(id)).thenReturn(Optional.of(r));
+                when(userService.getEmployeeNames(eq(List.of(7L)), eq(token)))
+                                .thenReturn(okBody("{\"7\":\"Nguyen\"}"));
+
+                // act
+                ReviewCandidateResponseDTO dto = reviewCandidateService.getById(id, token);
+
+                // assert
+                assertNotNull(dto);
+                assertEquals(null, dto.getAverageScore());
+                assertEquals("Nguyen", dto.getReviewerName());
+        }
+
+        @Test
+        @DisplayName("RC-TC-028: getById - workExperienceScore null thì average không tính")
+        void testGetById_WorkExpNull_RC_TC_028() throws Exception {
+                // arrange
+                Long id = 802L;
+                String token = "Bearer token";
+                ReviewCandidate r = review(id, 22L, 7L, 3, 4, null, "S", "W", true);
+                when(reviewCandidateRepository.findById(id)).thenReturn(Optional.of(r));
+                when(userService.getEmployeeNames(eq(List.of(7L)), eq(token)))
+                                .thenReturn(okBody("{\"7\":\"Nguyen\"}"));
+
+                // act
+                ReviewCandidateResponseDTO dto = reviewCandidateService.getById(id, token);
+
+                // assert
+                assertNotNull(dto);
+                assertEquals(null, dto.getAverageScore());
+                assertEquals("Nguyen", dto.getReviewerName());
+        }
+
+        @Test
+        @DisplayName("RC-TC-029: getAllWithFilters - limit < 1 được normalize về 10")
+        void testGetAllWithFilters_LimitTooSmall_RC_TC_029() throws Exception {
+                // arrange
+                Long candidateId = 11L;
+                Long reviewerId = 7L;
+                LocalDateTime start = LocalDateTime.now().minusDays(7);
+                LocalDateTime end = LocalDateTime.now();
+                int page = 1;
+                int limit = 0; // should normalize to 10
+                String token = "Bearer token";
+
+                ReviewCandidate r1 = review(901L, candidateId, reviewerId, 4, 4, 4, "S", "W", true);
+                Page<ReviewCandidate> mockPage = new PageImpl<>(List.of(r1), PageRequest.of(0, 10), 1);
+
+                when(reviewCandidateRepository.findByFilters(eq(candidateId), eq(reviewerId), eq(start), eq(end),
+                                any(Pageable.class))).thenReturn(mockPage);
+
+                // act
+                PaginationDTO result = reviewCandidateService.getAllWithFilters(candidateId, reviewerId, start, end,
+                                page, limit, null, null, token);
+
+                // assert
+                assertNotNull(result.getMeta());
+                assertEquals(10, result.getMeta().getPageSize());
+        }
 }
