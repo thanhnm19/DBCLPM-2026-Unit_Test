@@ -1026,7 +1026,7 @@ class StatisticsServiceTest {
         }
     }
 
-    // Test Case ID: UTIL-ST36b (bonus)
+    // Test Case ID: UTIL-ST36b
     // Mục tiêu: getJobOpenings - jobPositions != null nhưng getResult() == null -> trả list rỗng
     @Test
     @DisplayName("UTIL-ST36b: getJobOpenings - jobPositions.getResult()=null -> list rỗng (cover branch)")
@@ -1246,7 +1246,7 @@ class StatisticsServiceTest {
         }
     }
 
-    // Test Case ID: UTIL-ST49b (bonus)
+    // Test Case ID: UTIL-ST49b
     // Mục tiêu: Role ADMIN -> cover case "ADMIN" trong switch (giống CEO)
     @Test
     @DisplayName("UTIL-ST49b: getDepartmentIdForStatistics - ADMIN -> departmentId=null (cover branch)")
@@ -1377,7 +1377,7 @@ class StatisticsServiceTest {
         assertThat(result).isEmpty();
     }
 
-    // Test Case ID: UTIL-ST54b (bonus)
+    // Test Case ID: UTIL-ST54b
     // Mục tiêu: filterApplicationsByDateRangeAndStatus - record không có "status" field -> bỏ qua
     @Test
     @DisplayName("UTIL-ST54b: filterApplicationsByDateRangeAndStatus - record thiếu 'status' field")
@@ -1401,7 +1401,7 @@ class StatisticsServiceTest {
         assertThat(result).isEmpty();
     }
 
-    // Test Case ID: UTIL-ST54c (bonus)
+    // Test Case ID: UTIL-ST54c
     // Mục tiêu: filterApplicationsByDateRangeAndStatus - record không có "appliedDate" -> bỏ qua
     @Test
     @DisplayName("UTIL-ST54c: filterApplicationsByDateRangeAndStatus - record thiếu 'appliedDate' field")
@@ -1569,7 +1569,7 @@ class StatisticsServiceTest {
         assertThat(result.size()).isEqualTo(0);
     }
 
-    // Test Case ID: UTIL-ST63b (bonus)
+    // Test Case ID: UTIL-ST63b
     // Mục tiêu: convertToJsonNode - object đã là JsonNode -> trả về chính nó
     @Test
     @DisplayName("UTIL-ST63b: convertToJsonNode - đã là JsonNode -> trả về chính nó (cover branch)")
@@ -1589,11 +1589,12 @@ class StatisticsServiceTest {
     // để đạt độ phủ branch 100%
     // -----------------------------------------------------------------------
 
-    // BONUS-1: getJobOpenings - JsonNode hoàn toàn rỗng (KHÔNG có field nào)
+    // Test Case ID: UTIL-ST-EX01
+    // Mục tiêu: getJobOpenings - JsonNode hoàn toàn rỗng (KHÔNG có field nào)
     // Mục đích cover các nhánh has(...)=false: title, employmentType, isRemote, location,
     // applicationCount, salaryMin, salaryMax đều không tồn tại.
     @Test
-    @DisplayName("BONUS-1: getJobOpenings - JsonNode rỗng tuyệt đối, dùng default an toàn (cover has=false)")
+    @DisplayName("UTIL-ST-EX01: getJobOpenings - JsonNode thiếu toàn bộ field, dùng default an toàn (cover has=false)")
     void getJobOpenings_NodeMissingAllFields_ShouldUseDefaults() {
         ObjectNode minimal = objectMapper.createObjectNode(); // hoàn toàn rỗng
 
@@ -1618,10 +1619,11 @@ class StatisticsServiceTest {
         }
     }
 
-    // BONUS-1b: getJobOpenings - JsonNode có salaryMin/salaryMax = NullNode (putNull)
+    // Test Case ID: UTIL-ST-EX02
+    // Mục tiêu: getJobOpenings - JsonNode có salaryMin/salaryMax = NullNode (putNull)
     // Mục đích cover các nhánh has=true && isNull()=true.
     @Test
-    @DisplayName("BONUS-1b: getJobOpenings - salaryMin/salaryMax putNull (cover isNull()=true)")
+    @DisplayName("UTIL-ST-EX02: getJobOpenings - salaryMin/salaryMax putNull, xử lý an toàn (cover isNull()=true)")
     void getJobOpenings_NodeWithNullSalaryNodes_ShouldHandleNullValueNodes() {
         ObjectNode node = objectMapper.createObjectNode();
         node.put("title", "Engineer");
@@ -1646,10 +1648,11 @@ class StatisticsServiceTest {
         }
     }
 
-    // BONUS-2: getJobOpenings - isRemote=false (chỉ field tồn tại) + location chứa "Hybrid" thật sự
+    // Test Case ID: UTIL-ST-EX03
+    // Mục tiêu: getJobOpenings - isRemote=false (chỉ field tồn tại) + location chứa \"Hybrid\" thật sự
     // Mục đích cover nhánh has("isRemote")=true, asBoolean()=false
     @Test
-    @DisplayName("BONUS-2: getJobOpenings - isRemote field tồn tại nhưng false, có Hybrid -> 'Hybrid'")
+    @DisplayName("UTIL-ST-EX03: getJobOpenings - isRemote=false và location có 'Hybrid' -> workLocation='Hybrid'")
     void getJobOpenings_IsRemoteFalseWithHybrid_ShouldBeHybrid() {
         JsonNode pos = buildJobPositionNode(false, "HCM - Hybrid", "10000000", "20000000");
         PaginationDTO dto = new PaginationDTO();
@@ -1664,9 +1667,10 @@ class StatisticsServiceTest {
         }
     }
 
-    // BONUS-3: getUpcomingSchedules - participants không phải array (cover isArray()=false)
+    // Test Case ID: UTIL-ST-EX04
+    // Mục tiêu: getUpcomingSchedules - participants không phải array (cover isArray()=false)
     @Test
-    @DisplayName("BONUS-3: getUpcomingSchedules - participants không phải array -> candidateName=''")
+    @DisplayName("UTIL-ST-EX04: getUpcomingSchedules - participants không phải array -> candidateName=''")
     void getUpcomingSchedules_ParticipantsNotArray_ShouldNotCrash() {
         ObjectNode schedule = objectMapper.createObjectNode();
         schedule.put("id", 1L);
@@ -1688,11 +1692,12 @@ class StatisticsServiceTest {
         }
     }
 
-    // BONUS-4: getUpcomingSchedules - convertToJsonNode trả null (cover schedule == null branch)
+    // Test Case ID: UTIL-ST-EX05
+    // Mục tiêu: getUpcomingSchedules - convertToJsonNode trả null (cover schedule == null branch)
     // Đẩy 1 phần tử raw không thể convert được (Object thường) thì valueToTree trả về node, KHÔNG null.
     // -> Để đạt schedule == null, phần tử phải là null trong list.
     @Test
-    @DisplayName("BONUS-4: getUpcomingSchedules - phần tử null trong list -> bị filter ra")
+    @DisplayName("UTIL-ST-EX05: getUpcomingSchedules - phần tử null trong list -> bị filter ra")
     void getUpcomingSchedules_NullElementInList_ShouldBeFiltered() {
         // List<JsonNode> chứa null
         List<JsonNode> list = Arrays.asList((JsonNode) null);
@@ -1708,10 +1713,11 @@ class StatisticsServiceTest {
         }
     }
 
-    // BONUS-5: formatVND - amount có giá trị âm (longValue()/1_000_000 < 0) -> chạy nhánh thousands
+    // Test Case ID: UTIL-ST-EX06
+    // Mục tiêu: formatVND - amount=0 -> rơi nhánh thousands, trả '0'
     // hoặc test các giá trị biên.
     @Test
-    @DisplayName("BONUS-5: formatVND - amount=0 -> trả về '0' (cover thousands branch)")
+    @DisplayName("UTIL-ST-EX06: formatVND - amount=0 -> trả về '0' (cover thousands branch)")
     void formatVND_ZeroAmount_ShouldReturnZero() throws Exception {
         Method m = StatisticsService.class.getDeclaredMethod("formatVND", BigDecimal.class);
         m.setAccessible(true);
@@ -1721,10 +1727,11 @@ class StatisticsServiceTest {
         assertThat(result).isEqualTo("0");
     }
 
-    // BONUS-6: filterApplicationsByDateRange - appliedDate AFTER end -> bỏ qua
+    // Test Case ID: UTIL-ST-EX07
+    // Mục tiêu: filterApplicationsByDateRange - appliedDate AFTER end -> bỏ qua
     // Mục đích cover nhánh !isAfter(end)=false ở L311
     @Test
-    @DisplayName("BONUS-6: filterApplicationsByDateRange - appliedDate sau endDate, bỏ qua (cover isAfter=true)")
+    @DisplayName("UTIL-ST-EX07: filterApplicationsByDateRange - appliedDate sau endDate, bỏ qua (cover isAfter=true)")
     @SuppressWarnings("unchecked")
     void filterApplications_AppliedDateAfterEnd_ShouldBeExcluded() throws Exception {
         Method m = StatisticsService.class.getDeclaredMethod(
@@ -1741,10 +1748,11 @@ class StatisticsServiceTest {
         assertThat(result).isEmpty();
     }
 
-    // BONUS-7: filterApplicationsByDateRangeAndStatus - appliedDate AFTER end với status match
+    // Test Case ID: UTIL-ST-EX08
+    // Mục tiêu: filterApplicationsByDateRangeAndStatus - appliedDate AFTER end với status match
     // Mục đích cover nhánh !isAfter(end)=false ở L338
     @Test
-    @DisplayName("BONUS-7: filterApplicationsByDateRangeAndStatus - appliedDate sau endDate (cover isAfter=true)")
+    @DisplayName("UTIL-ST-EX08: filterApplicationsByDateRangeAndStatus - appliedDate sau endDate (cover isAfter=true)")
     @SuppressWarnings("unchecked")
     void filterApplicationsAndStatus_AppliedDateAfterEnd_ShouldBeExcluded() throws Exception {
         Method m = StatisticsService.class.getDeclaredMethod(
@@ -1763,10 +1771,11 @@ class StatisticsServiceTest {
         assertThat(result).isEmpty();
     }
 
-    // BONUS-8: filterSchedulesByDateRange - scheduleDate BEFORE start -> bỏ qua
+    // Test Case ID: UTIL-ST-EX09
+    // Mục tiêu: filterSchedulesByDateRange - scheduleDate BEFORE start -> bỏ qua
     // Mục đích cover nhánh !isBefore(start)=false ở L360
     @Test
-    @DisplayName("BONUS-8: filterSchedulesByDateRange - schedule trước startDate (cover isBefore=true)")
+    @DisplayName("UTIL-ST-EX09: filterSchedulesByDateRange - schedule trước startDate (cover isBefore=true)")
     @SuppressWarnings("unchecked")
     void filterSchedules_StartTimeBeforeStartDate_ShouldBeExcluded() throws Exception {
         Method m = StatisticsService.class.getDeclaredMethod(
@@ -1783,10 +1792,11 @@ class StatisticsServiceTest {
         assertThat(result).isEmpty();
     }
 
-    // BONUS-9: filterSchedulesByDateRange - scheduleDate AFTER end -> bỏ qua
+    // Test Case ID: UTIL-ST-EX10
+    // Mục tiêu: filterSchedulesByDateRange - scheduleDate AFTER end -> bỏ qua
     // Mục đích cover nhánh !isAfter(end)=false ở L361
     @Test
-    @DisplayName("BONUS-9: filterSchedulesByDateRange - schedule sau endDate (cover isAfter=true)")
+    @DisplayName("UTIL-ST-EX10: filterSchedulesByDateRange - schedule sau endDate (cover isAfter=true)")
     @SuppressWarnings("unchecked")
     void filterSchedules_StartTimeAfterEndDate_ShouldBeExcluded() throws Exception {
         Method m = StatisticsService.class.getDeclaredMethod(
@@ -1803,11 +1813,12 @@ class StatisticsServiceTest {
         assertThat(result).isEmpty();
     }
 
-    // BONUS-10: getJobOpenings - location.asText() trả null bằng Mockito mock
+    // Test Case ID: UTIL-ST-EX11
+    // Mục tiêu: getJobOpenings - location.asText() trả null bằng Mockito mock
     // Mục đích cover nhánh "location != null" = false ở L119 (defensive null-check unreachable
     // bằng JsonNode thật của Jackson, nhưng vẫn có trong bytecode -> dùng mock JsonNode).
     @Test
-    @DisplayName("BONUS-10: getJobOpenings - location.asText()=null (mock) -> workLocation default 'On-site'")
+    @DisplayName("UTIL-ST-EX11: getJobOpenings - location.asText()=null (mock) -> workLocation default 'On-site'")
     void getJobOpenings_LocationAsTextReturnsNull_ShouldUseDefaultOnSite() {
         // Mock JsonNode để location.asText() trả null (covering branch defensive null-check)
         JsonNode mockPosNode = mock(JsonNode.class);
