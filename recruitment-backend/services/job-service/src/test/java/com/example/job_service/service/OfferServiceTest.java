@@ -128,10 +128,6 @@ class OfferServiceTest {
         return offer;
     }
 
-    // =======================================================================
-    // PHẦN 1: Hàm create()
-    // =======================================================================
-
     @Test
     @Transactional
     @DisplayName("OFF-TC01: create - DTO hợp lệ, phải lưu với status DRAFT")
@@ -151,10 +147,6 @@ class OfferServiceTest {
         assertThat(saved.getIsActive()).isTrue();
         assertThat(offerRepository.findById(saved.getId())).isPresent();
     }
-
-    // =======================================================================
-    // PHẦN 2: Hàm update()
-    // =======================================================================
 
     @Test
     @Transactional
@@ -204,10 +196,6 @@ class OfferServiceTest {
                 .isInstanceOf(IllegalStateException.class);
     }
 
-    // =======================================================================
-    // PHẦN 3: Hàm submit()
-    // =======================================================================
-
     @Test
     @Transactional
     @DisplayName("OFF-TC05: submit - DRAFT -> PENDING")
@@ -237,10 +225,6 @@ class OfferServiceTest {
                 .hasMessageContaining("WorkflowId");
     }
 
-    // =======================================================================
-    // PHẦN 4: Hàm approveStep() / rejectStep()
-    // =======================================================================
-
     @Test
     @Transactional
     @DisplayName("OFF-TC07: approveStep - PENDING")
@@ -265,10 +249,6 @@ class OfferServiceTest {
         assertThat(result.getStatus()).isEqualTo(OfferStatus.REJECTED);
         verify(workflowProducer).publishEvent(argThat(event -> event.getEventType().equals("REQUEST_REJECTED")));
     }
-
-    // =======================================================================
-    // PHẦN 5: Hàm cancel() / withdraw()
-    // =======================================================================
 
     @Test
     @Transactional
@@ -310,10 +290,6 @@ class OfferServiceTest {
         assertThatThrownBy(() -> offerService.withdraw(id, new WithdrawOfferDTO(), 99L, "token"))
                 .isInstanceOf(IllegalStateException.class);
     }
-
-    // =======================================================================
-    // PHẦN 6: Read Operations & Aggregation
-    // =======================================================================
 
     @Test
     @Transactional
@@ -412,10 +388,6 @@ class OfferServiceTest {
 
         assertThat(results).isNotEmpty();
     }
-
-    // =======================================================================
-    // BỔ SUNG: 100% Branch Coverage & Edge Cases
-    // =======================================================================
 
     @Test
     @Transactional
@@ -615,20 +587,15 @@ class OfferServiceTest {
         assertThat(result.getLevelName()).isEqualTo("Team Lead");
     }
 
-    // =======================================================================
-    // "BUG TRAPS" (Sử dụng đặc tả từ docs/system-test)
-    // =======================================================================
-
     @Test
     @Transactional
-    @DisplayName("OFF-TC32 [Bẫy Lỗi] create - Onboarding quá khứ")
+    @DisplayName("OFF-TC32 create - Onboarding quá khứ")
     void create_PastOnboardingDate_ShouldFail_ButAllows() {
         CreateOfferDTO dto = new CreateOfferDTO();
         dto.setCandidateId(100L);
         dto.setOnboardingDate(LocalDate.now().minusDays(10)); // Quá khứ
 
         // 2. Thực thi & Kiểm tra
-        // Chú ý: Test case này sẽ FAIL cho đến khi Bug được fix trong OfferService
         assertThatThrownBy(() -> offerService.create(dto))
                 .isInstanceOf(IdInvalidException.class)
                 .hasMessageContaining("Ngày nhận việc không được ở trong quá khứ");
@@ -636,14 +603,13 @@ class OfferServiceTest {
 
     @Test
     @Transactional
-    @DisplayName("OFF-TC33 [Bẫy Lỗi] create - Lương âm")
+    @DisplayName("OFF-TC33 create - Lương âm")
     void create_NegativeSalary_ShouldFail_ButAllows() {
         CreateOfferDTO dto = new CreateOfferDTO();
         dto.setCandidateId(100L);
         dto.setBasicSalary(-1000000L); // Lương âm
 
         // 2. Thực thi & Kiểm tra
-        // Chú ý: Test case này sẽ FAIL cho đến khi Bug được fix trong OfferService
         assertThatThrownBy(() -> offerService.create(dto))
                 .isInstanceOf(IdInvalidException.class)
                 .hasMessageContaining("Lương cơ bản không được là số âm");
@@ -688,177 +654,206 @@ class OfferServiceTest {
         PaginationDTO result = offerService.getAllWithFilters("   ", null, null, "token", PageRequest.of(0, 10));
         assertThat(result.getMeta().getTotal()).isGreaterThan(0);
     }
+    @Test
+    @Transactional
+    @DisplayName("OFF-TC37: getByIdWithUser - Candidate body null")
+    void getByIdWithUser_CandidateBodyNull_ShouldHandleGracefully() throws IdInvalidException {
+        when(candidateClient.getCandidateById(anyLong(), anyString())).thenReturn(ResponseEntity.ok(null));
+        Offer offer = createSampleOffer(100L, OfferStatus.DRAFT);
+        Offer saved = offerRepository.save(offer);
+        
+        OfferWithUserDTO result = offerService.getByIdWithUser(saved.getId(), "token");
+        assertThat(result.getCandidate()).isNull();
+    }
 
     @Test
     @Transactional
-    @DisplayName("OFF-TC37: convertToWithUserDTO - Edge cases")
-    void convertToWithUserDTO_AggregationEdgeCases_ShouldHandleNullsAndErrors() throws Exception {
+    @DisplayName("OFF-TC41: getByIdWithUser - Candidate no jobPositionId")
+    void getByIdWithUser_CandidateNoJobPositionId_ShouldHandleGracefully() throws IdInvalidException {
+        ObjectNode candNoJp = objectMapper.createObjectNode().put("name", "No JP");
+        when(candidateClient.getCandidateById(anyLong(), anyString())).thenReturn(ResponseEntity.ok(candNoJp));
         Offer offer = createSampleOffer(100L, OfferStatus.DRAFT);
-        offer.setRequesterId(10L);
+        Offer saved = offerRepository.save(offer);
+
+        OfferWithUserDTO result = offerService.getByIdWithUser(saved.getId(), "token");
+        assertThat(result.getJobPositionTitle()).isNull();
+    }
+
+    @Test
+    @Transactional
+    @DisplayName("OFF-TC42: getByIdWithUser - JobPositionService exception")
+    void getByIdWithUser_JobPositionServiceException_ShouldHandleGracefully() throws IdInvalidException {
+        ObjectNode candWithJp = objectMapper.createObjectNode().put("jobPositionId", 501L);
+        when(candidateClient.getCandidateById(anyLong(), anyString())).thenReturn(ResponseEntity.ok(candWithJp));
+        when(jobPositionService.findById(501L)).thenThrow(new RuntimeException("Service Error"));
+        Offer offer = createSampleOffer(100L, OfferStatus.DRAFT);
         offer = offerRepository.save(offer);
 
-        // 1. Candidate body null
-        when(candidateClient.getCandidateById(100L, "token")).thenReturn(ResponseEntity.ok(null));
-        OfferWithUserDTO res1 = offerService.getByIdWithUser(offer.getId(), "token");
-        assertThat(res1.getCandidate()).isNull();
+        OfferWithUserDTO result = offerService.getByIdWithUser(offer.getId(), "token");
+        assertThat(result.getJobPositionTitle()).isNull();
+    }
 
-        // 2. Candidate no jobPositionId
-        ObjectNode candNoJp = objectMapper.createObjectNode().put("name", "No JP");
-        when(candidateClient.getCandidateById(100L, "token")).thenReturn(ResponseEntity.ok(candNoJp));
-        OfferWithUserDTO res2 = offerService.getByIdWithUser(offer.getId(), "token");
-        assertThat(res2.getJobPositionTitle()).isNull();
-
-        // 3. Candidate jobPositionId is null
-        ObjectNode candNullJp = objectMapper.createObjectNode().put("name", "Null JP");
-        candNullJp.putNull("jobPositionId");
-        when(candidateClient.getCandidateById(100L, "token")).thenReturn(ResponseEntity.ok(candNullJp));
-        OfferWithUserDTO res2b = offerService.getByIdWithUser(offer.getId(), "token");
-        assertThat(res2b.getJobPositionTitle()).isNull();
-
-        // 4. JobPositionService throws exception (catch at line 315)
-        ObjectNode candWithJp = objectMapper.createObjectNode().put("jobPositionId", 501L);
-        when(candidateClient.getCandidateById(100L, "token")).thenReturn(ResponseEntity.ok(candWithJp));
-        when(jobPositionService.findById(501L)).thenThrow(new RuntimeException("Service Error"));
-        OfferWithUserDTO res3 = offerService.getByIdWithUser(offer.getId(), "token");
-        assertThat(res3.getJobPositionTitle()).isNull();
-
-        // 5. JobPosition has no RecruitmentRequest (branch line 304)
-        ObjectNode candWithJp2 = objectMapper.createObjectNode().put("jobPositionId", 502L);
-        when(candidateClient.getCandidateById(100L, "token")).thenReturn(ResponseEntity.ok(candWithJp2));
+    @Test
+    @Transactional
+    @DisplayName("OFF-TC43: getByIdWithUser - JobPosition no RecruitmentRequest")
+    void getByIdWithUser_JobPositionNoRR_ShouldHandleGracefully() throws IdInvalidException {
+        ObjectNode candWithJp = objectMapper.createObjectNode().put("jobPositionId", 502L);
+        when(candidateClient.getCandidateById(anyLong(), anyString())).thenReturn(ResponseEntity.ok(candWithJp));
         JobPosition jpNoRR = new JobPosition();
         when(jobPositionService.findById(502L)).thenReturn(jpNoRR);
-        OfferWithUserDTO res4 = offerService.getByIdWithUser(offer.getId(), "token");
-        assertThat(res4.getDepartmentName()).isNull();
+        Offer offer = createSampleOffer(100L, OfferStatus.DRAFT);
+        offer = offerRepository.save(offer);
 
-        // 6. JobPosition has RecruitmentRequest but DepartmentId is null
-        JobPosition jpNoDept = new JobPosition();
-        jpNoDept.setRecruitmentRequest(new RecruitmentRequest());
-        when(jobPositionService.findById(502L)).thenReturn(jpNoDept);
-        OfferWithUserDTO res4b = offerService.getByIdWithUser(offer.getId(), "token");
-        assertThat(res4b.getDepartmentName()).isNull();
+        OfferWithUserDTO result = offerService.getByIdWithUser(offer.getId(), "token");
+        assertThat(result.getDepartmentName()).isNull();
+    }
 
-        // 7. Dept response body null (branch line 308)
-        ObjectNode candWithJp3 = objectMapper.createObjectNode().put("jobPositionId", 503L);
-        when(candidateClient.getCandidateById(100L, "token")).thenReturn(ResponseEntity.ok(candWithJp3));
+    @Test
+    @Transactional
+    @DisplayName("OFF-TC44: getByIdWithUser - Dept response body null")
+    void getByIdWithUser_DeptBodyNull_ShouldHandleGracefully() throws IdInvalidException {
+        ObjectNode candWithJp = objectMapper.createObjectNode().put("jobPositionId", 503L);
+        when(candidateClient.getCandidateById(anyLong(), anyString())).thenReturn(ResponseEntity.ok(candWithJp));
+        
         JobPosition jpWithRR = new JobPosition();
         RecruitmentRequest rr = new RecruitmentRequest();
         rr.setDepartmentId(9L);
         jpWithRR.setRecruitmentRequest(rr);
         when(jobPositionService.findById(503L)).thenReturn(jpWithRR);
         when(userService.getDepartmentById(9L, "token")).thenReturn(ResponseEntity.ok(null));
-        OfferWithUserDTO res5 = offerService.getByIdWithUser(offer.getId(), "token");
-        assertThat(res5.getDepartmentName()).isNull();
 
-        // 8. Dept response success but body has no 'name' (branch line 310)
-        when(userService.getDepartmentById(9L, "token")).thenReturn(ResponseEntity.ok(objectMapper.createObjectNode()));
-        OfferWithUserDTO res5b = offerService.getByIdWithUser(offer.getId(), "token");
-        assertThat(res5b.getDepartmentName()).isNull();
+        Offer offer = createSampleOffer(100L, OfferStatus.DRAFT);
+        offer = offerRepository.save(offer);
 
-        // 9. Employee has no 'position' (branch line 331)
+        OfferWithUserDTO result = offerService.getByIdWithUser(offer.getId(), "token");
+        assertThat(result.getDepartmentName()).isNull();
+    }
+
+    @Test
+    @Transactional
+    @DisplayName("OFF-TC45: getByIdWithUser - Employee no position")
+    void getByIdWithUser_EmployeeNoPosition_ShouldHandleGracefully() throws IdInvalidException {
         ObjectNode empNoPos = objectMapper.createObjectNode().put("name", "No Pos");
-        when(userService.getEmployeeById(10L, "token")).thenReturn(ResponseEntity.ok(empNoPos));
-        OfferWithUserDTO res9 = offerService.getByIdWithUser(offer.getId(), "token");
-        assertThat(res9.getLevelName()).isNull();
+        when(userService.getEmployeeById(anyLong(), anyString())).thenReturn(ResponseEntity.ok(empNoPos));
+        Offer offer = createSampleOffer(100L, OfferStatus.DRAFT);
+        offer.setRequesterId(10L);
+        offer = offerRepository.save(offer);
 
-        // 10. Employee has 'position' but no level/name (branch line 335 else if)
-        ObjectNode empEmptyPos = objectMapper.createObjectNode().put("name", "Empty Pos");
-        empEmptyPos.set("position", objectMapper.createObjectNode());
-        when(userService.getEmployeeById(10L, "token")).thenReturn(ResponseEntity.ok(empEmptyPos));
-        OfferWithUserDTO res10 = offerService.getByIdWithUser(offer.getId(), "token");
-        assertThat(res10.getLevelName()).isNull();
+        OfferWithUserDTO result = offerService.getByIdWithUser(offer.getId(), "token");
+        assertThat(result.getLevelName()).isNull();
+    }
 
-        // 11. WorkflowInfo null (branch line 352)
+    @Test
+    @Transactional
+    @DisplayName("OFF-TC46: getByIdWithUser - WorkflowInfo null")
+    void getByIdWithUser_WorkflowInfoNull_ShouldHandleGracefully() throws IdInvalidException {
         when(workflowServiceClient.getWorkflowInfoByRequestId(any(), any(), any(), any())).thenReturn(null);
-        OfferWithUserDTO res11 = offerService.getByIdWithUser(offer.getId(), "token");
-        assertThat(res11.getWorkflowInfo()).isNull();
+        Offer offer = createSampleOffer(100L, OfferStatus.DRAFT);
+        offer = offerRepository.save(offer);
 
-        // 12. Requester null, dùng OwnerUserId (branch line 325)
+        OfferWithUserDTO result = offerService.getByIdWithUser(offer.getId(), "token");
+        assertThat(result.getWorkflowInfo()).isNull();
+    }
+
+    @Test
+    @Transactional
+    @DisplayName("OFF-TC47: getByIdWithUser - Use OwnerUserId when Requester null")
+    void getByIdWithUser_UseOwnerWhenRequesterNull_ShouldWork() throws IdInvalidException {
+        Offer offer = createSampleOffer(100L, OfferStatus.DRAFT);
         offer.setRequesterId(null);
         offer.setOwnerUserId(20L);
-        offerRepository.save(offer);
-        when(userService.getEmployeeById(20L, "token")).thenReturn(ResponseEntity.ok(objectMapper.createObjectNode()));
-        OfferWithUserDTO res12 = offerService.getByIdWithUser(offer.getId(), "token");
-        assertThat(res12).isNotNull();
+        offer = offerRepository.save(offer);
+
+        ObjectNode emp = objectMapper.createObjectNode().put("name", "Owner Name");
+        when(userService.getEmployeeById(20L, "token")).thenReturn(ResponseEntity.ok(emp));
+
+        OfferWithUserDTO result = offerService.getByIdWithUser(offer.getId(), "token");
+        assertThat(result).isNotNull();
     }
 
     @Test
-    @DisplayName("OFF-TC38: getWithUser - handle null ids")
+    @Transactional
+    @DisplayName("OFF-TC38: getByIdWithUser - Candidate ID null")
+    void getByIdWithUser_CandidateIdNull_ShouldHandleGracefully() throws IdInvalidException {
+        Offer offer = new Offer();
+        offer.setCandidateId(null);
+        offer.setBasicSalary(1000L);
 
-    void getByIdWithUser_WithVariousNullIds_ShouldHandleGracefully() throws IdInvalidException {
-        OfferRepository mockRepo = org.mockito.Mockito.mock(OfferRepository.class);
-        OfferService localService = new OfferService(mockRepo, userService, workflowProducer, workflowServiceClient, candidateClient, jobPositionService);
+        offer.setCandidateId(100L); 
+        Offer saved = offerRepository.save(offer);
+        saved.setCandidateId(null); 
 
-        Offer mockOffer = new Offer();
-        mockOffer.setCandidateId(null);
-        mockOffer.setRequesterId(10L);
-        when(mockRepo.findById(999L)).thenReturn(Optional.of(mockOffer));
-        
-        localService.getByIdWithUser(999L, "token");
 
-        mockOffer.setRequesterId(null);
-        mockOffer.setOwnerUserId(null);
-        localService.getByIdWithUser(999L, "token");
+        OfferWithUserDTO result = offerService.getByIdWithUser(saved.getId(), "token");
+        assertThat(result.getCandidate()).isNull();
     }
 
     @Test
-    @DisplayName("OFF-TC39: getWithUser - handle service failures")
-    void getByIdWithUser_WithUserServiceFailures_ShouldHandleGracefully() throws IdInvalidException {
-        OfferRepository mockRepo = org.mockito.Mockito.mock(OfferRepository.class);
-        OfferService localService = new OfferService(mockRepo, userService, workflowProducer, workflowServiceClient, candidateClient, jobPositionService);
+    @Transactional
+    @DisplayName("OFF-TC52: getByIdWithUser - All User IDs null")
+    void getByIdWithUser_AllUserIdsNull_ShouldHandleGracefully() throws IdInvalidException {
+        Offer offer = new Offer();
+        offer.setCandidateId(100L);
+        offer.setRequesterId(null);
+        offer.setOwnerUserId(null);
+        Offer saved = offerRepository.save(offer);
 
-        Offer mockOffer = new Offer();
-        mockOffer.setOwnerUserId(20L);
-        when(mockRepo.findById(999L)).thenReturn(Optional.of(mockOffer));
+        OfferWithUserDTO result = offerService.getByIdWithUser(saved.getId(), "token");
+        assertThat(result).isNotNull();
+    }
+
+    @Test
+    @Transactional
+    @DisplayName("OFF-TC39: getByIdWithUser - User Service 500 Error")
+    void getByIdWithUser_UserService500_ShouldHandleGracefully() throws IdInvalidException {
+        Offer offer = createSampleOffer(100L, OfferStatus.DRAFT);
+        offer.setOwnerUserId(20L);
+        Offer saved = offerRepository.save(offer);
         
         when(userService.getEmployeeById(20L, "token")).thenReturn(ResponseEntity.status(500).build());
-        localService.getByIdWithUser(999L, "token");
+        
+        assertThatThrownBy(() -> offerService.getByIdWithUser(saved.getId(), "token"))
+                .isInstanceOf(com.example.job_service.exception.UserClientException.class);
+    }
+
+    @Test
+    @Transactional
+    @DisplayName("OFF-TC53: getByIdWithUser - User Service null response")
+    void getByIdWithUser_UserServiceNullResponse_ShouldHandleGracefully() throws IdInvalidException {
+        Offer offer = createSampleOffer(100L, OfferStatus.DRAFT);
+        offer.setOwnerUserId(20L);
+        Offer saved = offerRepository.save(offer);
         
         when(userService.getEmployeeById(20L, "token")).thenReturn(ResponseEntity.ok(null));
-        localService.getByIdWithUser(999L, "token");
+        
+        OfferWithUserDTO result = offerService.getByIdWithUser(saved.getId(), "token");
+        assertThat(result).isNotNull();
     }
 
     @Test
-    @DisplayName("OFF-TC40: getByIdDetail - handle various nulls")
-    void getByIdDetail_WithVariousNullFields_ShouldHandleGracefully() throws IdInvalidException {
-        OfferRepository mockRepo = org.mockito.Mockito.mock(OfferRepository.class);
-        OfferService localService = new OfferService(mockRepo, userService, workflowProducer, workflowServiceClient, candidateClient, jobPositionService);
-
-        Offer mockOffer = new Offer();
-        mockOffer.setRequesterId(null);
-        when(mockRepo.findById(999L)).thenReturn(Optional.of(mockOffer));
+    @Transactional
+    @DisplayName("OFF-TC40: getByIdDetail - Requester ID null")
+    void getByIdDetail_RequesterIdNull_ShouldHandleGracefully() throws IdInvalidException {
+        Offer offer = new Offer();
+        offer.setCandidateId(100L);
+        offer.setRequesterId(null);
+        Offer saved = offerRepository.save(offer);
         
-        localService.getByIdDetail(999L, "token");
+        OfferDetailDTO result = offerService.getByIdDetail(saved.getId(), "token");
+        assertThat(result.getRequesterName()).isNull();
+    }
 
-        mockOffer.setRequesterId(10L);
+    @Test
+    @Transactional
+    @DisplayName("OFF-TC54: getByIdDetail - User Service 404 Error")
+    void getByIdDetail_UserService404_ShouldHandleGracefully() throws IdInvalidException {
+        Offer offer = createSampleOffer(100L, OfferStatus.DRAFT);
+        offer.setRequesterId(10L);
+        Offer saved = offerRepository.save(offer);
+        
         when(userService.getEmployeeById(10L, "token")).thenReturn(ResponseEntity.status(404).build());
-        localService.getByIdDetail(999L, "token");
-
-        mockOffer.setCandidateId(null);
-        localService.getByIdDetail(999L, "token");
-
-        mockOffer.setCandidateId(100L);
-        when(candidateClient.getCandidateById(100L, "token")).thenReturn(ResponseEntity.status(500).build());
-        localService.getByIdDetail(999L, "token");
-    }
-
-    @Test
-    @DisplayName("OFF-TC41: getByIdDetail - handle missing fields")
-    void getByIdDetail_WithMissingEmployeePositionName_ShouldHandleGracefully() throws IdInvalidException {
-        OfferRepository mockRepo = org.mockito.Mockito.mock(OfferRepository.class);
-        OfferService localService = new OfferService(mockRepo, userService, workflowProducer, workflowServiceClient, candidateClient, jobPositionService);
-
-        Offer mockOffer = new Offer();
-        mockOffer.setOwnerUserId(20L);
-        when(mockRepo.findById(999L)).thenReturn(Optional.of(mockOffer));
-
-        ObjectNode empNoName = objectMapper.createObjectNode();
-        empNoName.set("position", objectMapper.createObjectNode());
-        when(userService.getEmployeeById(20L, "token")).thenReturn(ResponseEntity.ok(empNoName));
         
-        localService.getByIdDetail(999L, "token");
-        
-        when(workflowServiceClient.getWorkflowInfoByRequestId(any(), any(), any(), any())).thenReturn(null);
-        mockOffer.setWorkflowId(100L);
-        localService.getByIdDetail(999L, "token");
+        OfferDetailDTO result = offerService.getByIdDetail(saved.getId(), "token");
+        assertThat(result.getRequesterName()).isNull();
     }
 }

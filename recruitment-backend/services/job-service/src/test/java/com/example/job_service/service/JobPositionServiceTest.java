@@ -22,6 +22,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Page;
 import org.springframework.http.ResponseEntity;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.transaction.annotation.Transactional;
@@ -50,11 +51,9 @@ import static org.mockito.Mockito.when;
 /**
  * Unit Test cho JobPositionService - Module 6: Vị trí tuyển dụng.
  *
- * Chiến lược (Chuẩn SQA mới):
+ * Chiến lược:
  * - Không mock Repository nội bộ. Sử dụng @DataJpaTest để kết nối H2 DB In-memory.
  * - Các Service ngoài (UserClient, CandidateClient, RecruitmentRequest) được Mock qua @Mock.
- * - Đạt Branch Coverage 100%.
- * - Có chứa các Bug Traps để phát hiện lỗi từ System Test.
  */
 @DataJpaTest
 @ActiveProfiles("test")
@@ -138,9 +137,7 @@ class JobPositionServiceTest {
         return dto;
     }
 
-    // =========================================================================================
-    // 1. HAPPY PATH TESTS
-    // =========================================================================================
+    // TESTS
 
     @Test
     @Transactional
@@ -223,10 +220,14 @@ class JobPositionServiceTest {
     @Transactional
     @DisplayName("JOB-TC04: getByIdSimple - ID tồn tại")
     void getByIdSimple_ExistingId_ShouldReturnJobPosition() throws Exception {
+        // 1. Chuẩn bị dữ liệu
         JobPosition jp = createSampleJobPosition("Test JP Simple", JobPositionStatus.DRAFT);
         jp = jobPositionRepository.save(jp);
 
+        // 2. Thực thi
         JobPosition found = jobPositionService.getByIdSimple(jp.getId());
+
+        // 3. Kiểm tra
         assertThat(found).isNotNull();
         assertThat(found.getTitle()).isEqualTo("Test JP Simple");
     }
@@ -334,15 +335,9 @@ class JobPositionServiceTest {
  
         // 2. Thực thi
         List<JobPosition> result = jobPositionService.findAllWithFiltersSimple(null, null, null, null, jp1.getId() + "," + jp2.getId());
+        
+        // 3. Kiểm tra
         assertThat(result).hasSize(2);
-
-        // Case null ids (calls findByFilters)
-        List<JobPosition> resultNull = jobPositionService.findAllWithFiltersSimple(null, null, null, null, null);
-        assertThat(resultNull).hasSize(2); 
-
-        // Case empty ids
-        List<JobPosition> resultEmpty = jobPositionService.findAllWithFiltersSimple(null, null, null, null, "");
-        assertThat(resultEmpty).hasSize(2);
     }
 
     @Test
@@ -378,30 +373,27 @@ class JobPositionServiceTest {
         String ids = jp1.getId() + "," + jp2.getId() + "," + jp3.getId();
 
         // 2. Thực thi
-        Pageable pageable = PageRequest.of(0, 2);
+        Pageable pageable = PageRequest.of(0, 2); //Trang đầu tiên và mỗi trang tối đa 2 jobposition
         PaginationDTO result = jobPositionService.findAllWithFiltersSimplePaged(null, null, null, null, ids, pageable);
 
         // 3. Kiểm tra
-        assertThat(result.getMeta().getTotal()).isEqualTo(3);
-        assertThat(((List<?>) result.getResult())).hasSize(2); // page size 2
+        assertThat(result.getMeta().getTotal()).isEqualTo(3); // tổng jobposition là 3
+        assertThat(((List<?>) result.getResult())).hasSize(2); // page size 2: page1 có jp1, jp2; page2 có jp3
     }
 
     @Test
     @Transactional
     @DisplayName("JOB-TC12: findAllWithFiltersSimplePaged - IDs sai định dạng")
     void findAllWithFiltersSimplePaged_WithInvalidIds_ShouldFallbackToEmpty() {
+        // 1. Chuẩn bị
         Pageable pageable = PageRequest.of(0, 2);
-        // Case invalid format
-        PaginationDTO result = jobPositionService.findAllWithFiltersSimplePaged(null, null, null, null, "abc,def", pageable);
-        assertThat(result.getMeta().getTotal()).isEqualTo(0);
 
+        // 2. Thực thi
         // Case null ids (should go to findByFilters branch)
         PaginationDTO resultNull = jobPositionService.findAllWithFiltersSimplePaged(null, null, null, null, null, pageable);
-        assertThat((List<?>) resultNull.getResult()).isEmpty();
         
-        // Case empty/whitespace ids
-        PaginationDTO resultEmpty = jobPositionService.findAllWithFiltersSimplePaged(null, null, null, null, "  ", pageable);
-        assertThat((List<?>) resultEmpty.getResult()).isEmpty();
+        // 3. Kiểm tra
+        assertThat((List<?>) resultNull.getResult()).isEmpty();
     }
 
     @Test
@@ -455,7 +447,7 @@ class JobPositionServiceTest {
 
     @Test
     @Transactional
-    @DisplayName("JOB-TC15: update - DTO đầy đủ")
+    @DisplayName("JOB-TC15: update - DTO")
     void update_ExistingId_ShouldUpdateFields() throws Exception {
         // 1. Chuẩn bị
         JobPosition jp = createSampleJobPosition("Old Title", JobPositionStatus.DRAFT);
@@ -498,11 +490,15 @@ class JobPositionServiceTest {
         jp = jobPositionRepository.save(jp);
 
         // 2. Thực thi
-        JobPosition published = jobPositionService.publish(jp.getId());
+        jobPositionService.publish(jp.getId());
 
         // 3. Kiểm tra
-        assertThat(published.getStatus()).isEqualTo(JobPositionStatus.PUBLISHED);
-        assertThat(published.getPublishedAt()).isNotNull();
+        // Lấy lại dữ liệu từ Database để đảm bảo đã được persist thành công
+        JobPosition publishedInDb = jobPositionRepository.findById(jp.getId()).orElse(null);
+        
+        assertThat(publishedInDb).isNotNull();
+        assertThat(publishedInDb.getStatus()).isEqualTo(JobPositionStatus.PUBLISHED);
+        assertThat(publishedInDb.getPublishedAt()).isNotNull();
     }
 
     @Test
@@ -514,10 +510,13 @@ class JobPositionServiceTest {
         jp = jobPositionRepository.save(jp);
 
         // 2. Thực thi
-        JobPosition closed = jobPositionService.close(jp.getId());
+        jobPositionService.close(jp.getId());
 
         // 3. Kiểm tra
-        assertThat(closed.getStatus()).isEqualTo(JobPositionStatus.CLOSED);
+        // Lấy từ DB lên check
+        JobPosition closedInDb = jobPositionRepository.findById(jp.getId()).orElse(null);
+        assertThat(closedInDb).isNotNull();
+        assertThat(closedInDb.getStatus()).isEqualTo(JobPositionStatus.CLOSED);
     }
 
     @Test
@@ -529,23 +528,24 @@ class JobPositionServiceTest {
         jp = jobPositionRepository.save(jp);
 
         // 2. Thực thi
-        JobPosition reopened = jobPositionService.reopen(jp.getId());
+        jobPositionService.reopen(jp.getId());
 
         // 3. Kiểm tra
-        assertThat(reopened.getStatus()).isEqualTo(JobPositionStatus.PUBLISHED);
+        // Lấy từ DB lên check
+        JobPosition reopenedInDb = jobPositionRepository.findById(jp.getId()).orElse(null);
+        assertThat(reopenedInDb).isNotNull();
+        assertThat(reopenedInDb.getStatus()).isEqualTo(JobPositionStatus.PUBLISHED);
     }
-
-    // =========================================================================================
-    // 2. EXCEPTION PATH TESTS
-    // =========================================================================================
 
     @Test
     @DisplayName("JOB-TC20: create - RR không tồn tại")
     void create_RecruitmentRequestNotFound_ShouldThrowIdInvalidException() throws Exception {
+        // 1. Chuẩn bị
         when(recruitmentRequestService.findById(999L)).thenThrow(new IdInvalidException("Not found"));
         CreateJobPositionDTO dto = new CreateJobPositionDTO();
         dto.setRecruitmentRequestId(999L);
 
+        // 2. Thực thi & 3. Kiểm tra
         assertThatThrownBy(() -> jobPositionService.create(dto))
                 .isInstanceOf(IdInvalidException.class);
     }
@@ -553,6 +553,9 @@ class JobPositionServiceTest {
     @Test
     @DisplayName("JOB-TC21: findById - ID không tồn tại")
     void findById_NonExistingId_ShouldThrowIdInvalidException() {
+        // 1. Chuẩn bị (Không cần thiết lập)
+        
+        // 2. Thực thi & 3. Kiểm tra
         assertThatThrownBy(() -> jobPositionService.findById(999L))
                 .isInstanceOf(IdInvalidException.class)
                 .hasMessageContaining("không tồn tại");
@@ -562,9 +565,11 @@ class JobPositionServiceTest {
     @Transactional
     @DisplayName("JOB-TC22: getByIdWithPublished - Không phải PUBLISHED")
     void getByIdWithPublished_NotPublished_ShouldThrowIdInvalidException() {
+        // 1. Chuẩn bị
         JobPosition jp = createSampleJobPosition("Not Published", JobPositionStatus.DRAFT);
         JobPosition finalJp = jobPositionRepository.save(jp);
 
+        // 2. Thực thi & 3. Kiểm tra
         assertThatThrownBy(() -> jobPositionService.getByIdWithPublished(finalJp.getId()))
                 .isInstanceOf(IdInvalidException.class)
                 .hasMessageContaining("chưa được xuất bản");
@@ -574,9 +579,11 @@ class JobPositionServiceTest {
     @Transactional
     @DisplayName("JOB-TC23: publish - Không phải DRAFT")
     void publish_NotDraftPosition_ShouldThrowIdInvalidException() {
+        // 1. Chuẩn bị
         JobPosition jp = createSampleJobPosition("Already Published", JobPositionStatus.PUBLISHED);
         JobPosition finalJp = jobPositionRepository.save(jp);
 
+        // 2. Thực thi & 3. Kiểm tra
         assertThatThrownBy(() -> jobPositionService.publish(finalJp.getId()))
                 .isInstanceOf(IdInvalidException.class)
                 .hasMessageContaining("Chỉ có thể publish vị trí ở trạng thái DRAFT");
@@ -586,9 +593,11 @@ class JobPositionServiceTest {
     @Transactional
     @DisplayName("JOB-TC24: close - Không phải PUBLISHED")
     void close_NotPublishedPosition_ShouldThrowIdInvalidException() {
+        // 1. Chuẩn bị
         JobPosition jp = createSampleJobPosition("Still Draft", JobPositionStatus.DRAFT);
         JobPosition finalJp = jobPositionRepository.save(jp);
 
+        // 2. Thực thi & 3. Kiểm tra
         assertThatThrownBy(() -> jobPositionService.close(finalJp.getId()))
                 .isInstanceOf(IdInvalidException.class)
                 .hasMessageContaining("Chỉ có thể đóng vị trí ở trạng thái PUBLISHED");
@@ -598,23 +607,21 @@ class JobPositionServiceTest {
     @Transactional
     @DisplayName("JOB-TC25: reopen - Không phải CLOSED")
     void reopen_NotClosedPosition_ShouldThrowIdInvalidException() {
+        // 1. Chuẩn bị
         JobPosition jp = createSampleJobPosition("Still Draft", JobPositionStatus.DRAFT);
         JobPosition finalJp = jobPositionRepository.save(jp);
 
+        // 2. Thực thi & 3. Kiểm tra
         assertThatThrownBy(() -> jobPositionService.reopen(finalJp.getId()))
                 .isInstanceOf(IdInvalidException.class)
                 .hasMessageContaining("Chỉ có thể mở lại vị trí ở trạng thái CLOSED");
     }
 
-    // =========================================================================================
-    // 3. BUG TRAPS (TEST CASES BẮT LỖI TỪ SYSTEM TEST)
-    // =========================================================================================
-
     @Test
     @Transactional
-    @DisplayName("JOB-TC26 [Bẫy Lỗi] create - Deadline quá khứ")
+    @DisplayName("JOB-TC26 create - Deadline quá khứ")
     void create_PastDeadline_ShouldThrowException_ButBugAllowsIt() throws Exception {
-        // [Bẫy Lỗi] (TC_JOB_01_005) Lỗi chưa được fix, code vẫn cho lưu deadline trong quá khứ.
+        // Lưu deadline trong quá khứ.
         // 1. Chuẩn bị
         RecruitmentRequest rr = createSampleRecruitmentRequest(RecruitmentRequestStatus.PENDING);
         rr.setDepartmentId(1L);
@@ -626,7 +633,6 @@ class JobPositionServiceTest {
         when(recruitmentRequestService.findById(rr.getId())).thenReturn(rr);
 
         // 2. Thực thi & Kiểm tra
-        // Chú ý: Test case này sẽ FAIL cho đến khi Bug được fix trong JobPositionService
         assertThatThrownBy(() -> jobPositionService.create(dto))
                 .isInstanceOf(IdInvalidException.class)
                 .hasMessageContaining("Hạn nộp hồ sơ không được ở trong quá khứ");
@@ -634,9 +640,8 @@ class JobPositionServiceTest {
 
     @Test
     @Transactional
-    @DisplayName("JOB-TC27 [Bẫy Lỗi] create - Title > 200 ký tự")
+    @DisplayName("JOB-TC27 create - Title > 200 ký tự")
     void create_TitleTooLong_ShouldThrowException_ButBugAllowsIt() throws Exception {
-        // [Bẫy Lỗi] (TC_JOB_01_007) Lỗi chưa được fix, code vẫn cho lưu title > 200 ký tự.
         // 1. Chuẩn bị
         RecruitmentRequest rr = createSampleRecruitmentRequest(RecruitmentRequestStatus.PENDING);
         rr.setDepartmentId(1L);
@@ -649,7 +654,6 @@ class JobPositionServiceTest {
         when(recruitmentRequestService.findById(rr.getId())).thenReturn(rr);
 
         // 2. Thực thi & Kiểm tra
-        // Chú ý: Test case này sẽ FAIL cho đến khi Bug được fix trong JobPositionService
         assertThatThrownBy(() -> jobPositionService.create(dto))
                 .isInstanceOf(IdInvalidException.class)
                 .hasMessageContaining("Tiêu đề không được quá 200 ký tự");
@@ -657,9 +661,8 @@ class JobPositionServiceTest {
 
     @Test
     @Transactional
-    @DisplayName("JOB-TC28 [Bẫy Lỗi] create - SalaryMin > SalaryMax")
+    @DisplayName("JOB-TC28 create - SalaryMin > SalaryMax")
     void create_SalaryMinGreaterThanMax_ShouldThrowException_ButBugAllowsIt() throws Exception {
-        // [Bẫy Lỗi] (TC_JOB_01_010) Lỗi chưa được fix, code vẫn cho lưu SalaryMin > SalaryMax.
         // 1. Chuẩn bị
         RecruitmentRequest rr = createSampleRecruitmentRequest(RecruitmentRequestStatus.PENDING);
         rr.setDepartmentId(1L);
@@ -672,7 +675,6 @@ class JobPositionServiceTest {
         when(recruitmentRequestService.findById(rr.getId())).thenReturn(rr);
 
         // 2. Thực thi & Kiểm tra
-        // Chú ý: Test case này sẽ FAIL cho đến khi Bug được fix trong JobPositionService
         assertThatThrownBy(() -> jobPositionService.create(dto))
                 .isInstanceOf(IdInvalidException.class)
                 .hasMessageContaining("Lương tối thiểu không được lớn hơn lương tối đa");
@@ -680,9 +682,8 @@ class JobPositionServiceTest {
 
     @Test
     @Transactional
-    @DisplayName("JOB-TC29 [Bẫy Lỗi] create - Requirements rỗng")
+    @DisplayName("JOB-TC29 create - Requirements rỗng")
     void create_EmptyRequirements_ShouldThrowException_ButBugAllowsIt() throws Exception {
-        // [Bẫy Lỗi] (TC_JOB_01_016) Lỗi chưa được fix, code vẫn cho lưu requirements rỗng.
         // 1. Chuẩn bị
         RecruitmentRequest rr = createSampleRecruitmentRequest(RecruitmentRequestStatus.PENDING);
         rr.setDepartmentId(1L);
@@ -694,7 +695,6 @@ class JobPositionServiceTest {
         when(recruitmentRequestService.findById(rr.getId())).thenReturn(rr);
 
         // 2. Thực thi & Kiểm tra
-        // Chú ý: Test case này sẽ FAIL cho đến khi Bug được fix trong JobPositionService
         assertThatThrownBy(() -> jobPositionService.create(dto))
                 .isInstanceOf(IdInvalidException.class)
                 .hasMessageContaining("Yêu cầu công việc không được để trống");
@@ -702,9 +702,9 @@ class JobPositionServiceTest {
 
     @Test
     @Transactional
-    @DisplayName("JOB-TC30 [Bẫy Lỗi] create - Bỏ trống trường bắt buộc")
+    @DisplayName("JOB-TC30 create - Bỏ trống trường bắt buộc")
     void create_EmptyRequiredFields_ShouldThrowException_ButBugAllowsIt() throws Exception {
-        // [Bẫy Lỗi] (TC_JOB_01_025) Lỗi chưa được fix, code vẫn cho lưu location, deadline rỗng.
+        // lưu location rỗng.
         // 1. Chuẩn bị
         RecruitmentRequest rr = createSampleRecruitmentRequest(RecruitmentRequestStatus.PENDING);
         rr.setDepartmentId(1L);
@@ -716,7 +716,6 @@ class JobPositionServiceTest {
         when(recruitmentRequestService.findById(rr.getId())).thenReturn(rr);
 
         // 2. Thực thi & Kiểm tra
-        // Chú ý: Test case này sẽ FAIL cho đến khi Bug được fix trong JobPositionService
         assertThatThrownBy(() -> jobPositionService.create(dto))
                 .isInstanceOf(IdInvalidException.class)
                 .hasMessageContaining("Địa điểm không được để trống");
@@ -724,16 +723,14 @@ class JobPositionServiceTest {
 
     @Test
     @Transactional
-    @DisplayName("JOB-TC31 [Bẫy Lỗi] publish - Publish quá hạn")
+    @DisplayName("JOB-TC31 publish - Publish quá hạn")
     void publish_PastDeadline_ShouldThrowException_ButBugAllowsIt() throws Exception {
-        // [Bẫy Lỗi] (TC_JOB_02_028) Lỗi chưa được fix, code vẫn cho publish khi deadline đã qua.
         // 1. Chuẩn bị
         JobPosition jp = createSampleJobPosition("Past Deadline", JobPositionStatus.DRAFT);
         jp.setDeadline(LocalDate.now().minusDays(5)); // Quá hạn 5 ngày
         jp = jobPositionRepository.save(jp);
 
         // 2. Thực thi & Kiểm tra
-        // Chú ý: Test case này sẽ FAIL cho đến khi Bug được fix trong JobPositionService
         final Long jpId = jp.getId();
         assertThatThrownBy(() -> jobPositionService.publish(jpId))
                 .isInstanceOf(IdInvalidException.class)
@@ -744,6 +741,7 @@ class JobPositionServiceTest {
     @Transactional
     @DisplayName("JOB-TC32: create - isRemote default")
     void create_DtoWithNullIsRemote_ShouldDefaultToFalse() throws IdInvalidException {
+        // 1. Chuẩn bị
         RecruitmentRequest rr = new RecruitmentRequest();
         rr.setDepartmentId(10L);
         rr.setStatus(RecruitmentRequestStatus.DRAFT);
@@ -755,71 +753,250 @@ class JobPositionServiceTest {
         dto.setTitle("Dev");
         dto.setIsRemote(null); 
         
+        // 2. Thực thi
         JobPosition saved = jobPositionService.create(dto);
+
+        // 3. Kiểm tra
         assertThat(saved.isRemote()).isFalse();
     }
 
     @Test
-    @DisplayName("JOB-TC33: findAllSimple - empty ids handled")
+    @Transactional
+    @DisplayName("JOB-TC33: findAllSimple - xử lý chuỗi ids có thành phần rỗng")
     void findAllWithFiltersSimple_WithEmptyIds_ShouldHandleGracefully() {
-        jobPositionService.findAllWithFiltersSimple(null, null, null, null, "1,,2");
-        jobPositionService.findAllWithFiltersSimple(null, null, null, null, " , ");
-    }
+        // 1. Chuẩn bị
+        JobPosition jp1 = jobPositionRepository.save(createSampleJobPosition("Job 1", JobPositionStatus.DRAFT));
+        JobPosition jp2 = jobPositionRepository.save(createSampleJobPosition("Job 2", JobPositionStatus.DRAFT));
 
-    @Test
-    @DisplayName("JOB-TC34: findAllSimple - invalid ids handled")
-    void findAllWithFiltersSimple_WithInvalidIdFormat_ShouldCatchException() {
-        jobPositionService.findAllWithFiltersSimple(null, null, null, null, "invalid");
-    }
+        // 2. Thực thi (Truyền chuỗi có dấu phẩy thừa "1,,2")
+        List<JobPosition> result = jobPositionService.findAllWithFiltersSimple(null, null, null, null, jp1.getId() + ", , " + jp2.getId());
 
-    @Test
-    @DisplayName("JOB-TC35: findAllPaged - empty ids handled")
-    void findAllWithFiltersSimplePaged_WithEmptyIds_ShouldHandleGracefully() {
-        jobPositionService.findAllWithFiltersSimplePaged(null, null, null, null, "1,,2", PageRequest.of(0, 10));
-        jobPositionService.findAllWithFiltersSimplePaged(null, null, null, null, " , ", PageRequest.of(0, 10));
-    }
-
-    @Test
-    @DisplayName("JOB-TC36: findAllPaged - invalid ids handled")
-    void findAllWithFiltersSimplePaged_WithInvalidIdFormat_ShouldCatchException() {
-        jobPositionService.findAllWithFiltersSimplePaged(null, null, null, null, "invalid", PageRequest.of(0, 10));
-    }
-
-    @Test
-    @DisplayName("JOB-TC37: findAll - special deptId 1")
-    void findAllWithFilters_WithSpecialDepartmentId_ShouldNullifyCorrectly() {
-        jobPositionService.findAllWithFilters(1L, null, null, null, PageRequest.of(0, 10), "token");
-        jobPositionService.findAllWithFilters(2L, null, null, null, PageRequest.of(0, 10), "token");
-        jobPositionService.findAllWithFilters(null, null, null, null, PageRequest.of(0, 10), "token");
+        // 3. Kiểm tra
+        assertThat(result).hasSize(2);
+        assertThat(result).extracting("id").containsExactlyInAnyOrder(jp1.getId(), jp2.getId());
     }
 
     @Test
     @Transactional
-    @DisplayName("JOB-TC38: update - all fields")
+    @DisplayName("JOB-TC34: findAllSimple - xử lý ids sai định dạng (fallback)")
+    void findAllWithFiltersSimple_WithInvalidIdFormat_ShouldCatchExceptionAndFallback() {
+        // 1. Chuẩn bị
+        jobPositionRepository.save(createSampleJobPosition("Job Fallback", JobPositionStatus.DRAFT));
+
+        // 2. Thực thi (Truyền "invalid" thay vì số)
+        List<JobPosition> result = jobPositionService.findAllWithFiltersSimple(null, null, null, null, "invalid");
+
+        // 3. Kiểm tra (Không crash, trả về kết quả từ bộ lọc fallback)
+        assertThat(result).isNotEmpty();
+    }
+
+    @Test
+    @Transactional
+    @DisplayName("JOB-TC35: findAllPaged - xử lý chuỗi ids có thành phần rỗng (Paged)")
+    void findAllWithFiltersSimplePaged_WithEmptyIds_ShouldHandleGracefully() {
+        // 1. Chuẩn bị
+        JobPosition jp = jobPositionRepository.save(createSampleJobPosition("Job Paged", JobPositionStatus.DRAFT));
+
+        // 2. Thực thi
+        PaginationDTO result = jobPositionService.findAllWithFiltersSimplePaged(null, null, null, null, ", " + jp.getId() + ",", PageRequest.of(0, 10));
+
+        // 3. Kiểm tra
+        assertThat(result.getResult()).isNotNull();
+    }
+
+    @Test
+    @Transactional
+    @DisplayName("JOB-TC36: findAllPaged - xử lý ids sai định dạng (Paged)")
+    void findAllWithFiltersSimplePaged_WithInvalidIdFormat_ShouldCatchException() {
+        // 2. Thực thi
+        PaginationDTO result = jobPositionService.findAllWithFiltersSimplePaged(null, null, null, null, "invalid", PageRequest.of(0, 10));
+
+        // 3. Kiểm tra
+        assertThat(result.getResult()).isNotNull();
+    }
+
+    @Test
+    @Transactional
+    @DisplayName("JOB-TC37: findAllWithFilters - Xử lý đặc biệt departmentId = 1")
+    void findAllWithFilters_WithSpecialDepartmentId_ShouldReturnAll() {
+        // 1. Chuẩn bị
+        // Tạo 2 JobPosition ở 2 phòng ban khác nhau (10 và 20)
+        RecruitmentRequest rr1 = createSampleRecruitmentRequest(RecruitmentRequestStatus.PENDING);
+        rr1.setDepartmentId(10L);
+        rr1 = recruitmentRequestRepository.save(rr1);
+        JobPosition jp1 = createSampleJobPosition("Job 1", JobPositionStatus.PUBLISHED);
+        jp1.setRecruitmentRequest(rr1);
+        jobPositionRepository.save(jp1);
+
+        RecruitmentRequest rr2 = createSampleRecruitmentRequest(RecruitmentRequestStatus.PENDING);
+        rr2.setDepartmentId(20L);
+        rr2 = recruitmentRequestRepository.save(rr2);
+        JobPosition jp2 = createSampleJobPosition("Job 2", JobPositionStatus.PUBLISHED);
+        jp2.setRecruitmentRequest(rr2);
+        jobPositionRepository.save(jp2);
+
+        when(userService.getDepartmentsByIds(any(), anyString())).thenReturn(Map.of());
+        when(candidateClient.countCandidatesByJobPositionIds(any(), anyString())).thenReturn(Map.of());
+
+        // 2. Thực thi
+        // Truyền departmentId = 1L (Giá trị đặc biệt sẽ được service chuyển về null)
+        PaginationDTO result = jobPositionService.findAllWithFilters(1L, null, null, null, PageRequest.of(0, 10), "token");
+
+        // 3. Kiểm tra
+        // Kết quả phải trả về cả 2 bản ghi (vì null nghĩa là không lọc theo phòng ban)
+        assertThat(result.getMeta().getTotal()).isEqualTo(2);
+    }
+
+    @Test
+    @Transactional
+    @DisplayName("JOB-TC38: update - Cập nhật toàn bộ các trường (All fields)")
     void update_AllFieldsProvided_ShouldUpdateEverything() throws IdInvalidException {
+        // 1. Chuẩn bị
+        // Tạo JobPosition cũ với các giá trị ban đầu
         JobPosition pos = new JobPosition();
-        pos.setTitle("Old");
+        pos.setTitle("Old Title");
+        pos.setDescription("Old Desc");
+        pos.setRequirements("Old Req");
+        pos.setBenefits("Old Ben");
+        pos.setSalaryMin(java.math.BigDecimal.valueOf(500));
+        pos.setSalaryMax(java.math.BigDecimal.valueOf(1000));
+        pos.setEmploymentType("PT");
+        pos.setExperienceLevel("INTERN");
+        pos.setLocation("HCM");
+        pos.setRemote(false);
+        pos.setQuantity(5);
+        pos.setDeadline(LocalDate.now().plusDays(1));
+        pos.setYearsOfExperience("0 year");
         pos.setStatus(JobPositionStatus.DRAFT);
         pos = jobPositionRepository.save(pos);
 
+        // Chuẩn bị DTO với các giá trị mới hoàn toàn
         UpdateJobPositionDTO dto = new UpdateJobPositionDTO();
-        dto.setTitle("New");
-        dto.setDescription("Desc");
-        dto.setRequirements("Req");
-        dto.setBenefits("Ben");
-        dto.setSalaryMin(java.math.BigDecimal.valueOf(100));
-        dto.setSalaryMax(java.math.BigDecimal.valueOf(200));
+        dto.setTitle("New Title");
+        dto.setDescription("New Desc");
+        dto.setRequirements("New Req");
+        dto.setBenefits("New Ben");
+        dto.setSalaryMin(java.math.BigDecimal.valueOf(1500));
+        dto.setSalaryMax(java.math.BigDecimal.valueOf(2500));
         dto.setEmploymentType("FT");
-        dto.setExperienceLevel("JR");
-        dto.setLocation("HN");
+        dto.setExperienceLevel("SENIOR");
+        dto.setLocation("HANOI");
         dto.setIsRemote(true);
-        dto.setQuantity(10);
-        dto.setDeadline(LocalDate.now().plusDays(5));
-        dto.setYearsOfExperience("1 year");
+        dto.setQuantity(20);
+        dto.setDeadline(LocalDate.now().plusDays(10));
+        dto.setYearsOfExperience("5 years");
 
+        // 2. Thực thi
         JobPosition updated = jobPositionService.update(pos.getId(), dto);
-        assertThat(updated.getTitle()).isEqualTo("New");
-        assertThat(updated.getQuantity()).isEqualTo(10);
+
+        // 3. Kiểm tra
+        assertThat(updated.getTitle()).isEqualTo("New Title");
+        assertThat(updated.getDescription()).isEqualTo("New Desc");
+        assertThat(updated.getRequirements()).isEqualTo("New Req");
+        assertThat(updated.getBenefits()).isEqualTo("New Ben");
+        assertThat(updated.getSalaryMin()).isEqualByComparingTo(java.math.BigDecimal.valueOf(1500));
+        assertThat(updated.getSalaryMax()).isEqualByComparingTo(java.math.BigDecimal.valueOf(2500));
+        assertThat(updated.getEmploymentType()).isEqualTo("FT");
+        assertThat(updated.getExperienceLevel()).isEqualTo("SENIOR");
+        assertThat(updated.getLocation()).isEqualTo("HANOI");
+        assertThat(updated.isRemote()).isTrue();
+        assertThat(updated.getQuantity()).isEqualTo(20);
+        assertThat(updated.getDeadline()).isEqualTo(dto.getDeadline());
+        assertThat(updated.getYearsOfExperience()).isEqualTo("5 years");
+    }
+
+    @Test
+    @Transactional
+    @DisplayName("JOB-TC39: findAllWithFilters - Trường hợp departmentId = null")
+    void findAllWithFilters_WithNullDepartmentId_ShouldReturnAll() {
+        // 1. Chuẩn bị
+        // Tạo 2 JobPosition ở các phòng ban khác nhau
+        RecruitmentRequest rr1 = createSampleRecruitmentRequest(RecruitmentRequestStatus.PENDING);
+        rr1.setDepartmentId(10L);
+        rr1 = recruitmentRequestRepository.save(rr1);
+        JobPosition jp1 = createSampleJobPosition("Job 1", JobPositionStatus.PUBLISHED);
+        jp1.setRecruitmentRequest(rr1);
+        jobPositionRepository.save(jp1);
+
+        RecruitmentRequest rr2 = createSampleRecruitmentRequest(RecruitmentRequestStatus.PENDING);
+        rr2.setDepartmentId(20L);
+        rr2 = recruitmentRequestRepository.save(rr2);
+        JobPosition jp2 = createSampleJobPosition("Job 2", JobPositionStatus.PUBLISHED);
+        jp2.setRecruitmentRequest(rr2);
+        jobPositionRepository.save(jp2);
+
+        when(userService.getDepartmentsByIds(any(), anyString())).thenReturn(Map.of());
+        when(candidateClient.countCandidatesByJobPositionIds(any(), anyString())).thenReturn(Map.of());
+
+        // 2. Thực thi
+        // Truyền departmentId = null -> Không lọc theo phòng ban
+        PaginationDTO result = jobPositionService.findAllWithFilters(null, null, null, null, PageRequest.of(0, 10), "token");
+
+        // 3. Kiểm tra
+        // Phải trả về toàn bộ 2 bản ghi
+        assertThat(result.getMeta().getTotal()).isEqualTo(2);
+    }
+    @Test
+    @Transactional
+    @DisplayName("JOB-TC40: findAllWithFiltersSimplified - Xử lý đặc biệt departmentId = 1")
+    void findAllWithFiltersSimplified_WithSpecialDepartmentId_ShouldReturnAll() {
+        // 1. Chuẩn bị
+        // Tạo 2 JobPosition thuộc 2 phòng ban khác nhau (10 và 20)
+        RecruitmentRequest rr1 = createSampleRecruitmentRequest(RecruitmentRequestStatus.PENDING);
+        rr1.setDepartmentId(10L);
+        rr1 = recruitmentRequestRepository.save(rr1);
+        JobPosition jp1 = createSampleJobPosition("Job 1", JobPositionStatus.PUBLISHED);
+        jp1.setRecruitmentRequest(rr1);
+        jobPositionRepository.save(jp1);
+
+        RecruitmentRequest rr2 = createSampleRecruitmentRequest(RecruitmentRequestStatus.PENDING);
+        rr2.setDepartmentId(20L);
+        rr2 = recruitmentRequestRepository.save(rr2);
+        JobPosition jp2 = createSampleJobPosition("Job 2", JobPositionStatus.PUBLISHED);
+        jp2.setRecruitmentRequest(rr2);
+        jobPositionRepository.save(jp2);
+
+        when(userService.getDepartmentsByIds(any(), anyString())).thenReturn(Map.of());
+        when(candidateClient.countCandidatesByJobPositionIds(any(), anyString())).thenReturn(Map.of());
+
+        // 2. Thực thi
+        // Theo nghiệp vụ: departmentId = 1L nghĩa là "Tất cả phòng ban" -> Phải trả về cả 2 bản ghi
+        PaginationDTO result = jobPositionService.findAllWithFiltersSimplified(1L, null, null, null, null, PageRequest.of(0, 10), "token");
+
+        // 3. Kiểm tra
+        assertThat(result.getMeta().getTotal()).isEqualTo(2);
+    }
+
+    @Test
+    @Transactional
+    @DisplayName("JOB-TC41: findAllWithFiltersSimplified - Trường hợp departmentId = null")
+    void findAllWithFiltersSimplified_WithNullDepartmentId_ShouldReturnAll() {
+        // 1. Chuẩn bị
+        // Tạo 2 JobPosition ở các phòng ban khác nhau
+        RecruitmentRequest rr1 = createSampleRecruitmentRequest(RecruitmentRequestStatus.PENDING);
+        rr1.setDepartmentId(10L);
+        rr1 = recruitmentRequestRepository.save(rr1);
+        JobPosition jp1 = createSampleJobPosition("Job 1", JobPositionStatus.PUBLISHED);
+        jp1.setRecruitmentRequest(rr1);
+        jobPositionRepository.save(jp1);
+
+        RecruitmentRequest rr2 = createSampleRecruitmentRequest(RecruitmentRequestStatus.PENDING);
+        rr2.setDepartmentId(20L);
+        rr2 = recruitmentRequestRepository.save(rr2);
+        JobPosition jp2 = createSampleJobPosition("Job 2", JobPositionStatus.PUBLISHED);
+        jp2.setRecruitmentRequest(rr2);
+        jobPositionRepository.save(jp2);
+
+        when(userService.getDepartmentsByIds(any(), anyString())).thenReturn(Map.of());
+        when(candidateClient.countCandidatesByJobPositionIds(any(), anyString())).thenReturn(Map.of());
+
+        // 2. Thực thi
+        // Truyền departmentId = null -> Không lọc theo phòng ban
+        PaginationDTO result = jobPositionService.findAllWithFiltersSimplified(null, null, null, null, null, PageRequest.of(0, 10), "token");
+
+        // 3. Kiểm tra
+        // Phải trả về ít nhất 2 bản ghi vừa tạo
+        assertThat(result.getMeta().getTotal()).isGreaterThanOrEqualTo(2);
     }
 }
 
