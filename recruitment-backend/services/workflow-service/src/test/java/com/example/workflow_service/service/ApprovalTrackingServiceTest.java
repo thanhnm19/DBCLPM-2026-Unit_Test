@@ -269,6 +269,11 @@ class ApprovalTrackingServiceTest {
      * Workflow không tìm thấy → CustomException
      *
      * Bug bị bắt: Không kiểm tra workflow tồn tại → NullPointerException
+     * 
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu (tracking, workflow, step) được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Xác minh service ném ra CustomException với thông báo lỗi phù hợp.
+     * - Check DB: Không kiểm tra DB vì tác vụ thất bại từ bước validation (đảm bảo DB không rác).
      */
     @Test
     @DisplayName("[AT-TC01] initializeApproval() - workflow không tìm thấy → CustomException")
@@ -290,6 +295,11 @@ class ApprovalTrackingServiceTest {
      * Workflow tồn tại nhưng không có step 1 → CustomException
      *
      * Bug bị bắt: Không kiểm tra firstStep → NullPointerException
+     * 
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu (tracking, workflow, step) được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Xác minh service ném ra CustomException với thông báo lỗi phù hợp.
+     * - Check DB: Không kiểm tra DB vì tác vụ thất bại từ bước validation (đảm bảo DB không rác).
      */
     @Test
     @DisplayName("[AT-TC02] initializeApproval() - workflow không có step 1 → CustomException")
@@ -321,6 +331,11 @@ class ApprovalTrackingServiceTest {
      *
          * Mục tiêu branch: cover nhánh false của if (tracking.getActionUserId() != null)
          * trong initializeApproval().
+         * 
+         * CHI TIẾT TEST CASE:
+         * - Rollback: Toàn bộ dữ liệu (tracking, workflow, step) được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+         * - Check: Kiểm tra tính chính xác của dữ liệu trả về hoặc trạng thái assert.
+         * - Check DB: So sánh tổng số lượng bản ghi tracking trong DB trước và sau khi thực thi qua .count() & Truy vấn DB bằng findById() để assert các trường thay đổi như status, actionType, notes, actionUserId.
      */
     @Test
         @DisplayName("[AT-TC03] initializeApproval() - assignedUserId=null → tracking vẫn được tạo và actionUserId=null")
@@ -342,9 +357,12 @@ class ApprovalTrackingServiceTest {
 
         long countBefore = approvalTrackingRepository.count();
 
+        // Act
         ApprovalTrackingResponseDTO result = approvalTrackingService.initializeApproval(dto);
 
+        // Assert
         assertNotNull(result, "BUG: initializeApproval() trả về null dù tracking vẫn được tạo");
+        // Check DB
         assertEquals(countBefore + 1, approvalTrackingRepository.count(),
                 "BUG: Tracking không được tạo khi actionUserId=null");
 
@@ -358,6 +376,11 @@ class ApprovalTrackingServiceTest {
      * Happy path: workflow, step, assignedUserId, actionUserId tất cả hợp lệ → DB lưu tracking
      *
      * Bug bị bắt: actionUserId không được lưu vào DB
+     * 
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu (tracking, workflow, step) được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Kiểm tra tính chính xác của dữ liệu trả về hoặc trạng thái assert.
+     * - Check DB: So sánh tổng số lượng bản ghi tracking trong DB trước và sau khi thực thi qua .count() & Truy vấn DB bằng findById() để assert các trường thay đổi như status, actionType, notes, actionUserId.
      */
     @Test
     @DisplayName("[AT-TC04] initializeApproval() - happy path → DB lưu tracking với actionUserId")
@@ -384,6 +407,7 @@ class ApprovalTrackingServiceTest {
         ApprovalTrackingResponseDTO result = approvalTrackingService.initializeApproval(dto);
 
         // Assert: tracking được tạo
+        // Check DB
         assertEquals(countBefore + 1, approvalTrackingRepository.count(),
                 "BUG: Tracking không được tạo");
 
@@ -403,6 +427,11 @@ class ApprovalTrackingServiceTest {
      * Notification được gửi đi
      *
      * Bug bị bắt: Không gọi notifyNextApprovers
+     * 
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu (tracking, workflow, step) được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Đảm bảo hệ thống gọi notificationProducer để gửi thông báo/email.
+     * - Check DB: Không tương tác/kiểm tra trực tiếp Repository trong test case này.
      */
     @Test
     @DisplayName("[AT-TC05] initializeApproval() - notifyNextApprovers được gọi")
@@ -437,6 +466,11 @@ class ApprovalTrackingServiceTest {
      * Nhánh [B1]: ID tracking không tồn tại → IdInvalidException
      *
      * Bug bị bắt: Không kiểm tra tồn tại → NullPointerException hoặc trả về null
+     * 
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu (tracking, workflow, step) được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Xác minh service ném ra IdInvalidException do ID không hợp lệ.
+     * - Check DB: Không kiểm tra DB vì tác vụ thất bại từ bước validation (đảm bảo DB không rác).
      */
     @Test
     @DisplayName("[AT-TC06][B1] approve() - ID không tồn tại → IdInvalidException")
@@ -444,6 +478,7 @@ class ApprovalTrackingServiceTest {
         ApproveStepDTO dto = approveDto(true, "ghi chú");
 
         assertThrows(IdInvalidException.class,
+                // Act
                 () -> approvalTrackingService.approve(9999L, dto),
                 "BUG: Không ném IdInvalidException khi ID tracking không tồn tại");
     }
@@ -455,6 +490,11 @@ class ApprovalTrackingServiceTest {
      * Bug bị bắt: Thiếu kiểm tra quyền → cho approve bừa bãi
      *
      * CheckDB: Status vẫn là PENDING sau khi exception
+     * 
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu (tracking, workflow, step) được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Xác minh service ném ra CustomException với thông báo lỗi phù hợp.
+     * - Check DB: Truy vấn DB bằng findById() để assert các trường thay đổi như status, actionType, notes, actionUserId.
      */
     @Test
         @DisplayName("[AT-TC07][B2] approve() - Sai người duyệt → CustomException; status DB vẫn PENDING")
@@ -466,9 +506,11 @@ class ApprovalTrackingServiceTest {
         ApproveStepDTO dto = approveDto(true, "thử phê duyệt không có quyền");
 
         CustomException ex = assertThrows(CustomException.class,
+                // Act
                 () -> approvalTrackingService.approve(pendingTracking.getId(), dto),
                 "BUG: Không kiểm tra quyền phê duyệt → ai cũng approve được");
 
+        // Assert
         assertEquals("Bạn không có quyền phê duyệt bước này", ex.getMessage(),
                 "BUG: Message exception không đúng đặc tả");
 
@@ -484,6 +526,11 @@ class ApprovalTrackingServiceTest {
      * Nhánh [B3]: Status = APPROVED (đã xử lý) → CustomException
      *
      * Bug bị bắt: Cho phép approve lại tracking đã APPROVED → dữ liệu bị ghi đè
+     * 
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu (tracking, workflow, step) được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Xác minh service ném ra CustomException với thông báo lỗi phù hợp.
+     * - Check DB: Không kiểm tra DB vì tác vụ thất bại từ bước validation (đảm bảo DB không rác).
      */
     @Test
     @DisplayName("[AT-TC08][B3] approve() - Status đã APPROVED → CustomException 'Bước này đã được xử lý'")
@@ -492,9 +539,11 @@ class ApprovalTrackingServiceTest {
         approvalTrackingRepository.save(pendingTracking);
 
         CustomException ex = assertThrows(CustomException.class,
+                // Act
                 () -> approvalTrackingService.approve(pendingTracking.getId(), approveDto(true, "x")),
                 "BUG: Cho phép approve lại tracking đã ở trạng thái APPROVED");
 
+        // Assert
         assertEquals("Bước này đã được xử lý", ex.getMessage());
     }
 
@@ -503,6 +552,11 @@ class ApprovalTrackingServiceTest {
      * Nhánh [B4]: Status = REJECTED (đã xử lý) → CustomException
      *
      * Bug bị bắt: Cho phép approve tracking đã REJECTED → đặt lại trạng thái sai
+     * 
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu (tracking, workflow, step) được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Xác minh service ném ra CustomException với thông báo lỗi phù hợp.
+     * - Check DB: Không kiểm tra DB vì tác vụ thất bại từ bước validation (đảm bảo DB không rác).
      */
     @Test
     @DisplayName("[AT-TC09][B4] approve() - Status đã REJECTED → CustomException 'Bước này đã được xử lý'")
@@ -511,9 +565,11 @@ class ApprovalTrackingServiceTest {
         approvalTrackingRepository.save(pendingTracking);
 
         CustomException ex = assertThrows(CustomException.class,
+                // Act
                 () -> approvalTrackingService.approve(pendingTracking.getId(), approveDto(false, "x")),
                 "BUG: Cho phép approve/reject lại tracking đã ở trạng thái REJECTED");
 
+        // Assert
         assertEquals("Bước này đã được xử lý", ex.getMessage());
     }
 
@@ -528,6 +584,11 @@ class ApprovalTrackingServiceTest {
      *   - actionAt null (không ghi nhận thời gian)
      *
      * CheckDB: Truy vấn lại từng trường
+     * 
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu (tracking, workflow, step) được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Kiểm tra tính chính xác của dữ liệu trả về hoặc trạng thái assert.
+     * - Check DB: Truy vấn DB bằng findById() để assert các trường thay đổi như status, actionType, notes, actionUserId.
      */
     @Test
     @DisplayName("[AT-TC10][B5] approve() - approved=true → DB: status=APPROVED, notes, actionUserId, actionAt")
@@ -535,10 +596,12 @@ class ApprovalTrackingServiceTest {
         String notes = "Đồng ý với yêu cầu tuyển dụng vị trí Backend";
         ApproveStepDTO dto = approveDto(true, notes);
 
+        // Act
         approvalTrackingService.approve(pendingTracking.getId(), dto);
 
         // CHECK DB: Truy vấn lại
         ApprovalTracking saved = approvalTrackingRepository.findById(pendingTracking.getId()).orElseThrow();
+        // Assert
         assertAll("BUG: Một hoặc nhiều trường không được cập nhật sau khi approve",
                 () -> assertEquals(ApprovalStatus.APPROVED, saved.getStatus(),
                         "BUG: status không được đổi thành APPROVED"),
@@ -558,6 +621,11 @@ class ApprovalTrackingServiceTest {
      * Bug bị bắt: Nếu code dùng sai điều kiện `if (approved)` → cả 2 nhánh đều set APPROVED
      *
      * CheckDB: Status phải là REJECTED
+     * 
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu (tracking, workflow, step) được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Kiểm tra tính chính xác của dữ liệu trả về hoặc trạng thái assert.
+     * - Check DB: Truy vấn DB bằng findById() để assert các trường thay đổi như status, actionType, notes, actionUserId.
      */
     @Test
     @DisplayName("[AT-TC11][B6] approve() - approved=false → DB: status=REJECTED; không phải APPROVED")
@@ -565,9 +633,12 @@ class ApprovalTrackingServiceTest {
         String rejectReason = "Ngân sách chưa được phê duyệt";
         ApproveStepDTO dto = approveDto(false, rejectReason);
 
+        // Act
         approvalTrackingService.approve(pendingTracking.getId(), dto);
 
+        // Check DB
         ApprovalTracking saved = approvalTrackingRepository.findById(pendingTracking.getId()).orElseThrow();
+        // Assert
         assertAll("BUG: Kết quả reject không đúng",
                 () -> assertEquals(ApprovalStatus.REJECTED, saved.getStatus(),
                         "BUG: status không phải REJECTED - có thể đang set APPROVED cho cả 2 nhánh"),
@@ -588,16 +659,23 @@ class ApprovalTrackingServiceTest {
      *   - Tracking mới không gắn đúng vào step2
      *
      * CheckDB: Đếm tracking + xác minh tracking mới
+     * 
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu (tracking, workflow, step) được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Kiểm tra tính chính xác của dữ liệu trả về hoặc trạng thái assert.
+     * - Check DB: So sánh tổng số lượng bản ghi tracking trong DB trước và sau khi thực thi qua .count() & Truy vấn DB bằng findByRequestId() để xác minh tracking mới được tạo và gán đúng workflow step.
      */
     @Test
     @DisplayName("[AT-TC12][B7] approve() - approved=true + có bước tiếp → tạo tracking PENDING mới cho bước 2")
     void tc12_approve_approved_withNextStep_createsNewPendingTrackingForStep2() {
         long countBefore = approvalTrackingRepository.count();
 
+        // Act
         approvalTrackingService.approve(pendingTracking.getId(), approveDto(true, "OK"));
 
         // CHECK DB: phải có thêm 1 tracking mới
         long countAfter = approvalTrackingRepository.count();
+        // Assert
         assertEquals(countBefore + 1, countAfter,
                 "BUG: Không tạo tracking mới cho bước 2 khi approve bước 1");
 
@@ -619,6 +697,11 @@ class ApprovalTrackingServiceTest {
      * Bug bị bắt: Tạo tracking bừa khi không còn bước tiếp → dữ liệu thừa
      *
      * CheckDB: Tổng tracking không tăng
+     * 
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu (tracking, workflow, step) được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Kiểm tra tính chính xác của dữ liệu trả về hoặc trạng thái assert.
+     * - Check DB: So sánh tổng số lượng bản ghi tracking trong DB trước và sau khi thực thi qua .count().
      */
     @Test
     @DisplayName("[AT-TC13][B8] approve() - approved=true + không có bước tiếp → không tạo tracking mới")
@@ -631,8 +714,10 @@ class ApprovalTrackingServiceTest {
 
         long countBefore = approvalTrackingRepository.count();
 
+        // Act
         approvalTrackingService.approve(t1.getId(), approveDto(true, "Duyệt bước cuối"));
 
+        // Assert
         assertEquals(countBefore, approvalTrackingRepository.count(),
                 "BUG: Tạo thêm tracking dù không còn bước tiếp - workflow chỉ có 1 bước");
     }
@@ -646,12 +731,19 @@ class ApprovalTrackingServiceTest {
      * Nhánh [B9]: ID tồn tại → DTO đủ thông tin
      *
      * Bug bị bắt: Mapping bỏ sót trường requestId, status, approverPositionId
+     * 
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu (tracking, workflow, step) được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Kiểm tra tính chính xác của dữ liệu trả về hoặc trạng thái assert.
+     * - Check DB: Không tương tác/kiểm tra trực tiếp Repository trong test case này.
      */
     @Test
     @DisplayName("[AT-TC14][B9] getById() - ID tồn tại → DTO đầy đủ các trường chính")
     void tc14_getById_existingId_returnsDtoWithAllFields() {
+        // Act
         ApprovalTrackingResponseDTO result = approvalTrackingService.getById(pendingTracking.getId());
 
+        // Assert
         assertAll("BUG: DTO thiếu hoặc sai trường",
                 () -> assertEquals(pendingTracking.getId(), result.getId(), "id sai"),
                 () -> assertEquals(REQUEST_ID, result.getRequestId(), "requestId sai"),
@@ -663,11 +755,17 @@ class ApprovalTrackingServiceTest {
     /**
      * Test Case ID: AT-TC15
      * Nhánh [B10]: ID không tồn tại → IdInvalidException
+     * 
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu (tracking, workflow, step) được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Xác minh service ném ra IdInvalidException do ID không hợp lệ.
+     * - Check DB: Không kiểm tra DB vì tác vụ thất bại từ bước validation (đảm bảo DB không rác).
      */
     @Test
     @DisplayName("[AT-TC15][B10] getById() - ID không tồn tại → IdInvalidException")
     void tc15_getById_nonExistentId_throwsIdInvalidException() {
         assertThrows(IdInvalidException.class,
+                // Act
                 () -> approvalTrackingService.getById(88888L),
                 "BUG: Trả về null thay vì ném IdInvalidException");
     }
@@ -678,6 +776,11 @@ class ApprovalTrackingServiceTest {
      * Nhánh FALSE của if (tracking.getActionUserId() != null) trong toResponseDTO()
      *
      * Bug bị bắt: NPE khi map DTO với actionUserId = null.
+     * 
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu (tracking, workflow, step) được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Kiểm tra tính chính xác của dữ liệu trả về hoặc trạng thái assert.
+     * - Check DB: Không tương tác/kiểm tra trực tiếp Repository trong test case này.
      */
     @Test
     @DisplayName("[AT-TC16] getById() - tracking không có actionUserId → DTO bình thường, actionUserName=null")
@@ -685,6 +788,7 @@ class ApprovalTrackingServiceTest {
         // Arrange: tracking không có actionUserId
         ApprovalTracking tracking = buildTracking(50L, step1, ApprovalStatus.PENDING, APPROVER_USER_ID);
         tracking.setActionUserId(null); // ← nhánh FALSE
+        // Check DB
         tracking = approvalTrackingRepository.save(tracking);
 
         // Act
@@ -705,13 +809,20 @@ class ApprovalTrackingServiceTest {
     /**
      * Test Case ID: AT-TC17
      * Nhánh [B11]: filter=null → trả về tất cả tracking với đúng tổng số
+     * 
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu (tracking, workflow, step) được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Kiểm tra tính chính xác của dữ liệu trả về hoặc trạng thái assert.
+     * - Check DB: Không tương tác/kiểm tra trực tiếp Repository trong test case này.
      */
     @Test
     @DisplayName("[AT-TC17][B11] getAll() - filter=null → trả về tất cả tracking, meta.total đúng")
     void tc17_getAll_noFilter_returnsAllWithCorrectTotal() {
         // DB có 1 tracking (setUp)
+        // Act
         PaginationDTO result = approvalTrackingService.getAll(null, null, null, PageRequest.of(0, 10));
 
+        // Assert
         assertNotNull(result.getMeta(), "BUG: meta null");
         assertTrue(result.getMeta().getTotal() >= 1,
                 "BUG: Total phải >= 1 vì có sampleTracking từ setUp");
@@ -722,6 +833,11 @@ class ApprovalTrackingServiceTest {
      * Nhánh [B12]: filter requestId=REQUEST_ID → chỉ trả về tracking của request đó
      *
      * Bug bị bắt: Filter requestId bị bỏ qua → trả về tất cả tracking của mọi request
+     * 
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu (tracking, workflow, step) được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Kiểm tra tính chính xác của dữ liệu trả về hoặc trạng thái assert.
+     * - Check DB: Không tương tác/kiểm tra trực tiếp Repository trong test case này.
      */
     @Test
     @DisplayName("[AT-TC18][B12] getAll() - filter requestId → chỉ trả về tracking của request đó")
@@ -730,10 +846,12 @@ class ApprovalTrackingServiceTest {
         ApprovalTracking otherReq = buildTracking(555L, step1, ApprovalStatus.PENDING, APPROVER_USER_ID);
         approvalTrackingRepository.save(otherReq);
 
+        // Act
         PaginationDTO result = approvalTrackingService.getAll(REQUEST_ID, null, null, PageRequest.of(0, 10));
         @SuppressWarnings("unchecked")
         List<ApprovalTrackingResponseDTO> list = (List<ApprovalTrackingResponseDTO>) result.getResult();
 
+        // Assert
         assertFalse(list.isEmpty(), "BUG: Không tìm thấy tracking của REQUEST_ID=1");
         assertTrue(list.stream().allMatch(dto -> REQUEST_ID.equals(dto.getRequestId())),
                 "BUG: Kết quả lẫn tracking của request khác - filter requestId không hoạt động");
@@ -744,6 +862,11 @@ class ApprovalTrackingServiceTest {
      * Nhánh [B13]: filter status=PENDING → chỉ trả về PENDING, không lẫn APPROVED/REJECTED
      *
      * Bug bị bắt: Filter status bị bỏ qua → trả về tất cả mọi status
+     * 
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu (tracking, workflow, step) được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Kiểm tra tính chính xác của dữ liệu trả về hoặc trạng thái assert.
+     * - Check DB: Không tương tác/kiểm tra trực tiếp Repository trong test case này.
      */
     @Test
     @DisplayName("[AT-TC19][B13] getAll() - filter status=PENDING → tất cả kết quả là PENDING")
@@ -752,11 +875,13 @@ class ApprovalTrackingServiceTest {
         ApprovalTracking approved = buildTracking(2L, step1, ApprovalStatus.APPROVED, APPROVER_USER_ID);
         approvalTrackingRepository.save(approved);
 
+        // Act
         PaginationDTO result = approvalTrackingService.getAll(null, ApprovalStatus.PENDING, null,
                 PageRequest.of(0, 10));
         @SuppressWarnings("unchecked")
         List<ApprovalTrackingResponseDTO> list = (List<ApprovalTrackingResponseDTO>) result.getResult();
 
+        // Assert
         assertFalse(list.isEmpty(), "BUG: Không tìm thấy tracking PENDING");
         assertTrue(list.stream().allMatch(dto -> dto.getStatus() == ApprovalStatus.PENDING),
                 "BUG: Kết quả lẫn tracking không phải PENDING - filter status không hoạt động");
@@ -771,13 +896,20 @@ class ApprovalTrackingServiceTest {
      * Nhánh [B14]: User có tracking PENDING → danh sách không rỗng, tất cả là PENDING
      *
      * Bug bị bắt: Lọc sai approverPositionId → trả về tracking của user khác
+     * 
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu (tracking, workflow, step) được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Kiểm tra tính chính xác của dữ liệu trả về hoặc trạng thái assert.
+     * - Check DB: Không tương tác/kiểm tra trực tiếp Repository trong test case này.
      */
     @Test
     @DisplayName("[AT-TC20][B14] getPendingApprovalsForUser() - có PENDING → list không rỗng, tất cả PENDING")
     void tc20_getPendingApprovalsForUser_hasPending_returnsNonEmptyAllPending() {
         List<ApprovalTrackingResponseDTO> result =
+                // Act
                 approvalTrackingService.getPendingApprovalsForUser(APPROVER_USER_ID);
 
+        // Assert
         assertFalse(result.isEmpty(),
                 "BUG: Không tìm thấy tracking PENDING dù có sampleTracking với approverPositionId=APPROVER_USER_ID");
         assertTrue(result.stream().allMatch(dto -> dto.getStatus() == ApprovalStatus.PENDING),
@@ -789,13 +921,20 @@ class ApprovalTrackingServiceTest {
      * Nhánh [B15]: User không có tracking PENDING → danh sách rỗng (không null)
      *
      * Bug bị bắt: Trả về null thay vì danh sách rỗng → NPE ở caller
+     * 
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu (tracking, workflow, step) được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Kiểm tra tính chính xác của dữ liệu trả về hoặc trạng thái assert.
+     * - Check DB: Không tương tác/kiểm tra trực tiếp Repository trong test case này.
      */
     @Test
     @DisplayName("[AT-TC21][B15] getPendingApprovalsForUser() - không có PENDING → trả về list rỗng, không null")
     void tc21_getPendingApprovalsForUser_noPending_returnsEmptyList() {
         List<ApprovalTrackingResponseDTO> result =
+                // Act
                 approvalTrackingService.getPendingApprovalsForUser(77777L); // User không có tracking
 
+        // Assert
         assertNotNull(result, "BUG: Trả về null thay vì list rỗng - sẽ gây NPE ở caller");
         assertTrue(result.isEmpty(), "BUG: Trả về tracking không phải của user 77777L");
     }
@@ -809,12 +948,19 @@ class ApprovalTrackingServiceTest {
      * Nhánh [B16]: requestType=null → không lọc type, trả về tracking dù là loại gì
      *
      * Bug bị bắt: null type lại bị xử lý như UNKNOWN → lọc ra toàn bộ kết quả
+     * 
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu (tracking, workflow, step) được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Kiểm tra tính chính xác của dữ liệu trả về hoặc trạng thái assert.
+     * - Check DB: Không tương tác/kiểm tra trực tiếp Repository trong test case này.
      */
     @Test
     @DisplayName("[AT-TC22][B16] getWorkflowInfoByRequestId() - requestType=null → không lọc, có tracking")
     void tc22_getWorkflowInfoByRequestId_nullType_returnsTrackings() {
+        // Act
         var result = approvalTrackingService.getWorkflowInfoByRequestId(REQUEST_ID, null, null);
 
+        // Assert
         assertNotNull(result, "BUG: Kết quả null");
         assertFalse(result.getApprovalTrackings().isEmpty(),
                 "BUG: Kết quả rỗng khi requestType=null - có thể đang lọc nhầm");
@@ -825,6 +971,11 @@ class ApprovalTrackingServiceTest {
      * Nhánh [B17]: requestType="REQUEST" → chỉ trả về tracking của workflow REQUEST
      *
      * Bug bị bắt: Filter type không đúng → lẫn tracking của OFFER
+     * 
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu (tracking, workflow, step) được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Kiểm tra tính chính xác của dữ liệu trả về hoặc trạng thái assert.
+     * - Check DB: Không tương tác/kiểm tra trực tiếp Repository trong test case này.
      */
     @Test
         @DisplayName("[AT-TC23][B17] getWorkflowInfoByRequestId() - requestType=REQUEST → chỉ cho REQUEST tracking")
@@ -852,6 +1003,7 @@ class ApprovalTrackingServiceTest {
         // Nếu code filter ngược lại (giữ OFFER, loại REQUEST) → type kiểm tra FAIL
         Long returnedStepId = result.getApprovalTrackings().get(0).getStepId();
         assertNotNull(returnedStepId, "BUG: stepId null trong tracking trả về");
+        // Check DB
         WorkflowStep returnedStep = workflowStepRepository.findById(returnedStepId).orElseThrow();
         assertEquals(WorkflowType.REQUEST, returnedStep.getWorkflow().getType(),
                 "BUG: Tracking được trả về thuộc workflow OFFER, không phải REQUEST " +
@@ -863,6 +1015,11 @@ class ApprovalTrackingServiceTest {
      * Nhánh [B18]: requestType="OFFER" → chỉ trả về tracking của workflow OFFER
      *
      * Bug bị bắt: Không filter đúng → trả lẫn tracking REQUEST và OFFER.
+     * 
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu (tracking, workflow, step) được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Kiểm tra tính chính xác của dữ liệu trả về hoặc trạng thái assert.
+     * - Check DB: Không tương tác/kiểm tra trực tiếp Repository trong test case này.
      */
     @Test
     @DisplayName("[AT-TC24][B18] getWorkflowInfoByRequestId() - requestType=OFFER → chỉ trả OFFER tracking")
@@ -884,6 +1041,7 @@ class ApprovalTrackingServiceTest {
         // Tất cả tracking trả về phải thuộc OFFER workflow
         boolean allOffer = result.getApprovalTrackings().stream().allMatch(dto ->
                 dto.getStepId() != null &&
+                // Check DB
                 workflowStepRepository.findById(dto.getStepId())
                         .map(s -> s.getWorkflow().getType() == WorkflowType.OFFER)
                         .orElse(false));
@@ -900,6 +1058,11 @@ class ApprovalTrackingServiceTest {
      * Nhánh [B19]: requestType unknown → không filter, trả tất cả
      *
      * Bug bị bắt: Requesttype lạ bị xử lý như null → lọc ra hết kết quả.
+     * 
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu (tracking, workflow, step) được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Kiểm tra tính chính xác của dữ liệu trả về hoặc trạng thái assert.
+     * - Check DB: Không tương tác/kiểm tra trực tiếp Repository trong test case này.
      */
     @Test
     @DisplayName("[AT-TC25][B19] getWorkflowInfoByRequestId() - requestType unknown → không filter, trả tất cả")
@@ -946,12 +1109,19 @@ class ApprovalTrackingServiceTest {
      * Nhánh: requestId không có tracking → danh sách rỗng (không null)
      *
      * Bug bị bắt: Trả về null → NPE ở caller
+     * 
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu (tracking, workflow, step) được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Kiểm tra tính chính xác của dữ liệu trả về hoặc trạng thái assert.
+     * - Check DB: Không tương tác/kiểm tra trực tiếp Repository trong test case này.
      */
     @Test
     @DisplayName("[AT-TC26] getWorkflowInfoByRequestId() - không có tracking → danh sách rỗng, không null")
     void tc26_getWorkflowInfoByRequestId_noTracking_returnsEmptyList() {
+        // Act
         var result = approvalTrackingService.getWorkflowInfoByRequestId(99999L, null, null);
 
+        // Assert
         assertNotNull(result, "BUG: Kết quả null");
         assertNotNull(result.getApprovalTrackings(), "BUG: approvalTrackings null - gây NPE ở caller");
         assertTrue(result.getApprovalTrackings().isEmpty(),
@@ -962,15 +1132,22 @@ class ApprovalTrackingServiceTest {
          * Test Case ID: AT-TC27
          * requestType chỉ chứa khoảng trắng → không filter, workflowId truyền sẵn,
          * workflow không có steps.
+         * 
+         * CHI TIẾT TEST CASE:
+         * - Rollback: Toàn bộ dữ liệu (tracking, workflow, step) được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+         * - Check: Kiểm tra tính chính xác của dữ liệu trả về hoặc trạng thái assert.
+         * - Check DB: Không tương tác/kiểm tra trực tiếp Repository trong test case này.
          */
         @Test
         @DisplayName("[AT-TC27] getWorkflowInfoByRequestId() - requestType blank + workflowId explicit + workflow không có steps")
         void tc27_getWorkflowInfoByRequestId_blankType_explicitWorkflowId_emptyWorkflowSteps() {
                 Workflow emptyWorkflow = saveWorkflow("Empty Workflow", WorkflowType.REQUEST, 10L);
 
+                // Act
                 var result = approvalTrackingService.getWorkflowInfoByRequestId(
                                 REQUEST_ID, emptyWorkflow.getId(), "   ");
 
+                // Assert
                 assertNotNull(result, "BUG: Kết quả null khi requestType chỉ chứa khoảng trắng");
                 assertNotNull(result.getWorkflow(), "BUG: workflow DTO null");
                 assertNull(result.getWorkflow().getSteps(), "BUG: workflow không có steps phải trả về steps=null");
@@ -980,12 +1157,19 @@ class ApprovalTrackingServiceTest {
         /**
          * Test Case ID: AT-TC28
          * requestType=OFFER nhưng request hiện tại không có OFFER tracking → filter rỗng.
+         * 
+         * CHI TIẾT TEST CASE:
+         * - Rollback: Toàn bộ dữ liệu (tracking, workflow, step) được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+         * - Check: Kiểm tra tính chính xác của dữ liệu trả về hoặc trạng thái assert.
+         * - Check DB: Không tương tác/kiểm tra trực tiếp Repository trong test case này.
          */
         @Test
         @DisplayName("[AT-TC28] getWorkflowInfoByRequestId() - OFFER filter không match → trả list rỗng")
         void tc28_getWorkflowInfoByRequestId_offerFilterNoMatch_returnsEmptyList() {
+                // Act
                 var result = approvalTrackingService.getWorkflowInfoByRequestId(REQUEST_ID, null, "OFFER");
 
+                // Assert
                 assertNotNull(result, "BUG: Kết quả null khi filter OFFER không match");
                 assertTrue(result.getApprovalTrackings().isEmpty(), "BUG: Filter OFFER không match nhưng vẫn có kết quả");
                 assertNull(result.getWorkflow(), "BUG: Không có tracking OFFER thì workflow phải null");
@@ -1000,15 +1184,22 @@ class ApprovalTrackingServiceTest {
      * Nhánh [B20]: event=null → không làm gì, không exception, DB không đổi
      *
      * Bug bị bắt: Không guard null event → NullPointerException
+     * 
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu (tracking, workflow, step) được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Kiểm tra tính chính xác của dữ liệu trả về hoặc trạng thái assert.
+     * - Check DB: So sánh tổng số lượng bản ghi tracking trong DB trước và sau khi thực thi qua .count().
      */
     @Test
         @DisplayName("[AT-TC29][B20] handleWorkflowEvent() - event=null → bỏ qua, DB không đổi")
         void tc71_handleWorkflowEvent_nullEvent_doesNothingNoException() {
         long countBefore = approvalTrackingRepository.count();
 
+        // Act + Assert
         assertDoesNotThrow(() -> approvalTrackingService.handleWorkflowEvent(null),
                 "BUG: Không guard null event → NullPointerException");
 
+        // Check DB
         assertEquals(countBefore, approvalTrackingRepository.count(),
                 "BUG: DB bị thay đổi dù event=null");
     }
@@ -1018,6 +1209,11 @@ class ApprovalTrackingServiceTest {
      * Nhánh [B21]: eventType=null → bỏ qua, DB không đổi
      *
      * Bug bị bắt: Gọi `.toUpperCase()` trên null → NullPointerException
+     * 
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu (tracking, workflow, step) được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Kiểm tra tính chính xác của dữ liệu trả về hoặc trạng thái assert.
+     * - Check DB: So sánh tổng số lượng bản ghi tracking trong DB trước và sau khi thực thi qua .count().
      */
     @Test
         @DisplayName("[AT-TC30][B21] handleWorkflowEvent() - eventType=null → bỏ qua, không NPE")
@@ -1028,9 +1224,11 @@ class ApprovalTrackingServiceTest {
 
         long countBefore = approvalTrackingRepository.count();
 
+        // Act + Assert
         assertDoesNotThrow(() -> approvalTrackingService.handleWorkflowEvent(event),
                 "BUG: Gọi toUpperCase() trên eventType null → NullPointerException");
 
+        // Check DB
         assertEquals(countBefore, approvalTrackingRepository.count(),
                 "BUG: DB bị thay đổi dù eventType=null");
     }
@@ -1046,6 +1244,11 @@ class ApprovalTrackingServiceTest {
      *   - actionAt null
      *
      * CheckDB: Truy vấn lại từng trường
+     * 
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu (tracking, workflow, step) được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Kiểm tra tính chính xác của dữ liệu trả về hoặc trạng thái assert.
+     * - Check DB: Truy vấn DB bằng findById() để assert các trường thay đổi như status, actionType, notes, actionUserId.
      */
     @Test
     @DisplayName("[AT-TC31][B22] handleWorkflowEvent() - REQUEST_CANCELLED → status=CANCELLED, actionType=CANCEL")
@@ -1054,10 +1257,12 @@ class ApprovalTrackingServiceTest {
         event.setActorUserId(APPROVER_USER_ID);
         event.setReason("Hủy do thay đổi kế hoạch");
 
+        // Act
         approvalTrackingService.handleWorkflowEvent(event);
 
         // CHECK DB
         ApprovalTracking updated = approvalTrackingRepository.findById(pendingTracking.getId()).orElseThrow();
+        // Assert
         assertAll("BUG: Một hoặc nhiều trường không đúng sau REQUEST_CANCELLED",
                 () -> assertEquals(ApprovalStatus.CANCELLED, updated.getStatus(),
                         "BUG: status không phải CANCELLED"),
@@ -1075,6 +1280,11 @@ class ApprovalTrackingServiceTest {
      * Nhánh [B23]: REQUEST_CANCELLED + request không có PENDING → DB không thay đổi
      *
      * Bug bị bắt: Cố update tracking không tồn tại → exception bất ngờ
+     * 
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu (tracking, workflow, step) được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Kiểm tra tính chính xác của dữ liệu trả về hoặc trạng thái assert.
+     * - Check DB: Truy vấn DB bằng findById() để assert các trường thay đổi như status, actionType, notes, actionUserId.
      */
     @Test
     @DisplayName("[AT-TC32][B23] REQUEST_CANCELLED + không có PENDING → DB không đổi, không exception")
@@ -1085,6 +1295,7 @@ class ApprovalTrackingServiceTest {
 
         RecruitmentWorkflowEvent event = buildEvent("REQUEST_CANCELLED", "REQUEST", REQUEST_ID);
 
+        // Act + Assert
         assertDoesNotThrow(() -> approvalTrackingService.handleWorkflowEvent(event),
                 "BUG: Exception khi cancel request không có PENDING tracking");
 
@@ -1102,6 +1313,11 @@ class ApprovalTrackingServiceTest {
      * Bug bị bắt: Dùng cùng actionType="CANCEL" cho cả CANCEL và WITHDRAW → không phân biệt được nguồn gốc
      *
      * CheckDB: actionType phải là "WITHDRAW", status phải là CANCELLED
+     * 
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu (tracking, workflow, step) được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Kiểm tra tính chính xác của dữ liệu trả về hoặc trạng thái assert.
+     * - Check DB: Truy vấn DB bằng findById() để assert các trường thay đổi như status, actionType, notes, actionUserId.
      */
     @Test
     @DisplayName("[AT-TC33][B24] REQUEST_WITHDRAWN → status=CANCELLED, actionType=WITHDRAW (≠ CANCEL)")
@@ -1110,9 +1326,12 @@ class ApprovalTrackingServiceTest {
         event.setActorUserId(APPROVER_USER_ID);
         event.setReason("Rút lại vì không cần tuyển nữa");
 
+        // Act
         approvalTrackingService.handleWorkflowEvent(event);
 
+        // Check DB
         ApprovalTracking updated = approvalTrackingRepository.findById(pendingTracking.getId()).orElseThrow();
+        // Assert
         assertAll("BUG: Withdraw không phân biệt được với Cancel",
                 () -> assertEquals(ApprovalStatus.CANCELLED, updated.getStatus(),
                         "BUG: status phải là CANCELLED sau khi withdraw"),
@@ -1124,6 +1343,11 @@ class ApprovalTrackingServiceTest {
         /**
          * Test Case ID: AT-TC34
          * REQUEST_WITHDRAWN với reason=null → dùng message mặc định.
+         * 
+         * CHI TIẾT TEST CASE:
+         * - Rollback: Toàn bộ dữ liệu (tracking, workflow, step) được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+         * - Check: Đảm bảo hệ thống gọi notificationProducer để gửi thông báo/email.
+         * - Check DB: Truy vấn DB bằng findById() để assert các trường thay đổi như status, actionType, notes, actionUserId.
          */
         @Test
         @DisplayName("[AT-TC34] REQUEST_WITHDRAWN reason=null → dùng message mặc định")
@@ -1132,9 +1356,12 @@ class ApprovalTrackingServiceTest {
                 event.setActorUserId(APPROVER_USER_ID);
                 event.setReason(null);
 
+                // Act
                 approvalTrackingService.handleWorkflowEvent(event);
 
+                // Check DB
                 ApprovalTracking updated = approvalTrackingRepository.findById(pendingTracking.getId()).orElseThrow();
+                // Assert
                 assertEquals(ApprovalStatus.CANCELLED, updated.getStatus(), "BUG: Withdraw null reason vẫn phải cancel tracking");
                 assertEquals("WITHDRAW", updated.getActionType(), "BUG: actionType phải là WITHDRAW");
                 verify(notificationProducer, times(1))
@@ -1152,6 +1379,11 @@ class ApprovalTrackingServiceTest {
      *   - Ghi nhầm returnedToStepId
      *
      * CheckDB: 4 trường đều đúng
+     * 
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu (tracking, workflow, step) được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Kiểm tra tính chính xác của dữ liệu trả về hoặc trạng thái assert.
+     * - Check DB: Truy vấn DB bằng findById() để assert các trường thay đổi như status, actionType, notes, actionUserId.
      */
     @Test
     @DisplayName("[AT-TC35][B25] REQUEST_RETURNED + returnedToStepId → RETURNED, RETURN, returnedToStepId")
@@ -1162,9 +1394,12 @@ class ApprovalTrackingServiceTest {
         event.setReturnedToStepId(step1.getId()); // Trả về bước 1
         event.setReason("Cần chỉnh sửa mô tả công việc");
 
+        // Act
         approvalTrackingService.handleWorkflowEvent(event);
 
+        // Check DB
         ApprovalTracking updated = approvalTrackingRepository.findById(pendingTracking.getId()).orElseThrow();
+        // Assert
         assertAll("BUG: REQUEST_RETURNED không ghi đúng dữ liệu",
                 () -> assertEquals(ApprovalStatus.RETURNED, updated.getStatus(),
                         "BUG: status không phải RETURNED"),
@@ -1184,6 +1419,11 @@ class ApprovalTrackingServiceTest {
      * Bug bị bắt: Khi returnedToStepId=null, không resolve tự động về step 1 → returnedToStepId = null trong DB
      *
      * CheckDB: returnedToStepId phải = step1.getId()
+     * 
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu (tracking, workflow, step) được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Kiểm tra tính chính xác của dữ liệu trả về hoặc trạng thái assert.
+     * - Check DB: Truy vấn DB bằng findById() để assert các trường thay đổi như status, actionType, notes, actionUserId.
      */
     @Test
     @DisplayName("[AT-TC36][B26] REQUEST_RETURNED + returnedToStepId=null → tự resolve về step 1")
@@ -1194,11 +1434,14 @@ class ApprovalTrackingServiceTest {
         event.setReturnedToStepId(null); // Không chỉ định → phải resolve về step 1
         event.setReason("Thiếu thông tin");
 
+        // Act
         approvalTrackingService.handleWorkflowEvent(event);
 
+        // Check DB
         Long returnedToStepId = approvalTrackingRepository.findById(pendingTracking.getId())
                 .orElseThrow().getReturnedToStepId();
 
+        // Assert
         assertNotNull(returnedToStepId,
                 "BUG: returnedToStepId vẫn null khi không chỉ định - phải tự resolve về bước 1");
         assertEquals(step1.getId(), returnedToStepId,
@@ -1214,6 +1457,11 @@ class ApprovalTrackingServiceTest {
      *   - Không tạo tracking mới cho bước tiếp
      *
      * CheckDB: 2 điểm kiểm tra
+     * 
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu (tracking, workflow, step) được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Kiểm tra tính chính xác của dữ liệu trả về hoặc trạng thái assert.
+     * - Check DB: So sánh tổng số lượng bản ghi tracking trong DB trước và sau khi thực thi qua .count() & Truy vấn DB bằng findById() để assert các trường thay đổi như status, actionType, notes, actionUserId.
      */
     @Test
     @DisplayName("[AT-TC37][B27] REQUEST_APPROVED + có bước tiếp → tracking APPROVED + tạo tracking mới")
@@ -1226,11 +1474,13 @@ class ApprovalTrackingServiceTest {
         event.setDepartmentId(10L);
         event.setNotes("Phê duyệt tại bước 1");
 
+        // Act
         approvalTrackingService.handleWorkflowEvent(event);
 
         // CHECK DB 1: tracking bước 1 phải APPROVED
         ApprovalStatus step1Status = approvalTrackingRepository.findById(pendingTracking.getId())
                 .orElseThrow().getStatus();
+        // Assert
         assertEquals(ApprovalStatus.APPROVED, step1Status,
                 "BUG: Tracking bước 1 không được đổi thành APPROVED");
 
@@ -1245,6 +1495,11 @@ class ApprovalTrackingServiceTest {
      * Nhánh [B28]: REQUEST_APPROVED + không có bước tiếp → tracking APPROVED, KHÔNG tạo thêm
      *
      * Bug bị bắt: Cố tạo tracking cho bước tiếp dù không còn bước → data giả
+     * 
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu (tracking, workflow, step) được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Kiểm tra tính chính xác của dữ liệu trả về hoặc trạng thái assert.
+     * - Check DB: So sánh tổng số lượng bản ghi tracking trong DB trước và sau khi thực thi qua .count() & Truy vấn DB bằng findById() để assert các trường thay đổi như status, actionType, notes, actionUserId.
      */
     @Test
     @DisplayName("[AT-TC38][B28] REQUEST_APPROVED + không có bước tiếp → APPROVED, không tạo thêm tracking")
@@ -1262,9 +1517,11 @@ class ApprovalTrackingServiceTest {
         event.setWorkflowId(wf1.getId());
         event.setDepartmentId(20L);
 
+        // Act
         approvalTrackingService.handleWorkflowEvent(event);
 
         // CHECK DB: tracking phải APPROVED
+        // Assert
         assertEquals(ApprovalStatus.APPROVED,
                 approvalTrackingRepository.findById(t1.getId()).orElseThrow().getStatus(),
                 "BUG: Tracking bước cuối không được đổi thành APPROVED");
@@ -1283,6 +1540,11 @@ class ApprovalTrackingServiceTest {
      *   - Status không đổi thành REJECTED
      *
      * CheckDB: status=REJECTED, actionType=REJECT
+     * 
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu (tracking, workflow, step) được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Kiểm tra tính chính xác của dữ liệu trả về hoặc trạng thái assert.
+     * - Check DB: Truy vấn DB bằng findById() để assert các trường thay đổi như status, actionType, notes, actionUserId.
      */
     @Test
     @DisplayName("[AT-TC39][B29] REQUEST_REJECTED → status=REJECTED, actionType=REJECT")
@@ -1291,9 +1553,12 @@ class ApprovalTrackingServiceTest {
         event.setActorUserId(APPROVER_USER_ID);
         event.setNotes("Không đủ ngân sách");
 
+        // Act
         approvalTrackingService.handleWorkflowEvent(event);
 
+        // Check DB
         ApprovalTracking updated = approvalTrackingRepository.findById(pendingTracking.getId()).orElseThrow();
+        // Assert
         assertAll("BUG: REQUEST_REJECTED không ghi đúng dữ liệu",
                 () -> assertEquals(ApprovalStatus.REJECTED, updated.getStatus(),
                         "BUG: status không phải REJECTED"),
@@ -1307,6 +1572,11 @@ class ApprovalTrackingServiceTest {
      * Nhánh [B30]: eventType không xác định → bỏ qua, DB không thay đổi
      *
      * Bug bị bắt: Ném exception cho eventType lạ → production crashes khi nhận event mới
+     * 
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu (tracking, workflow, step) được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Kiểm tra tính chính xác của dữ liệu trả về hoặc trạng thái assert.
+     * - Check DB: So sánh tổng số lượng bản ghi tracking trong DB trước và sau khi thực thi qua .count() & Truy vấn DB bằng findById() để assert các trường thay đổi như status, actionType, notes, actionUserId.
      */
     @Test
     @DisplayName("[AT-TC40][B30] handleWorkflowEvent() - eventType lạ → bỏ qua hoàn toàn, DB không đổi")
@@ -1315,6 +1585,7 @@ class ApprovalTrackingServiceTest {
 
         long countBefore = approvalTrackingRepository.count();
 
+        // Act + Assert
         assertDoesNotThrow(() -> approvalTrackingService.handleWorkflowEvent(event),
                 "BUG: Ném exception cho eventType không xác định - phá vỡ backward compatibility");
 
@@ -1339,6 +1610,11 @@ class ApprovalTrackingServiceTest {
      * Bug bị bắt: Không gọi candidateService để resolve → departmentId vẫn null khi xử lý.
      *
      * CheckDB: Tracking được tạo (REQUEST_SUBMITTED thành công sau khi resolve departmentId).
+     * 
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu (tracking, workflow, step) được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Kiểm tra tính chính xác của dữ liệu trả về hoặc trạng thái assert.
+     * - Check DB: Không tương tác/kiểm tra trực tiếp Repository trong test case này.
      */
     @Test
     @DisplayName("[AT-TC41] handleWorkflowEvent() - OFFER, departmentId=null, candidateId hợp lệ → resolve từ candidate")
@@ -1346,6 +1622,7 @@ class ApprovalTrackingServiceTest {
         // Arrange: tracking không có actionUserId
         ApprovalTracking tracking = buildTracking(50L, step1, ApprovalStatus.PENDING, APPROVER_USER_ID);
         tracking.setActionUserId(null); // ← nhánh FALSE
+        // Check DB
         tracking = approvalTrackingRepository.save(tracking);
 
         // Act
@@ -1368,6 +1645,11 @@ class ApprovalTrackingServiceTest {
      * Nhánh requestType="OFFER" → chỉ trả về tracking thuộc workflow OFFER.
      *
      * Bug bị bắt: Không filter đúng → trả lẫn tracking REQUEST và OFFER.
+     * 
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu (tracking, workflow, step) được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Kiểm tra tính chính xác của dữ liệu trả về hoặc trạng thái assert.
+     * - Check DB: Không tương tác/kiểm tra trực tiếp Repository trong test case này.
      */
     @Test
         @DisplayName("[AT-TC42] getWorkflowInfoByRequestId() - requestType=OFFER → chỉ trả OFFER tracking")
@@ -1389,6 +1671,7 @@ class ApprovalTrackingServiceTest {
         // Tất cả tracking trả về phải thuộc OFFER workflow
         boolean allOffer = result.getApprovalTrackings().stream().allMatch(dto ->
                 dto.getStepId() != null &&
+                // Check DB
                 workflowStepRepository.findById(dto.getStepId())
                         .map(s -> s.getWorkflow().getType() == WorkflowType.OFFER)
                         .orElse(false));
@@ -1405,6 +1688,11 @@ class ApprovalTrackingServiceTest {
      * Nhánh requestType không xác định (vd "SOMETHING") → workflowType=null → không filter → trả tất cả.
      *
      * Bug bị bắt: Requesttype lạ bị xử lý như null → lọc ra hết kết quả.
+     * 
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu (tracking, workflow, step) được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Kiểm tra tính chính xác của dữ liệu trả về hoặc trạng thái assert.
+     * - Check DB: Không tương tác/kiểm tra trực tiếp Repository trong test case này.
      */
     @Test
         @DisplayName("[AT-TC43] getWorkflowInfoByRequestId() - requestType unknown → không filter, trả tất cả")
@@ -1433,6 +1721,11 @@ class ApprovalTrackingServiceTest {
      * Bug bị bắt: Không gọi candidateService để resolve → departmentId vẫn null khi xử lý.
      *
      * CheckDB: Tracking được tạo (REQUEST_SUBMITTED thành công sau khi resolve departmentId).
+     * 
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu (tracking, workflow, step) được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Đảm bảo hệ thống gọi candidateService để lấy thông tin phòng ban.
+     * - Check DB: So sánh tổng số lượng bản ghi tracking trong DB trước và sau khi thực thi qua .count().
      */
     @Test
         @DisplayName("[AT-TC44] handleWorkflowEvent() - OFFER, departmentId=null, candidateId hợp lệ → resolve từ candidate")
@@ -1453,6 +1746,7 @@ class ApprovalTrackingServiceTest {
         event.setWorkflowId(offerWf.getId());
 
         // Act
+        // Assert
         assertDoesNotThrow(() -> approvalTrackingService.handleWorkflowEvent(event),
                 "BUG: NPE khi resolve departmentId từ candidate");
 
@@ -1470,6 +1764,11 @@ class ApprovalTrackingServiceTest {
      * OFFER event, departmentId=null, candidateId=null → log warn, skip resolve, tiếp tục vào switch.
      *
      * Bug bị bắt: NPE khi candidateId=null không được guard.
+     * 
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu (tracking, workflow, step) được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Đảm bảo hệ thống gọi candidateService để lấy thông tin phòng ban.
+     * - Check DB: So sánh tổng số lượng bản ghi tracking trong DB trước và sau khi thực thi qua .count().
      */
     @Test
         @DisplayName("[AT-TC45] handleWorkflowEvent() - OFFER, departmentId=null, candidateId=null → log warn, không crash")
@@ -1484,6 +1783,7 @@ class ApprovalTrackingServiceTest {
         event.setWorkflowId(workflow2Steps.getId());
 
         // Act: không crash, nhưng REQUEST_SUBMITTED với OFFER+departmentId=null → early return
+        // Assert
         assertDoesNotThrow(() -> approvalTrackingService.handleWorkflowEvent(event),
                 "BUG: NullPointerException khi candidateId=null không được guard");
 
@@ -1504,6 +1804,11 @@ class ApprovalTrackingServiceTest {
      * Nhánh D1=True: workflowId=null → early return, DB không đổi.
      *
      * Bug bị bắt: Gọi workflowRepository.findById(null) → NullPointerException hoặc xử lý sai.
+     * 
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu (tracking, workflow, step) được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Kiểm tra tính chính xác của dữ liệu trả về hoặc trạng thái assert.
+     * - Check DB: So sánh tổng số lượng bản ghi tracking trong DB trước và sau khi thực thi qua .count().
      */
     @Test
         @DisplayName("[AT-TC46] handleRequestSubmitted() - workflowId=null → early return, DB không đổi")
@@ -1513,9 +1818,11 @@ class ApprovalTrackingServiceTest {
         RecruitmentWorkflowEvent event = buildEvent("REQUEST_SUBMITTED", "REQUEST", 70L);
         event.setWorkflowId(null); // ← D1=True
 
+        // Act + Assert
         assertDoesNotThrow(() -> approvalTrackingService.handleWorkflowEvent(event),
                 "BUG: Exception khi workflowId=null");
 
+        // Check DB
         assertEquals(countBefore, approvalTrackingRepository.count(),
                 "BUG: DB bị thay đổi dù workflowId=null → phải early return");
     }
@@ -1525,6 +1832,11 @@ class ApprovalTrackingServiceTest {
      * Nhánh D2=True: requestType=OFFER, departmentId=null → early return khi submit.
      *
      * Bug bị bắt: OFFER không có departmentId vẫn cố tạo tracking → lỗi dữ liệu.
+     * 
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu (tracking, workflow, step) được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Kiểm tra tính chính xác của dữ liệu trả về hoặc trạng thái assert.
+     * - Check DB: So sánh tổng số lượng bản ghi tracking trong DB trước và sau khi thực thi qua .count().
      */
     @Test
         @DisplayName("[AT-TC47] handleRequestSubmitted() - OFFER + departmentId=null → early return")
@@ -1535,9 +1847,11 @@ class ApprovalTrackingServiceTest {
         event.setWorkflowId(workflow2Steps.getId());
         event.setDepartmentId(null); // ← D2=True (OFFER + no deptId)
 
+        // Act + Assert
         assertDoesNotThrow(() -> approvalTrackingService.handleWorkflowEvent(event),
                 "BUG: Exception khi OFFER không có departmentId");
 
+        // Check DB
         assertEquals(countBefore, approvalTrackingRepository.count(),
                 "BUG: Tạo tracking dù OFFER không có departmentId → phải early return");
     }
@@ -1553,6 +1867,11 @@ class ApprovalTrackingServiceTest {
      *   - Tracking gắn sai step
      *
      * CheckDB: +1 tracking PENDING tại step1
+     * 
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu (tracking, workflow, step) được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Kiểm tra tính chính xác của dữ liệu trả về hoặc trạng thái assert.
+     * - Check DB: So sánh tổng số lượng bản ghi tracking trong DB trước và sau khi thực thi qua .count() & Truy vấn DB bằng findByRequestId() để xác minh tracking mới được tạo và gán đúng workflow step.
      */
     @Test
         @DisplayName("[AT-TC48] handleRequestSubmitted() - submit lần đầu → tạo tracking PENDING tại step1")
@@ -1567,6 +1886,7 @@ class ApprovalTrackingServiceTest {
         event.setRequesterId(null); // null → skip auto-approve logic
 
         // Act
+        // Assert
         assertDoesNotThrow(() -> approvalTrackingService.handleWorkflowEvent(event));
 
         // CheckDB: +1 tracking
@@ -1593,6 +1913,11 @@ class ApprovalTrackingServiceTest {
      *   - Không tạo tracking step2 sau auto-approve
      *
      * CheckDB: step1 tracking = APPROVED, step2 tracking = PENDING
+     * 
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu (tracking, workflow, step) được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Kiểm tra tính chính xác của dữ liệu trả về hoặc trạng thái assert.
+     * - Check DB: So sánh tổng số lượng bản ghi tracking trong DB trước và sau khi thực thi qua .count() & Truy vấn DB bằng findByRequestId() để xác minh tracking mới được tạo và gán đúng workflow step.
      */
     @Test
         @DisplayName("[AT-TC49] handleRequestSubmitted() - requester trùng approver step1 → auto-approve step1 + tạo step2")
@@ -1629,6 +1954,7 @@ class ApprovalTrackingServiceTest {
         event.setRequesterId(APPROVER_USER_ID); // ← requester có positionId = step1.approverPositionId
 
         // Act
+        // Assert
         assertDoesNotThrow(() -> approvalTrackingService.handleWorkflowEvent(event));
 
         // CheckDB: +2 tracking (step1 APPROVED + step2 PENDING)
@@ -1654,6 +1980,11 @@ class ApprovalTrackingServiceTest {
      * Bug bị bắt: Nếu code thiếu else branch → không tạo tracking dù requester không phải approver.
      *
      * CheckDB: 1 tracking PENDING tại step1
+     * 
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu (tracking, workflow, step) được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Kiểm tra tính chính xác của dữ liệu trả về hoặc trạng thái assert.
+     * - Check DB: So sánh tổng số lượng bản ghi tracking trong DB trước và sau khi thực thi qua .count() & Truy vấn DB bằng findByRequestId() để xác minh tracking mới được tạo và gán đúng workflow step.
      */
     @Test
         @DisplayName("[AT-TC50] handleRequestSubmitted() - requester KHÔNG trùng approver → tạo tracking PENDING step1")
@@ -1669,6 +2000,7 @@ class ApprovalTrackingServiceTest {
         event.setDepartmentId(10L);
         event.setRequesterId(OTHER_USER_ID); // khác APPROVER_USER_ID
 
+        // Act + Assert
         assertDoesNotThrow(() -> approvalTrackingService.handleWorkflowEvent(event));
 
         // CheckDB: +1 tracking PENDING tại step1
@@ -1690,6 +2022,11 @@ class ApprovalTrackingServiceTest {
      * Bug bị bắt: Không cancel pending cũ → tồn tại 2 tracking PENDING cùng lúc.
      *
      * CheckDB: tracking cũ = CANCELLED, tracking mới = PENDING
+     * 
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu (tracking, workflow, step) được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Kiểm tra tính chính xác của dữ liệu trả về hoặc trạng thái assert.
+     * - Check DB: So sánh tổng số lượng bản ghi tracking trong DB trước và sau khi thực thi qua .count() & Truy vấn DB bằng findById() để assert các trường thay đổi như status, actionType, notes, actionUserId.
      */
     @Test
         @DisplayName("[AT-TC51] handleRequestSubmitted() - có pending thường → cancel pending cũ + tạo tracking mới")
@@ -1703,6 +2040,7 @@ class ApprovalTrackingServiceTest {
         event.setActorUserId(APPROVER_USER_ID);
         event.setRequesterId(null); // null để skip auto-approve
 
+        // Act + Assert
         assertDoesNotThrow(() -> approvalTrackingService.handleWorkflowEvent(event));
 
         // CheckDB 1: tracking cũ phải bị CANCELLED
@@ -1727,6 +2065,11 @@ class ApprovalTrackingServiceTest {
      *   - Notes không được gắn "Đã chỉnh sửa"
      *
      * CheckDB: tracking mới với notes chứa "Đã chỉnh sửa"
+     * 
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu (tracking, workflow, step) được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Kiểm tra tính chính xác của dữ liệu trả về hoặc trạng thái assert.
+     * - Check DB: So sánh tổng số lượng bản ghi tracking trong DB trước và sau khi thực thi qua .count() & Truy vấn DB bằng findByRequestId() để xác minh tracking mới được tạo và gán đúng workflow step.
      */
     @Test
         @DisplayName("[AT-TC52] handleRequestSubmitted() - resubmit sau return → tạo tracking từ bước returnedToStepId + ghi chú 'Đã chỉnh sửa'")
@@ -1745,6 +2088,7 @@ class ApprovalTrackingServiceTest {
         event.setDepartmentId(10L);
         event.setRequesterId(null);
 
+        // Act + Assert
         assertDoesNotThrow(() -> approvalTrackingService.handleWorkflowEvent(event));
 
         // CheckDB: tracking mới được tạo từ step được trả về
@@ -1765,6 +2109,11 @@ class ApprovalTrackingServiceTest {
         /**
          * Test Case ID: AT-TC53
      * Các pending tracking đều là placeholder return → phải cancel placeholder và tạo tracking mới.
+     * 
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu (tracking, workflow, step) được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Kiểm tra tính chính xác của dữ liệu trả về hoặc trạng thái assert.
+     * - Check DB: So sánh tổng số lượng bản ghi tracking trong DB trước và sau khi thực thi qua .count() & Truy vấn DB bằng findById() để assert các trường thay đổi như status, actionType, notes, actionUserId.
      */
     @Test
         @DisplayName("[AT-TC53] handleRequestSubmitted() - placeholder pending → cancel placeholder và tạo tracking mới")
@@ -1783,8 +2132,10 @@ class ApprovalTrackingServiceTest {
         event.setActorUserId(APPROVER_USER_ID);
         event.setRequesterId(null);
 
+        // Act + Assert
         assertDoesNotThrow(() -> approvalTrackingService.handleWorkflowEvent(event));
 
+        // Check DB
         assertEquals(countBefore + 1, approvalTrackingRepository.count(),
                 "BUG: Không tạo tracking mới khi resubmit placeholder return");
 
@@ -1798,6 +2149,11 @@ class ApprovalTrackingServiceTest {
         /**
          * Test Case ID: AT-TC54
      * Workflow chỉ có 1 bước, requester trùng approver step1 → auto-approve step1 và gửi WORKFLOW_COMPLETED.
+     * 
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu (tracking, workflow, step) được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Đảm bảo hệ thống publish sự kiện workflow qua Kafka.
+     * - Check DB: So sánh tổng số lượng bản ghi tracking trong DB trước và sau khi thực thi qua .count() & Truy vấn DB bằng findByRequestId() để xác minh tracking mới được tạo và gán đúng workflow step.
      */
     @Test
         @DisplayName("[AT-TC54] handleRequestSubmitted() - auto-approve step1 của workflow 1 bước → gửi WORKFLOW_COMPLETED")
@@ -1833,8 +2189,10 @@ class ApprovalTrackingServiceTest {
         event.setDepartmentId(10L);
         event.setRequesterId(APPROVER_USER_ID);
 
+        // Act + Assert
         assertDoesNotThrow(() -> approvalTrackingService.handleWorkflowEvent(event));
 
+        // Check DB
         assertEquals(countBefore + 1, approvalTrackingRepository.count(),
                 "BUG: Workflow 1 bước phải tạo đúng 1 tracking khi auto-approve step1");
         ApprovalTracking created = approvalTrackingRepository.findByRequestId(150L).stream()
@@ -1857,6 +2215,11 @@ class ApprovalTrackingServiceTest {
      * → bỏ qua, DB không đổi.
      *
      * Bug bị bắt: NPE khi gọi current.getStep() trên null.
+     * 
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu (tracking, workflow, step) được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Kiểm tra tính chính xác của dữ liệu trả về hoặc trạng thái assert.
+     * - Check DB: So sánh tổng số lượng bản ghi tracking trong DB trước và sau khi thực thi qua .count().
      */
     @Test
         @DisplayName("[AT-TC55] REQUEST_APPROVED - không có PENDING tracking → bỏ qua, DB không đổi")
@@ -1872,9 +2235,11 @@ class ApprovalTrackingServiceTest {
         event.setWorkflowId(workflow2Steps.getId());
         event.setDepartmentId(10L);
 
+        // Act + Assert
         assertDoesNotThrow(() -> approvalTrackingService.handleWorkflowEvent(event),
                 "BUG: Exception khi không có PENDING tracking để approve");
 
+        // Check DB
         assertEquals(countBefore, approvalTrackingRepository.count(),
                 "BUG: DB bị thay đổi dù không có pending tracking để approve");
     }
@@ -1885,6 +2250,11 @@ class ApprovalTrackingServiceTest {
      * → bỏ qua, DB không đổi.
      *
      * Bug bị bắt: NPE khi gọi tracking.getStep() trên null.
+     * 
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu (tracking, workflow, step) được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Kiểm tra tính chính xác của dữ liệu trả về hoặc trạng thái assert.
+     * - Check DB: So sánh tổng số lượng bản ghi tracking trong DB trước và sau khi thực thi qua .count() & Truy vấn DB bằng findById() để assert các trường thay đổi như status, actionType, notes, actionUserId.
      */
     @Test
         @DisplayName("[AT-TC56] REQUEST_REJECTED - không có PENDING tracking → bỏ qua, DB không đổi")
@@ -1901,6 +2271,7 @@ class ApprovalTrackingServiceTest {
         assertDoesNotThrow(() -> approvalTrackingService.handleWorkflowEvent(event),
                 "BUG: Exception khi không có PENDING tracking để reject");
 
+        // Check DB
         assertEquals(countBefore, approvalTrackingRepository.count(),
                 "BUG: DB bị thay đổi dù không có pending tracking");
 
@@ -1915,6 +2286,11 @@ class ApprovalTrackingServiceTest {
      * Nhánh currentTracking=null trong handleRequestReturned(): không tìm thấy pending tracking → early return.
      *
      * Bug bị bắt: NPE khi gọi currentTracking.setStatus() trên null.
+     * 
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu (tracking, workflow, step) được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Kiểm tra tính chính xác của dữ liệu trả về hoặc trạng thái assert.
+     * - Check DB: So sánh tổng số lượng bản ghi tracking trong DB trước và sau khi thực thi qua .count().
      */
     @Test
         @DisplayName("[AT-TC57] REQUEST_RETURNED - không có PENDING tracking → early return, DB không đổi")
@@ -1930,9 +2306,11 @@ class ApprovalTrackingServiceTest {
         event.setWorkflowId(workflow2Steps.getId());
         event.setReturnedToStepId(step1.getId());
 
+        // Act + Assert
         assertDoesNotThrow(() -> approvalTrackingService.handleWorkflowEvent(event),
                 "BUG: NPE khi không có PENDING tracking cho REQUEST_RETURNED");
 
+        // Check DB
         assertEquals(countBefore, approvalTrackingRepository.count(),
                 "BUG: DB bị thay đổi dù không có tracking để return");
     }
@@ -1940,6 +2318,11 @@ class ApprovalTrackingServiceTest {
         /**
          * Test Case ID: AT-TC58
          * REQUEST_RETURNED với reason=null và returnedToStepId=null → tự resolve step 1.
+         * 
+         * CHI TIẾT TEST CASE:
+         * - Rollback: Toàn bộ dữ liệu (tracking, workflow, step) được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+         * - Check: Kiểm tra tính chính xác của dữ liệu trả về hoặc trạng thái assert.
+         * - Check DB: Truy vấn DB bằng findById() để assert các trường thay đổi như status, actionType, notes, actionUserId.
          */
         @Test
         @DisplayName("[AT-TC58] REQUEST_RETURNED reason=null + returnedToStepId=null → tự resolve step 1")
@@ -1950,9 +2333,12 @@ class ApprovalTrackingServiceTest {
                 event.setReturnedToStepId(null);
                 event.setReason(null);
 
+                // Act
                 approvalTrackingService.handleWorkflowEvent(event);
 
+                // Check DB
                 ApprovalTracking updated = approvalTrackingRepository.findById(pendingTracking.getId()).orElseThrow();
+                // Assert
                 assertEquals(ApprovalStatus.RETURNED, updated.getStatus(), "BUG: Return null reason vẫn phải set RETURNED");
                 assertEquals(step1.getId(), updated.getReturnedToStepId(), "BUG: returnedToStepId phải tự resolve về step1");
                 assertNull(updated.getNotes(), "BUG: notes từ reason=null phải là null trước khi persist");
@@ -1964,6 +2350,11 @@ class ApprovalTrackingServiceTest {
      * Cả requesterId và ownerUserId đều null → recipients rỗng → không gọi sendNotification.
      *
      * Bug bị bắt: Gọi sendNotification với null recipientId → NPE trong producer.
+     * 
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu (tracking, workflow, step) được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Đảm bảo hệ thống gọi notificationProducer để gửi thông báo/email.
+     * - Check DB: Kiểm tra DB không bị thay đổi bằng cách so sánh số lượng record hoặc verify không có lỗi.
      */
     @Test
         @DisplayName("[AT-TC59] REQUEST_CANCELLED - requesterId và ownerUserId null → không gọi sendNotification")
@@ -1978,6 +2369,7 @@ class ApprovalTrackingServiceTest {
         event.setOwnerUserId(null);   // ← D2=False → recipients rỗng
 
         // Act
+        // Assert
         assertDoesNotThrow(() -> approvalTrackingService.handleWorkflowEvent(event),
                 "BUG: Exception khi requesterId và ownerUserId đều null");
 
@@ -1988,6 +2380,11 @@ class ApprovalTrackingServiceTest {
         /**
          * Test Case ID: AT-TC60
      * handleStepApproved(): Không có PENDING tracking → bỏ qua, DB không đổi
+     * 
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu (tracking, workflow, step) được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Đảm bảo hệ thống gọi notificationProducer để gửi thông báo/email.
+     * - Check DB: So sánh tổng số lượng bản ghi tracking trong DB trước và sau khi thực thi qua .count().
      */
     @Test
         @DisplayName("[AT-TC60] handleStepApproved() - không có PENDING tracking → bỏ qua, DB không đổi")
@@ -2006,6 +2403,7 @@ class ApprovalTrackingServiceTest {
                 "BUG: Exception khi xử lý REQUEST_APPROVED nhưng không có PENDING tracking");
 
         // DB không đổi
+        // Check DB
         assertEquals(countBefore, approvalTrackingRepository.count(),
                 "BUG: DB bị thay đổi dù không có PENDING tracking");
 
@@ -2016,6 +2414,11 @@ class ApprovalTrackingServiceTest {
         /**
          * Test Case ID: AT-TC61
      * handleStepRejected(): Không có PENDING tracking → bỏ qua, DB không đổi
+     * 
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu (tracking, workflow, step) được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Kiểm tra tính chính xác của dữ liệu trả về hoặc trạng thái assert.
+     * - Check DB: So sánh tổng số lượng bản ghi tracking trong DB trước và sau khi thực thi qua .count().
      */
     @Test
         @DisplayName("[AT-TC61] handleStepRejected() - không có PENDING tracking → bỏ qua, DB không đổi")
@@ -2033,6 +2436,7 @@ class ApprovalTrackingServiceTest {
         assertDoesNotThrow(() -> approvalTrackingService.handleWorkflowEvent(event),
                 "BUG: Exception khi xử lý REQUEST_REJECTED nhưng không có PENDING tracking");
 
+        // Check DB
         assertEquals(countBefore, approvalTrackingRepository.count(),
                 "BUG: DB bị thay đổi dù không có PENDING tracking");
     }
@@ -2040,6 +2444,11 @@ class ApprovalTrackingServiceTest {
         /**
          * Test Case ID: AT-TC62
      * handleRequestReturned(): Không có PENDING tracking → early return, DB không đổi
+     * 
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu (tracking, workflow, step) được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Kiểm tra tính chính xác của dữ liệu trả về hoặc trạng thái assert.
+     * - Check DB: So sánh tổng số lượng bản ghi tracking trong DB trước và sau khi thực thi qua .count().
      */
     @Test
         @DisplayName("[AT-TC62] handleRequestReturned() - không có PENDING tracking → early return, DB không đổi")
@@ -2054,10 +2463,12 @@ class ApprovalTrackingServiceTest {
         event.setActorUserId(APPROVER_USER_ID);
 
         // Act
+        // Assert
         assertDoesNotThrow(() -> approvalTrackingService.handleWorkflowEvent(event),
                 "BUG: Exception khi xử lý REQUEST_RETURNED nhưng không có PENDING tracking");
 
         // DB không đổi
+        // Check DB
         assertEquals(countBefore, approvalTrackingRepository.count(),
                 "BUG: DB bị thay đổi dù không có PENDING tracking");
     }
@@ -2065,6 +2476,11 @@ class ApprovalTrackingServiceTest {
         /**
          * Test Case ID: AT-TC63
      * notifyRequester(): requesterId=null và ownerUserId=null → không gọi sendNotification
+     * 
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu (tracking, workflow, step) được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Đảm bảo hệ thống gọi notificationProducer để gửi thông báo/email.
+     * - Check DB: Kiểm tra DB không bị thay đổi bằng cách so sánh số lượng record hoặc verify không có lỗi.
      */
     @Test
         @DisplayName("[AT-TC63] notifyRequester() - requesterId=null và ownerUserId=null → không gọi sendNotification")
@@ -2073,6 +2489,7 @@ class ApprovalTrackingServiceTest {
         event.setRequesterId(null);
         event.setOwnerUserId(null);
 
+        // Act + Assert
         assertDoesNotThrow(() -> approvalTrackingService.handleWorkflowEvent(event),
                 "BUG: Exception khi notifyRequester với recipients rỗng");
 
@@ -2086,6 +2503,11 @@ class ApprovalTrackingServiceTest {
      * - convertWorkflowToDTO(Workflow, Map) với steps=null
      * - convertStepToDTO(WorkflowStep)
      * - convertStepToDTO(WorkflowStep, Map) với positionNamesMap=null và approverPositionId=null
+     * 
+     * CHI TIẾT TEST CASE:
+     * - Rollback : Toàn bộ dữ liệu (tracking, workflow, step) được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check : Kiểm tra tính chính xác của dữ liệu trả về hoặc trạng thái assert.
+     * - Check DB : Không tương tác/kiểm tra trực tiếp Repository trong test case này.
      */
     @Test
         @DisplayName("[AT-TC64] private convert helpers - cover null branches")
@@ -2142,6 +2564,11 @@ class ApprovalTrackingServiceTest {
         /**
          * Test Case ID: AT-TC65
      * Cover helper createTrackingForReturnedStep() và nhánh isReturned=true/false.
+     * 
+     * CHI TIẾT TEST CASE:
+     * - Rollback : Toàn bộ dữ liệu (tracking, workflow, step) được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Đảm bảo hệ thống gọi notificationProducer để gửi thông báo/email.
+     * - Check DB : So sánh tổng số lượng bản ghi tracking trong DB trước và sau khi thực thi qua .count().
      */
     @Test
         @DisplayName("[AT-TC65] createTrackingForReturnedStep() - cover isReturned branches")
@@ -2177,6 +2604,11 @@ class ApprovalTrackingServiceTest {
          * Test Case ID: AT-TC66
      * Cover getRequesterPositionId() và getRequesterDepartmentId() cho các nhánh
      * null/không có field/có field department.id và departmentId.
+     * 
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu (tracking, workflow, step) được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Kiểm tra tính chính xác của dữ liệu trả về hoặc trạng thái assert.
+     * - Check DB: Không tương tác/kiểm tra trực tiếp Repository trong test case này.
      */
     @Test
         @DisplayName("[AT-TC66] requester resolution helpers - cover all branches")
@@ -2244,6 +2676,11 @@ class ApprovalTrackingServiceTest {
      * initializeApproval(): findUserByPositionId() trả empty list -> approverPositionId=null.
      * Mục tiêu: cover nhánh false của userPositions.isEmpty() và nhánh
      * tracking.getApproverPositionId() == null trong initializeApproval().
+     * 
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu (tracking, workflow, step) được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Xác minh service ném ra CustomException với thông báo lỗi phù hợp.
+     * - Check DB: Không kiểm tra DB vì tác vụ thất bại từ bước validation (đảm bảo DB không rác).
      */
     @Test
         @DisplayName("[AT-TC67] initializeApproval() - empty user position list -> approverPositionId=null")
@@ -2263,6 +2700,7 @@ class ApprovalTrackingServiceTest {
         dto.setRequestId(9054L);
         dto.setLevelId(1L);
 
+        // Act + Assert
         assertThrows(CustomException.class, () -> approvalTrackingService.initializeApproval(dto),
                 "BUG: phải báo lỗi khi user-position list rỗng");
     }
@@ -2272,6 +2710,11 @@ class ApprovalTrackingServiceTest {
      * getById()/DTO mapping với tracking có các field nullable.
      * Mục tiêu: cover các nhánh actionUserId=null, approverPositionId=null và step=null
      * trong toResponseDTO()/getById().
+     * 
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu (tracking, workflow, step) được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Kiểm tra logic xử lý luồng happy-path hoặc void method hoạt động thành công không ném lỗi.
+     * - Check DB: Không tương tác/kiểm tra trực tiếp Repository trong test case này.
      */
     @Test
         @DisplayName("[AT-TC68] private toResponseDTO - nullable tracking fields")
@@ -2301,6 +2744,11 @@ class ApprovalTrackingServiceTest {
          * Test Case ID: AT-TC69
      * getAll()/getPendingApprovalsForUser(): danh sách có tracking null action/approver IDs.
      * Mục tiêu: cover nhánh false của các filter(id -> id != null).
+     * 
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu (tracking, workflow, step) được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Kiểm tra tính chính xác của dữ liệu trả về hoặc trạng thái assert.
+     * - Check DB: Không tương tác/kiểm tra trực tiếp Repository trong test case này.
      */
     @Test
         @DisplayName("[AT-TC69] getAll/pending - null action and approver ids")
@@ -2309,8 +2757,10 @@ class ApprovalTrackingServiceTest {
         nullableIds.setActionUserId(null);
         approvalTrackingRepository.save(nullableIds);
 
+        // Act
         PaginationDTO all = approvalTrackingService.getAll(
                 9056L, null, null, PageRequest.of(0, 10));
+        // Assert
         assertNotNull(all.getResult(), "BUG: getAll result null");
 
         List<ApprovalTrackingResponseDTO> pending = approvalTrackingService.getPendingApprovalsForUser(null);
@@ -2321,6 +2771,11 @@ class ApprovalTrackingServiceTest {
          * Test Case ID: AT-TC70
      * getWorkflowInfoByRequestId(): cover các nhánh workflow.steps != null,
      * requestType="REQUEST", tracking.step=null và tracking.step.workflow=null.
+     * 
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu (tracking, workflow, step) được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Kiểm tra tính chính xác của dữ liệu trả về hoặc trạng thái assert.
+     * - Check DB: Không tương tác/kiểm tra trực tiếp Repository trong test case này.
      */
     @Test
         @DisplayName("[AT-TC70 getWorkflowInfoByRequestId - edge branches")
@@ -2334,8 +2789,10 @@ class ApprovalTrackingServiceTest {
         trackingWithStep.setActionUserId(null);
         approvalTrackingRepository.save(trackingWithStep);
 
+        // Act
         var result = approvalTrackingService.getWorkflowInfoByRequestId(9057L, workflow.getId(), "REQUEST");
 
+        // Assert
         assertNotNull(result.getWorkflow(), "BUG: workflow info null");
         assertNotNull(result.getWorkflow().getSteps(), "BUG: workflow steps null");
         assertFalse(result.getWorkflow().getSteps().isEmpty(), "BUG: workflow steps rỗng");
@@ -2344,6 +2801,11 @@ class ApprovalTrackingServiceTest {
         /**
          * Test Case ID: AT-TC71
      * Private helpers: filter/getWorkflowType/notify/moveToNextStep/createTrackingForStep.
+     * 
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu (tracking, workflow, step) được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Xác minh luồng thực thi bị chặn và ném ra ngoại lệ tương ứng.
+     * - Check DB: Không kiểm tra DB vì tác vụ thất bại từ bước validation (đảm bảo DB không rác).
      */
     @Test
         @DisplayName("[AT-TC71] private helpers - remaining null/empty branches")
@@ -2402,10 +2864,16 @@ class ApprovalTrackingServiceTest {
         /**
          * Test Case ID: AT-TC72
      * handleWorkflowEvent(): event guards, OFFER department resolution null và submit guards.
+     * 
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu (tracking, workflow, step) được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Kiểm tra logic xử lý luồng happy-path hoặc void method hoạt động thành công không ném lỗi.
+     * - Check DB: Kiểm tra DB không bị thay đổi bằng cách so sánh số lượng record hoặc verify không có lỗi.
      */
     @Test
         @DisplayName("[AT-TC72] handleWorkflowEvent - guard branches")
         void tc68_handleWorkflowEvent_guardBranches() {
+        // Act + Assert
         assertDoesNotThrow(() -> approvalTrackingService.handleWorkflowEvent(null));
 
         RecruitmentWorkflowEvent nullType = buildEvent(null, "REQUEST", 9059L);
@@ -2435,6 +2903,11 @@ class ApprovalTrackingServiceTest {
         /**
          * Test Case ID: AT-TC73
      * handleRequestSubmitted(): requester auto-approve edge branches and resubmit note append.
+     * 
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu (tracking, workflow, step) được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Kiểm tra tính chính xác của dữ liệu trả về hoặc trạng thái assert.
+     * - Check DB: Truy vấn DB bằng findByRequestId() để xác minh tracking mới được tạo và gán đúng workflow step.
      */
     @Test
         @DisplayName("[AT-TC73] handleRequestSubmitted - auto approve and resubmit branches")
@@ -2459,7 +2932,9 @@ class ApprovalTrackingServiceTest {
         autoApprove.setAuthToken("token");
         approvalTrackingService.handleWorkflowEvent(autoApprove);
 
+        // Check DB
         List<ApprovalTracking> autoCreated = approvalTrackingRepository.findByRequestId(9060L);
+        // Assert
         assertTrue(autoCreated.stream().anyMatch(t -> t.getStatus() == ApprovalStatus.APPROVED),
                 "BUG: auto-approve không tạo tracking APPROVED cho step 1");
 
@@ -2484,6 +2959,11 @@ class ApprovalTrackingServiceTest {
         /**
          * Test Case ID: AT-TC74
      * handleStepRejected()/return()/invalidateFutureSteps(): null step and future pending branches.
+     * 
+     * CHI TIẾT TEST CASE:
+     * - Rollback: Toàn bộ dữ liệu (tracking, workflow, step) được tạo trong H2 DB sẽ tự động rollback sau khi test hoàn thành nhờ @Transactional.
+     * - Check: Kiểm tra tính chính xác của dữ liệu trả về hoặc trạng thái assert.
+     * - Check DB: Truy vấn DB bằng findById() để assert các trường thay đổi như status, actionType, notes, actionUserId.
      */
     @Test
         @DisplayName("[AT-TC74] reject/return/invalidate - remaining branches")
@@ -2499,7 +2979,9 @@ class ApprovalTrackingServiceTest {
         reject.setNotes(null);
         approvalTrackingService.handleWorkflowEvent(reject);
 
+        // Check DB
         ApprovalTracking updatedFuture = approvalTrackingRepository.findById(future.getId()).orElseThrow();
+        // Assert
         assertEquals(ApprovalStatus.CANCELLED, updatedFuture.getStatus(),
                 "BUG: future PENDING tracking không bị cancel khi reject");
 
