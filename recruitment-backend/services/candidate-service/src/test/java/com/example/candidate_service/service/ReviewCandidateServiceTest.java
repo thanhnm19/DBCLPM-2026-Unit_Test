@@ -879,7 +879,9 @@ class ReviewCandidateServiceTest {
 
                 when(reviewCandidateRepository.findByFilters(eq(candidateId), eq(reviewerId), eq(start), eq(end),
                                 any(Pageable.class))).thenReturn(mockPage);
-
+                // THÊM DÒNG NÀY: Giả lập API gọi lấy tên thành công
+                when(userService.getEmployeeNames(eq(List.of(7L)), eq(token)))
+                        .thenReturn(ResponseEntity.ok(objectMapper.createObjectNode().put("7", "Nguyen Van A")));
                 // act
                 PaginationDTO result = reviewCandidateService.getAllWithFilters(candidateId, reviewerId, start, end,
                                 page, limit, null, null, token);
