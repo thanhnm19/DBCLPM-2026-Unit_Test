@@ -5,20 +5,30 @@ import com.example.schedule_service.model.Schedule;
 import com.example.schedule_service.model.ScheduleParticipant;
 import com.example.schedule_service.repository.ScheduleRepository;
 import com.example.schedule_service.utils.SecurityUtil;
+import com.example.schedule_service.utils.enums.MeetingType;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceContext;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.DisplayNameGeneration;
 import org.junit.jupiter.api.DisplayNameGenerator;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.MockedStatic;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
+import org.springframework.context.annotation.Import;
+import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.boot.test.mock.mockito.SpyBean;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
@@ -27,6 +37,7 @@ import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -37,289 +48,290 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.reset;
+import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
-import static org.mockito.Mockito.spy;
 
-@ExtendWith(MockitoExtension.class)
+/**
+ * Slice JPA (H2) cho {@link ScheduleStatusUpdateService}: repository thật để CheckDB,
+ * mock {@link NotificationProducer}. Các nhánh chỉ khả thi với spy entity giữ ở {@link MessageBuildingSpyCases}.
+ */
+@DataJpaTest
+@Import(ScheduleStatusUpdateService.class)
+@ActiveProfiles("test")
+@Transactional
 @DisplayNameGeneration(DisplayNameGenerator.ReplaceUnderscores.class)
 class ScheduleStatusUpdateServiceTest {
 
-    @Mock
+    @SpyBean
     private ScheduleRepository scheduleRepository;
 
-    @Mock
-    private NotificationProducer notificationProducer;
-
-    @InjectMocks
+    @Autowired
     private ScheduleStatusUpdateService scheduleStatusUpdateService;
 
+    @MockitoBean
+    private NotificationProducer notificationProducer;
+
+    @PersistenceContext
+    private EntityManager entityManager;
+
     @BeforeEach
-    void setUp() {
-        // no-op
+    void resetSpyAndClearDatabase() {
+        reset(scheduleRepository);
+        scheduleRepository.deleteAll();
+    }
+
+    private void flushAndClearPersistenceContext() {
+        entityManager.flush();
+        entityManager.clear();
+    }
+
+    private Schedule reloadScheduleFromDb(Long scheduleId) {
+        return scheduleRepository.findById(scheduleId).orElseThrow();
+    }
+
+    /** Lịch đủ điều kiện {@link ScheduleRepository#findSchedulesToComplete}: SCHEDULED và đã quá endTime. */
+    private Schedule persistScheduleEligibleForCompletion(LocalDateTime endTime) {
+        Schedule schedule = new Schedule();
+        schedule.setTitle("completion-candidate");
+        schedule.setDescription("d");
+        schedule.setFormat("ONLINE");
+        schedule.setMeetingType(MeetingType.INTERVIEW);
+        schedule.setStatus("SCHEDULED");
+        schedule.setLocation("Room");
+        schedule.setStartTime(endTime.minusHours(1));
+        schedule.setEndTime(endTime);
+        schedule.setCreatedById(1L);
+        schedule.setParticipants(new HashSet<>());
+        return scheduleRepository.saveAndFlush(schedule);
+    }
+
+    /** Lịch đủ điều kiện {@link ScheduleRepository#findSchedulesForReminder}: SCHEDULED, reminder chưa gửi, start trong tương lai. */
+    private Schedule persistScheduleEligibleForReminder(
+            LocalDateTime startTime,
+            int reminderMinutes,
+            boolean reminderAlreadySent,
+            Set<ScheduleParticipant> participants) {
+        Schedule schedule = new Schedule();
+        schedule.setTitle("reminder-candidate");
+        schedule.setDescription("d");
+        schedule.setFormat("ONLINE");
+        schedule.setMeetingType(MeetingType.INTERVIEW);
+        schedule.setStatus("SCHEDULED");
+        schedule.setLocation("Room 101");
+        schedule.setStartTime(startTime);
+        schedule.setEndTime(startTime.plusHours(1));
+        schedule.setReminderTime(reminderMinutes);
+        schedule.setReminderSent(reminderAlreadySent);
+        schedule.setParticipants(new HashSet<>());
+        Schedule saved = scheduleRepository.saveAndFlush(schedule);
+        if (participants != null) {
+            for (ScheduleParticipant participant : participants) {
+                participant.setSchedule(saved);
+                saved.getParticipants().add(participant);
+            }
+            return scheduleRepository.saveAndFlush(saved);
+        }
+        return saved;
     }
 
     @Test
-    @DisplayName("SCH-STATUS-TC-001: updateScheduleStatuses - chuyển các schedule cần hoàn tất sang DONE")
-    void testUpdateScheduleStatuses_SCH_STATUS_TC_001() {
-        // Testcase ID: SCH-STATUS-TC-001
-        // Objective: Xác nhận chuyển các schedule cần hoàn tất sang DONE
+    @DisplayName("SCH-STAT-UPD-001: updateScheduleStatuses — đánh dấu DONE và lưu xuống DB")
+    void updateScheduleStatuses_whenSchedulesAreDue_marksDoneAndPersists() {
+        // Test Case ID: SCH-STAT-UPD-001
 
-        // arrange
-        Schedule s1 = new Schedule();
-        s1.setId(1L);
-        s1.setStatus("IN_PROGRESS");
+        // Arrange
+        LocalDateTime now = LocalDateTime.now();
+        Schedule firstDueSchedule = persistScheduleEligibleForCompletion(now.minusMinutes(5));
+        Schedule secondDueSchedule = persistScheduleEligibleForCompletion(now.minusMinutes(1));
 
-        Schedule s2 = new Schedule();
-        s2.setId(2L);
-        s2.setStatus("IN_PROGRESS");
-
-        List<Schedule> toComplete = Arrays.asList(s1, s2);
-
-        when(scheduleRepository.findSchedulesToComplete(any(LocalDateTime.class))).thenReturn(toComplete);
-
-        // act
+        // Act
         scheduleStatusUpdateService.updateScheduleStatuses();
 
-        // assert
-        assertEquals("DONE", s1.getStatus());
-        assertEquals("DONE", s2.getStatus());
-
+        // Assert
         verify(scheduleRepository, times(1)).findSchedulesToComplete(any(LocalDateTime.class));
-        verify(scheduleRepository, times(1)).saveAll(eq(toComplete));
+        verify(scheduleRepository, times(1)).saveAll(anyList());
+
+        // CheckDB
+        flushAndClearPersistenceContext();
+        Schedule reloadedFirst = reloadScheduleFromDb(firstDueSchedule.getId());
+        Schedule reloadedSecond = reloadScheduleFromDb(secondDueSchedule.getId());
+        assertEquals("DONE", reloadedFirst.getStatus(), "CheckDB — schedule 1 status");
+        assertEquals("DONE", reloadedSecond.getStatus(), "CheckDB — schedule 2 status");
     }
 
     @Test
-    @DisplayName("SCH-STATUS-TC-002: updateScheduleStatuses - không save khi không có schedule cần cập nhật")
-    void testUpdateScheduleStatuses_NoSchedules_SCH_STATUS_TC_002() {
-        // Testcase ID: SCH-STATUS-TC-002
-        // Objective: Xác nhận không save khi không có schedule cần cập nhật
+    @DisplayName("SCH-STAT-UPD-002: updateScheduleStatuses — không gọi saveAll khi không có lịch cần hoàn tất")
+    void updateScheduleStatuses_whenNoDueSchedules_doesNotPersist() {
+        // Test Case ID: SCH-STAT-UPD-002
 
-        // arrange
-        when(scheduleRepository.findSchedulesToComplete(any(LocalDateTime.class))).thenReturn(Collections.emptyList());
+        // Arrange
+        Schedule notYetCompletable = persistScheduleEligibleForCompletion(LocalDateTime.now().plusHours(2));
 
-        // act
+        // Act
         scheduleStatusUpdateService.updateScheduleStatuses();
 
-        // assert
+        // Assert
         verify(scheduleRepository, times(1)).findSchedulesToComplete(any(LocalDateTime.class));
         verify(scheduleRepository, never()).saveAll(anyList());
+
+        // CheckDB
+        flushAndClearPersistenceContext();
+        assertEquals("SCHEDULED", reloadScheduleFromDb(notYetCompletable.getId()).getStatus(),
+                "CheckDB — chưa tới endTime nên vẫn SCHEDULED");
     }
 
     @Test
-    @DisplayName("SCH-STATUS-TC-003: updateScheduleStatuses - repository lỗi khi tìm schedule cần update -> ném exception")
-    void testUpdateScheduleStatuses_RepoThrows_SCH_STATUS_TC_003() {
-        // arrange
+    @DisplayName("SCH-STAT-UPD-003: updateScheduleStatuses — lỗi khi query, không save")
+    void updateScheduleStatuses_whenFindThrows_propagatesAndSkipsSave() {
+        // Test Case ID: SCH-STAT-UPD-003
+
+        // Arrange
         doThrow(new RuntimeException("repo-error"))
                 .when(scheduleRepository).findSchedulesToComplete(any(LocalDateTime.class));
 
-        // act + assert
-        RuntimeException ex = assertThrows(RuntimeException.class,
+        // Act
+        RuntimeException thrown = assertThrows(RuntimeException.class,
                 () -> scheduleStatusUpdateService.updateScheduleStatuses());
-        assertEquals("repo-error", ex.getMessage());
 
-        // assert
-        verify(scheduleRepository, times(1)).findSchedulesToComplete(any(LocalDateTime.class));
+        // Assert
+        assertEquals("repo-error", thrown.getMessage());
         verify(scheduleRepository, never()).saveAll(anyList());
+        // CheckDB — không có thay đổi DB khi find ném lỗi (không gọi saveAll)
     }
 
     @Test
-    @DisplayName("SCH-STATUS-TC-004: updateScheduleStatuses - saveAll lỗi -> ném exception")
-    void testUpdateScheduleStatuses_SaveAllThrows_SCH_STATUS_TC_004() {
-        // arrange
-        Schedule s1 = new Schedule();
-        s1.setId(1L);
-        s1.setStatus("IN_PROGRESS");
-        List<Schedule> toComplete = List.of(s1);
+    @DisplayName("SCH-STAT-UPD-004: updateScheduleStatuses — lỗi saveAll vẫn giữ trạng thái cũ trên DB")
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    void updateScheduleStatuses_whenSaveAllThrows_leavesDbUnchanged() {
+        // Test Case ID: SCH-STAT-UPD-004
 
-        when(scheduleRepository.findSchedulesToComplete(any(LocalDateTime.class))).thenReturn(toComplete);
-        doThrow(new RuntimeException("saveAll-error")).when(scheduleRepository).saveAll(eq(toComplete));
+        // Arrange
+        Schedule dueSchedule = persistScheduleEligibleForCompletion(LocalDateTime.now().minusMinutes(1));
+        doThrow(new RuntimeException("saveAll-error"))
+                .when(scheduleRepository).saveAll(anyList());
 
-        // act + assert
-        RuntimeException ex = assertThrows(RuntimeException.class,
+        // Act
+        RuntimeException thrown = assertThrows(RuntimeException.class,
                 () -> scheduleStatusUpdateService.updateScheduleStatuses());
-        assertEquals("saveAll-error", ex.getMessage());
-        // status vẫn đã set trước khi saveAll
-        assertEquals("DONE", s1.getStatus());
 
-        verify(scheduleRepository, times(1)).saveAll(eq(toComplete));
+        // Assert
+        assertEquals("saveAll-error", thrown.getMessage());
+
+        // CheckDB — NOT_SUPPORTED để thấy rollback của transaction trong service, không dùng cùng persistence context với test
+        entityManager.clear();
+        assertEquals("SCHEDULED", reloadScheduleFromDb(dueSchedule.getId()).getStatus(),
+                "CheckDB — rollback khi saveAll lỗi");
     }
 
     @Test
-    @DisplayName("SCH-STATUS-TC-003: sendReminderNotifications - gửi reminder đúng khi đến thời điểm nhắc")
-    void testSendReminderNotifications_SCH_STATUS_TC_003() {
-        // Testcase ID: SCH-STATUS-TC-003
-        // Objective: Xác nhận gửi reminder đúng khi đến thời điểm nhắc
+    @DisplayName("SCH-STAT-UPD-005: sendReminderNotifications — gửi Kafka và cập nhật reminderSent trên DB")
+    void sendReminderNotifications_whenDue_sendsNotificationAndPersistsFlag() {
+        // Test Case ID: SCH-STAT-UPD-005
 
-        // arrange
-        LocalDateTime startTime = LocalDateTime.now().plusMinutes(2); // reminderTime=2 => reminderTimeMoment ~= now
-        Integer reminderMinutes = 2;
-
-        Schedule schedule = new Schedule();
-        schedule.setId(11L);
-        schedule.setTitle("Interview");
-        schedule.setLocation("Room 101");
-        schedule.setStartTime(startTime);
-        schedule.setReminderTime(reminderMinutes);
-        schedule.setReminderSent(false);
-
-        ScheduleParticipant userParticipant = new ScheduleParticipant();
-        userParticipant.setParticipantType("USER");
-        userParticipant.setParticipantId(9001L);
-
-        Set<ScheduleParticipant> participants = new HashSet<>();
-        participants.add(userParticipant);
-        schedule.setParticipants(participants);
-
-        when(scheduleRepository.findSchedulesForReminder(any(LocalDateTime.class)))
-                .thenReturn(Collections.singletonList(schedule));
+        // Arrange
+        LocalDateTime interviewStart = LocalDateTime.now().plusMinutes(2);
+        int reminderLeadMinutes = 2;
+        ScheduleParticipant interviewer = new ScheduleParticipant();
+        interviewer.setParticipantType("USER");
+        interviewer.setParticipantId(9001L);
+        Schedule persistedSchedule = persistScheduleEligibleForReminder(
+                interviewStart, reminderLeadMinutes, false, Set.of(interviewer));
 
         try (MockedStatic<SecurityUtil> mockedSecurity = org.mockito.Mockito.mockStatic(SecurityUtil.class)) {
             mockedSecurity.when(SecurityUtil::getCurrentUserJWT).thenReturn(Optional.of("jwt-token"));
 
-            // act
+            // Act
             scheduleStatusUpdateService.sendReminderNotifications();
 
-            // assert
-            assertEquals(Boolean.TRUE, schedule.getReminderSent());
-
-            @SuppressWarnings("unchecked")
-            ArgumentCaptor<List<Long>> idsCaptor = (ArgumentCaptor<List<Long>>) (ArgumentCaptor<?>) ArgumentCaptor
-                    .forClass(List.class);
-            ArgumentCaptor<String> titleCaptor = ArgumentCaptor.forClass(String.class);
+            // Assert
             ArgumentCaptor<String> messageCaptor = ArgumentCaptor.forClass(String.class);
-
             verify(notificationProducer, times(1)).sendNotificationToMultiple(
-                    idsCaptor.capture(),
-                    titleCaptor.capture(),
+                    eq(List.of(9001L)),
+                    eq("Nhắc nhở lịch hẹn"),
                     messageCaptor.capture(),
-                    anyString());
-
-            List<Long> capturedIds = idsCaptor.getValue();
-            assertNotNull(capturedIds);
-            assertEquals(1, capturedIds.size());
-            assertEquals(9001L, capturedIds.get(0));
-
-            assertEquals("Nhắc nhở lịch hẹn", titleCaptor.getValue());
-
-            String msg = messageCaptor.getValue();
-            assertNotNull(msg);
-            assertTrue(msg.contains("Bạn có lịch hẹn"));
-            assertTrue(msg.contains("Interview"));
-            assertTrue(msg.contains("Room 101"));
-            assertTrue(msg.contains(reminderMinutes.toString()));
-
-            verify(scheduleRepository, times(1)).saveAll(eq(Collections.singletonList(schedule)));
+                    eq("jwt-token"));
+            String composedMessage = messageCaptor.getValue();
+            assertNotNull(composedMessage);
+            assertTrue(composedMessage.contains("Bạn có lịch hẹn"));
+            assertTrue(composedMessage.contains("reminder-candidate"));
+            assertTrue(composedMessage.contains("Room 101"));
+            assertTrue(composedMessage.contains(Integer.toString(reminderLeadMinutes)));
         }
+
+        // CheckDB
+        flushAndClearPersistenceContext();
+        assertTrue(Boolean.TRUE.equals(reloadScheduleFromDb(persistedSchedule.getId()).getReminderSent()),
+                "CheckDB — reminderSent sau khi gửi");
     }
 
     @Test
-    @DisplayName("SCH-STATUS-TC-004: sendReminderNotifications - kết thúc sớm khi không có schedule cần reminder")
-    void testSendReminderNotifications_NoPotentialReminders_SCH_STATUS_TC_004() {
-        // Testcase ID: SCH-STATUS-TC-004
-        // Objective: Xác nhận kết thúc sớm khi không có schedule cần reminder
+    @DisplayName("SCH-STAT-UPD-006: sendReminderNotifications — không có lịch reminder thì thoát sớm")
+    void sendReminderNotifications_whenRepositoryReturnsEmpty_doesNotNotifyOrSave() {
+        // Test Case ID: SCH-STAT-UPD-006
 
-        // arrange
-        when(scheduleRepository.findSchedulesForReminder(any(LocalDateTime.class))).thenReturn(Collections.emptyList());
+        // Arrange
+        // không insert bản ghi thỏa query reminder
 
-        // act
+        // Act
         scheduleStatusUpdateService.sendReminderNotifications();
 
-        // assert
-        verify(scheduleRepository, times(1)).findSchedulesForReminder(any(LocalDateTime.class));
+        // Assert
         verify(notificationProducer, never()).sendNotificationToMultiple(anyList(), anyString(), anyString(), any());
         verify(scheduleRepository, never()).saveAll(anyList());
     }
 
     @Test
-    @DisplayName("SCH-STATUS-TC-005: sendReminderNotifications - vẫn set reminderSent khi không có người nhận reminder")
-    void testSendReminderNotifications_NoUserParticipants_SCH_STATUS_TC_005() {
-        // Testcase ID: SCH-STATUS-TC-005
-        // Objective: Xác nhận vẫn set reminderSent=true dù không có người nhận reminder
+    @DisplayName("SCH-STAT-UPD-007: sendReminderNotifications — chỉ CANDIDATE: không gửi nhưng vẫn lưu reminderSent")
+    void sendReminderNotifications_whenOnlyCandidateParticipants_skipsKafkaButSetsFlagInDb() {
+        // Test Case ID: SCH-STAT-UPD-007
 
-        // arrange
-        LocalDateTime startTime = LocalDateTime.now().plusMinutes(1); // reminderTime=1 => reminder moment ~= now
-        Integer reminderMinutes = 1;
-
-        Schedule schedule = new Schedule();
-        schedule.setId(22L);
-        schedule.setTitle("No User");
-        schedule.setStartTime(startTime);
-        schedule.setReminderTime(reminderMinutes);
-        schedule.setReminderSent(false);
-
-        // participants only CANDIDATE (no USER)
-        ScheduleParticipant candidate = new ScheduleParticipant();
-        candidate.setParticipantType("CANDIDATE");
-        candidate.setParticipantId(7001L);
-
-        Set<ScheduleParticipant> participants = new HashSet<>();
-        participants.add(candidate);
-        schedule.setParticipants(participants);
-
-        when(scheduleRepository.findSchedulesForReminder(any(LocalDateTime.class)))
-                .thenReturn(Collections.singletonList(schedule));
+        // Arrange
+        LocalDateTime startTime = LocalDateTime.now().plusMinutes(1);
+        ScheduleParticipant candidateOnly = new ScheduleParticipant();
+        candidateOnly.setParticipantType("CANDIDATE");
+        candidateOnly.setParticipantId(7001L);
+        Schedule persistedSchedule = persistScheduleEligibleForReminder(
+                startTime, 1, false, Set.of(candidateOnly));
 
         try (MockedStatic<SecurityUtil> mockedSecurity = org.mockito.Mockito.mockStatic(SecurityUtil.class)) {
             mockedSecurity.when(SecurityUtil::getCurrentUserJWT).thenReturn(Optional.empty());
 
-            // act
+            // Act
             scheduleStatusUpdateService.sendReminderNotifications();
 
-            // assert
-            assertEquals(Boolean.TRUE, schedule.getReminderSent());
-
+            // Assert
             verify(notificationProducer, never()).sendNotificationToMultiple(anyList(), anyString(), anyString(),
                     any());
-            verify(scheduleRepository, times(1)).saveAll(eq(Collections.singletonList(schedule)));
         }
+
+        // CheckDB
+        flushAndClearPersistenceContext();
+        assertTrue(Boolean.TRUE.equals(reloadScheduleFromDb(persistedSchedule.getId()).getReminderSent()),
+                "CheckDB — vẫn đánh dấu đã xử lý reminder");
     }
 
     @Test
-    @DisplayName("SCH-STATUS-TC-006: sendReminderNotifications - lỗi gửi một schedule không làm crash toàn bộ job")
-    void testSendReminderNotifications_ProducerErrorDoesNotCrash_SCH_STATUS_TC_006() {
-        // Testcase ID: SCH-STATUS-TC-006
-        // Objective: Xác nhận một schedule lỗi gửi reminder không làm crash toàn bộ job
+    @DisplayName("SCH-STAT-UPD-008: sendReminderNotifications — một lịch lỗi producer không chặn lịch khác")
+    void sendReminderNotifications_whenOneProducerCallFails_continuesAndPersistsBoth() {
+        // Test Case ID: SCH-STAT-UPD-008
 
-        // arrange
-        LocalDateTime startTime1 = LocalDateTime.now().plusMinutes(2);
-        LocalDateTime startTime2 = LocalDateTime.now().plusMinutes(2);
+        // Arrange
+        LocalDateTime sharedStart = LocalDateTime.now().plusMinutes(2);
+        ScheduleParticipant userOnFailingSchedule = new ScheduleParticipant();
+        userOnFailingSchedule.setParticipantType("USER");
+        userOnFailingSchedule.setParticipantId(1L);
+        Schedule failingSchedule = persistScheduleEligibleForReminder(
+                sharedStart, 2, false, Set.of(userOnFailingSchedule));
 
-        Schedule scheduleFail = new Schedule();
-        scheduleFail.setId(101L);
-        scheduleFail.setTitle("Will Fail");
-        scheduleFail.setLocation("L1");
-        scheduleFail.setStartTime(startTime1);
-        scheduleFail.setReminderTime(2);
-        scheduleFail.setReminderSent(false);
+        ScheduleParticipant userOnSuccessSchedule = new ScheduleParticipant();
+        userOnSuccessSchedule.setParticipantType("USER");
+        userOnSuccessSchedule.setParticipantId(2L);
+        Schedule successSchedule = persistScheduleEligibleForReminder(
+                sharedStart, 2, false, Set.of(userOnSuccessSchedule));
 
-        ScheduleParticipant user1 = new ScheduleParticipant();
-        user1.setParticipantType("USER");
-        user1.setParticipantId(1L);
-        Set<ScheduleParticipant> failParticipants = new HashSet<>();
-        failParticipants.add(user1);
-        scheduleFail.setParticipants(failParticipants);
-
-        Schedule scheduleOk = new Schedule();
-        scheduleOk.setId(102L);
-        scheduleOk.setTitle("Will Pass");
-        scheduleOk.setLocation("L2");
-        scheduleOk.setStartTime(startTime2);
-        scheduleOk.setReminderTime(2);
-        scheduleOk.setReminderSent(false);
-
-        ScheduleParticipant user2 = new ScheduleParticipant();
-        user2.setParticipantType("USER");
-        user2.setParticipantId(2L);
-        Set<ScheduleParticipant> okParticipants = new HashSet<>();
-        okParticipants.add(user2);
-        scheduleOk.setParticipants(okParticipants);
-
-        when(scheduleRepository.findSchedulesForReminder(any(LocalDateTime.class)))
-                .thenReturn(Arrays.asList(scheduleFail, scheduleOk));
-
-        // fail only when sending to participantId = 1L
         doThrow(new RuntimeException("Producer error"))
                 .when(notificationProducer)
                 .sendNotificationToMultiple(eq(Collections.singletonList(1L)), anyString(), anyString(), any());
@@ -327,298 +339,340 @@ class ScheduleStatusUpdateServiceTest {
         try (MockedStatic<SecurityUtil> mockedSecurity = org.mockito.Mockito.mockStatic(SecurityUtil.class)) {
             mockedSecurity.when(SecurityUtil::getCurrentUserJWT).thenReturn(Optional.of("jwt"));
 
-            // act + assert (must not throw)
+            // Act
             assertDoesNotThrow(() -> scheduleStatusUpdateService.sendReminderNotifications());
 
-            // scheduleFail: exception path => reminderSent should remain false (source code
-            // sets true only after successful send)
-            assertEquals(Boolean.FALSE, scheduleFail.getReminderSent());
-
-            // scheduleOk: should be processed normally
-            assertEquals(Boolean.TRUE, scheduleOk.getReminderSent());
-
+            // Assert
             verify(notificationProducer, times(1))
                     .sendNotificationToMultiple(eq(Collections.singletonList(1L)), anyString(), anyString(), any());
-
             verify(notificationProducer, times(1))
                     .sendNotificationToMultiple(eq(Collections.singletonList(2L)), anyString(), anyString(), any());
-
-            // saveAll should be called with both schedules in schedulesToRemind
-            @SuppressWarnings("unchecked")
-            ArgumentCaptor<List<Schedule>> saveCaptor = (ArgumentCaptor<List<Schedule>>) (ArgumentCaptor<?>) ArgumentCaptor
-                    .forClass(List.class);
-            verify(scheduleRepository, times(1)).saveAll(saveCaptor.capture());
-
-            List<Schedule> saved = saveCaptor.getValue();
-            assertNotNull(saved);
-            assertEquals(2, saved.size());
         }
+
+        // CheckDB
+        flushAndClearPersistenceContext();
+        assertFalse(Boolean.TRUE.equals(reloadScheduleFromDb(failingSchedule.getId()).getReminderSent()),
+                "CheckDB — lịch lỗi gửi vẫn chưa reminderSent");
+        assertTrue(Boolean.TRUE.equals(reloadScheduleFromDb(successSchedule.getId()).getReminderSent()),
+                "CheckDB — lịch thành công đã reminderSent");
     }
 
     @Test
-    @DisplayName("SCH-STATUS-TC-007: sendReminderNotifications - bỏ qua schedule thiếu startTime/reminderTime và không saveAll nếu không có cái nào đến giờ")
-    void testSendReminderNotifications_SkipInvalidAndNoDue_RemainsNoSave_SCH_STATUS_TC_007() {
-        // Testcase ID: SCH-STATUS-TC-007
-        // Objective: Cover nhánh continue khi thiếu startTime/reminderTime + nhánh
-        // schedulesToRemind empty => return sớm
+    @DisplayName("SCH-STAT-UPD-009: sendReminderNotifications — bỏ qua bản ghi không hợp lệ / chưa tới giờ (stub query)")
+    void sendReminderNotifications_whenStubbedListHasOnlyInvalidOrNotDue_skipsSave() {
+        // Test Case ID: SCH-STAT-UPD-009
 
-        // arrange
-        Schedule missingStart = new Schedule();
-        missingStart.setId(1L);
-        missingStart.setReminderTime(10);
-        missingStart.setStartTime(null);
+        // Arrange
+        Schedule missingStartTime = new Schedule();
+        missingStartTime.setId(1L);
+        missingStartTime.setReminderTime(10);
+        missingStartTime.setStartTime(null);
 
-        Schedule missingReminder = new Schedule();
-        missingReminder.setId(2L);
-        missingReminder.setStartTime(LocalDateTime.now().plusHours(1));
-        missingReminder.setReminderTime(null);
+        Schedule missingReminderMinutes = new Schedule();
+        missingReminderMinutes.setId(2L);
+        missingReminderMinutes.setStartTime(LocalDateTime.now().plusHours(1));
+        missingReminderMinutes.setReminderTime(null);
 
-        Schedule notDue = new Schedule();
-        notDue.setId(3L);
-        notDue.setStartTime(LocalDateTime.now().plusHours(2));
-        notDue.setReminderTime(10);
-        notDue.setParticipants(new HashSet<>());
+        Schedule notYetDue = new Schedule();
+        notYetDue.setId(3L);
+        notYetDue.setStartTime(LocalDateTime.now().plusHours(2));
+        notYetDue.setReminderTime(10);
+        notYetDue.setParticipants(new HashSet<>());
 
-        when(scheduleRepository.findSchedulesForReminder(any(LocalDateTime.class)))
-                .thenReturn(List.of(missingStart, missingReminder, notDue));
+        doReturn(List.of(missingStartTime, missingReminderMinutes, notYetDue))
+                .when(scheduleRepository).findSchedulesForReminder(any(LocalDateTime.class));
 
-        // act
+        // Act
         scheduleStatusUpdateService.sendReminderNotifications();
 
-        // assert
+        // Assert
         verify(notificationProducer, never()).sendNotificationToMultiple(anyList(), anyString(), anyString(), any());
         verify(scheduleRepository, never()).saveAll(anyList());
+
+        // CheckDB — không tạo thêm dòng từ stub (ID giả)
+        flushAndClearPersistenceContext();
+        assertEquals(0L, scheduleRepository.count(), "CheckDB — không persist entity stub");
     }
 
     @Test
-    @DisplayName("SCH-STATUS-TC-008: sendReminderNotifications - participants null -> không gửi, vẫn set reminderSent=true và saveAll")
-    void testSendReminderNotifications_NullParticipants_SetReminderSent_SaveAll_SCH_STATUS_TC_008() {
-        // Testcase ID: SCH-STATUS-TC-008
-        // Objective: Cover nhánh participantIds empty do participants null => set
-        // reminderSent=true
+    @DisplayName("SCH-STAT-UPD-011: sendReminderNotifications — participants rỗng: không gửi, lưu flag")
+    void sendReminderNotifications_whenParticipantsEmpty_setsFlagWithoutKafka() {
+        // Test Case ID: SCH-STAT-UPD-011
 
-        // arrange
-        Schedule schedule = new Schedule();
-        schedule.setId(10L);
-        schedule.setTitle("Null participants");
-        schedule.setStartTime(LocalDateTime.now().plusMinutes(1));
-        schedule.setReminderTime(1);
-        schedule.setReminderSent(false);
-        schedule.setParticipants(null);
+        // Arrange
+        Schedule persistedSchedule = persistScheduleEligibleForReminder(
+                LocalDateTime.now().plusMinutes(1), 1, false, Collections.emptySet());
 
-        when(scheduleRepository.findSchedulesForReminder(any(LocalDateTime.class)))
-                .thenReturn(Collections.singletonList(schedule));
-
-        try (MockedStatic<SecurityUtil> mockedSecurity = org.mockito.Mockito.mockStatic(SecurityUtil.class)) {
-            mockedSecurity.when(SecurityUtil::getCurrentUserJWT).thenReturn(Optional.empty());
-
-            // act
-            scheduleStatusUpdateService.sendReminderNotifications();
-
-            // assert
-            assertEquals(Boolean.TRUE, schedule.getReminderSent());
-            verify(notificationProducer, never()).sendNotificationToMultiple(anyList(), anyString(), anyString(),
-                    any());
-            verify(scheduleRepository, times(1)).saveAll(eq(Collections.singletonList(schedule)));
-        }
-    }
-
-    @Test
-    @DisplayName("SCH-STATUS-TC-009: sendReminderNotifications - participants rỗng -> reminderSent=true, không gửi notification")
-    void testSendReminderNotifications_EmptyParticipants_SetReminderSent_NoNotification_SCH_STATUS_TC_009() {
-        // arrange: schedule đến giờ reminder
-        Schedule schedule = new Schedule();
-        schedule.setId(12L);
-        schedule.setTitle("Empty participants");
-        schedule.setStartTime(LocalDateTime.now().plusMinutes(1));
-        schedule.setReminderTime(1);
-        schedule.setReminderSent(false);
-        schedule.setParticipants(new HashSet<>());
-
-        when(scheduleRepository.findSchedulesForReminder(any(LocalDateTime.class)))
-                .thenReturn(Collections.singletonList(schedule));
-
-        // act
+        // Act
         scheduleStatusUpdateService.sendReminderNotifications();
 
-        // assert
-        assertEquals(Boolean.TRUE, schedule.getReminderSent());
+        // Assert
         verify(notificationProducer, never()).sendNotificationToMultiple(anyList(), anyString(), anyString(), any());
-        verify(scheduleRepository, times(1)).saveAll(eq(Collections.singletonList(schedule)));
+
+        // CheckDB
+        flushAndClearPersistenceContext();
+        assertTrue(Boolean.TRUE.equals(reloadScheduleFromDb(persistedSchedule.getId()).getReminderSent()));
     }
 
     @Test
-    @DisplayName("SCH-STATUS-TC-010: sendReminderNotifications - USER participant nhưng participantId null -> treated as no receivers")
-    void testSendReminderNotifications_UserParticipantIdNull_NoReceivers_SCH_STATUS_TC_010() {
-        // arrange
-        Schedule schedule = new Schedule();
-        schedule.setId(13L);
-        schedule.setTitle("Null participantId");
-        schedule.setStartTime(LocalDateTime.now().plusMinutes(1));
-        schedule.setReminderTime(1);
-        schedule.setReminderSent(false);
+    @DisplayName("SCH-STAT-UPD-012: USER participantId null — coi như không có người nhận")
+    void sendReminderNotifications_whenUserIdNull_setsFlagWithoutKafka() {
+        // Test Case ID: SCH-STAT-UPD-012
 
-        ScheduleParticipant userNullId = new ScheduleParticipant();
-        userNullId.setParticipantType("USER");
-        userNullId.setParticipantId(null);
+        // Arrange
+        ScheduleParticipant userWithNullId = new ScheduleParticipant();
+        userWithNullId.setParticipantType("USER");
+        userWithNullId.setParticipantId(null);
+        Schedule persistedSchedule = persistScheduleEligibleForReminder(
+                LocalDateTime.now().plusMinutes(1), 1, false, Set.of(userWithNullId));
 
-        schedule.setParticipants(new HashSet<>(Set.of(userNullId)));
-
-        when(scheduleRepository.findSchedulesForReminder(any(LocalDateTime.class)))
-                .thenReturn(Collections.singletonList(schedule));
-
-        // act
+        // Act
         scheduleStatusUpdateService.sendReminderNotifications();
 
-        // assert
-        assertEquals(Boolean.TRUE, schedule.getReminderSent());
+        // Assert
         verify(notificationProducer, never()).sendNotificationToMultiple(anyList(), anyString(), anyString(), any());
-        verify(scheduleRepository, times(1)).saveAll(eq(Collections.singletonList(schedule)));
+
+        // CheckDB
+        flushAndClearPersistenceContext();
+        assertTrue(Boolean.TRUE.equals(reloadScheduleFromDb(persistedSchedule.getId()).getReminderSent()));
     }
 
     @Test
-    @DisplayName("SCH-STATUS-TC-011: sendReminderNotifications - message build khi title/location null (cover nhánh if false)")
-    void testSendReminderNotifications_MessageBuild_TitleNull_LocationNull_SCH_STATUS_TC_011() {
-        // arrange: dùng spy để cover nhánh reminderTime null ở phần build message
-        // (lần gọi đầu cho filter: non-null, lần gọi sau khi build message: null)
-        Schedule schedule = spy(new Schedule());
-        schedule.setId(14L);
-        schedule.setTitle(null);
-        schedule.setLocation(null);
-        schedule.setReminderSent(false);
+    @DisplayName("SCH-STAT-UPD-013: sendReminderNotifications — title/location null vẫn gửi message tối giản")
+    void sendReminderNotifications_whenTitleAndLocationNull_stillNotifiesWithCoreMessage() {
+        // Test Case ID: SCH-STAT-UPD-013
 
+        // Arrange
         LocalDateTime startTime = LocalDateTime.now().plusMinutes(1);
-        // ensure due: now ~ startTime - 1min
-        doReturn(startTime).when(schedule).getStartTime();
-        doReturn(1, 1, null).when(schedule).getReminderTime();
-
         ScheduleParticipant user = new ScheduleParticipant();
         user.setParticipantType("USER");
         user.setParticipantId(55L);
-        schedule.setParticipants(new HashSet<>(Set.of(user)));
-
-        when(scheduleRepository.findSchedulesForReminder(any(LocalDateTime.class)))
-                .thenReturn(Collections.singletonList(schedule));
+        Schedule persistedSchedule = persistScheduleEligibleForReminder(startTime, 1, false, Set.of(user));
+        persistedSchedule.setTitle(null);
+        persistedSchedule.setLocation(null);
+        persistedSchedule = scheduleRepository.saveAndFlush(persistedSchedule);
 
         try (MockedStatic<SecurityUtil> mockedSecurity = org.mockito.Mockito.mockStatic(SecurityUtil.class)) {
             mockedSecurity.when(SecurityUtil::getCurrentUserJWT).thenReturn(Optional.of("jwt"));
 
-            // act
+            // Act
             scheduleStatusUpdateService.sendReminderNotifications();
 
-            // assert: vẫn gửi notification, message không chứa title/location/reminderTime suffix
+            // Assert
             ArgumentCaptor<String> messageCaptor = ArgumentCaptor.forClass(String.class);
             verify(notificationProducer, times(1)).sendNotificationToMultiple(
                     eq(Collections.singletonList(55L)),
                     eq("Nhắc nhở lịch hẹn"),
                     messageCaptor.capture(),
                     eq("jwt"));
-            String msg = messageCaptor.getValue();
-            assertTrue(msg.startsWith("Bạn có lịch hẹn: "));
-            assertTrue(msg.contains(" vào ")); // startTime vẫn được append
-            verify(scheduleRepository, times(1)).saveAll(eq(Collections.singletonList(schedule)));
+            String composed = messageCaptor.getValue();
+            assertTrue(composed.startsWith("Bạn có lịch hẹn: "));
+            assertTrue(composed.contains(" vào "));
         }
+
+        // CheckDB
+        flushAndClearPersistenceContext();
+        assertTrue(Boolean.TRUE.equals(reloadScheduleFromDb(persistedSchedule.getId()).getReminderSent()));
     }
 
     @Test
-    @DisplayName("SCH-STATUS-TC-012: sendReminderNotifications - saveAll lỗi sau khi gửi reminder -> ném exception")
-    void testSendReminderNotifications_SaveAllThrows_AfterSend_SCH_STATUS_TC_012() {
-        // arrange
-        LocalDateTime startTime = LocalDateTime.now().plusMinutes(1);
-        Schedule schedule = new Schedule();
-        schedule.setId(15L);
-        schedule.setTitle("SaveAll fail");
-        schedule.setStartTime(startTime);
-        schedule.setReminderTime(1);
-        schedule.setReminderSent(false);
+    @DisplayName("SCH-STAT-UPD-014: sendReminderNotifications — saveAll lỗi sau khi gửi")
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    void sendReminderNotifications_whenSaveAllFailsAfterSend_propagates() {
+        // Test Case ID: SCH-STAT-UPD-014
 
+        // Arrange
+        LocalDateTime startTime = LocalDateTime.now().plusMinutes(1);
         ScheduleParticipant user = new ScheduleParticipant();
         user.setParticipantType("USER");
         user.setParticipantId(99L);
-        schedule.setParticipants(new HashSet<>(Set.of(user)));
-
-        when(scheduleRepository.findSchedulesForReminder(any(LocalDateTime.class)))
-                .thenReturn(Collections.singletonList(schedule));
+        Schedule persistedSchedule = persistScheduleEligibleForReminder(startTime, 1, false, Set.of(user));
         doThrow(new RuntimeException("saveAll-error"))
-                .when(scheduleRepository).saveAll(eq(Collections.singletonList(schedule)));
+                .when(scheduleRepository).saveAll(anyList());
 
         try (MockedStatic<SecurityUtil> mockedSecurity = org.mockito.Mockito.mockStatic(SecurityUtil.class)) {
             mockedSecurity.when(SecurityUtil::getCurrentUserJWT).thenReturn(Optional.of("jwt"));
 
-            // act + assert (saveAll ngoài try-catch => propagate)
-            RuntimeException ex = assertThrows(RuntimeException.class,
+            // Act
+            RuntimeException thrown = assertThrows(RuntimeException.class,
                     () -> scheduleStatusUpdateService.sendReminderNotifications());
-            assertEquals("saveAll-error", ex.getMessage());
 
-            // notification đã được gửi trước khi saveAll fail
+            // Assert
+            assertEquals("saveAll-error", thrown.getMessage());
             verify(notificationProducer, times(1))
                     .sendNotificationToMultiple(eq(Collections.singletonList(99L)), anyString(), anyString(), any());
         }
+
+        // CheckDB — NOT_SUPPORTED để đọc trạng thái sau rollback của transaction service
+        entityManager.clear();
+        assertFalse(Boolean.TRUE.equals(reloadScheduleFromDb(persistedSchedule.getId()).getReminderSent()),
+                "CheckDB — không commit reminderSent khi saveAll lỗi");
     }
 
     @Test
-    @DisplayName("SCH-STATUS-TC-013: sendReminderNotifications - minutesUntilReminder < -1 -> không add vào schedulesToRemind")
-    void testSendReminderNotifications_MinutesUntilReminderLessThanMinus1_NotDue_SCH_STATUS_TC_013() {
-        // arrange: reminderTimeMoment đã qua lâu hơn 1 phút => minutesUntilReminder < -1
-        Schedule schedule = new Schedule();
-        schedule.setId(16L);
-        schedule.setStartTime(LocalDateTime.now().minusMinutes(10));
-        schedule.setReminderTime(1);
-        schedule.setReminderSent(false);
-        schedule.setParticipants(new HashSet<>());
+    @DisplayName("SCH-STAT-UPD-015: sendReminderNotifications — đã quá cửa sổ reminder (>1 phút) thì không lưu")
+    void sendReminderNotifications_whenReminderWindowPassed_doesNotMarkSent() {
+        // Test Case ID: SCH-STAT-UPD-015
 
-        when(scheduleRepository.findSchedulesForReminder(any(LocalDateTime.class)))
-                .thenReturn(Collections.singletonList(schedule));
+        // Arrange
+        // startTime trong tương lai (để query trả về) nhưng (start - reminder) << now − 1 phút
+        LocalDateTime futureStart = LocalDateTime.now().plusMinutes(5);
+        int reminderLeadMinutes = 10;
+        Schedule persistedSchedule = persistScheduleEligibleForReminder(
+                futureStart, reminderLeadMinutes, false, Collections.emptySet());
 
-        // act
+        // Act
         scheduleStatusUpdateService.sendReminderNotifications();
 
-        // assert: potentialReminders có nhưng không đến giờ reminder => return sớm, không saveAll
+        // Assert
         verify(notificationProducer, never()).sendNotificationToMultiple(anyList(), anyString(), anyString(), any());
         verify(scheduleRepository, never()).saveAll(anyList());
-        assertEquals(Boolean.FALSE, schedule.getReminderSent());
+
+        // CheckDB
+        flushAndClearPersistenceContext();
+        assertFalse(Boolean.TRUE.equals(reloadScheduleFromDb(persistedSchedule.getId()).getReminderSent()));
     }
 
-    @Test
-    @DisplayName("SCH-STATUS-TC-014: sendReminderNotifications - startTime null ở bước build message (cover nhánh if startTime == null)")
-    void testSendReminderNotifications_StartTimeNullDuringMessageBuild_SCH_STATUS_TC_014() {
-        // arrange: spy để startTime non-null ở bước filter, nhưng null khi build message
-        Schedule schedule = spy(new Schedule());
-        schedule.setId(17L);
-        schedule.setTitle("No startTime in message");
-        schedule.setLocation("L");
-        schedule.setReminderSent(false);
+    /**
+     * Các nhánh chỉ khả thi khi {@link Schedule#getReminderTime()} / {@link Schedule#getStartTime()} trả về khác
+     * nhau giữa các lần gọi (không thể với entity JPA thường) — giữ mock thuần để cover nhánh defensively.
+     */
+    @Nested
+    @DisplayName("Message building — spy edge cases (không CheckDB)")
+    @ExtendWith(MockitoExtension.class)
+    class MessageBuildingSpyCases {
 
-        LocalDateTime startTime = LocalDateTime.now().plusMinutes(1);
-        doReturn(startTime, startTime, null).when(schedule).getStartTime();
-        doReturn(1).when(schedule).getReminderTime();
+        @Mock
+        private ScheduleRepository mockScheduleRepository;
 
-        ScheduleParticipant user = new ScheduleParticipant();
-        user.setParticipantType("USER");
-        user.setParticipantId(100L);
-        schedule.setParticipants(new HashSet<>(Set.of(user)));
+        @Mock
+        private NotificationProducer mockNotificationProducer;
 
-        when(scheduleRepository.findSchedulesForReminder(any(LocalDateTime.class)))
-                .thenReturn(Collections.singletonList(schedule));
+        private ScheduleStatusUpdateService scheduleStatusUpdateServiceUnderTest;
 
-        try (MockedStatic<SecurityUtil> mockedSecurity = org.mockito.Mockito.mockStatic(SecurityUtil.class)) {
-            mockedSecurity.when(SecurityUtil::getCurrentUserJWT).thenReturn(Optional.of("jwt"));
+        @BeforeEach
+        void createServiceWithMocks() {
+            scheduleStatusUpdateServiceUnderTest = new ScheduleStatusUpdateService(
+                    mockScheduleRepository, mockNotificationProducer);
+        }
 
-            // act
-            scheduleStatusUpdateService.sendReminderNotifications();
+        @Test
+        @DisplayName("SCH-STAT-UPD-010: participants null — không Kafka, vẫn saveAll (mock repo)")
+        void sendReminderNotifications_whenParticipantsNull_setsFlagWithoutKafka() {
+            // Test Case ID: SCH-STAT-UPD-010
 
-            // assert: message không có " vào " vì nhánh startTime==null
-            ArgumentCaptor<String> msgCaptor = ArgumentCaptor.forClass(String.class);
-            verify(notificationProducer, times(1)).sendNotificationToMultiple(
-                    eq(Collections.singletonList(100L)),
-                    eq("Nhắc nhở lịch hẹn"),
-                    msgCaptor.capture(),
-                    eq("jwt"));
-            String msg = msgCaptor.getValue();
-            assertTrue(msg.contains("Bạn có lịch hẹn: "));
-            assertTrue(!msg.contains(" vào "));
-            assertEquals(Boolean.TRUE, schedule.getReminderSent());
-            verify(scheduleRepository, times(1)).saveAll(eq(Collections.singletonList(schedule)));
+            // Arrange — JPA không cho participants=null an toàn (orphanRemoval); dùng mock như nguồn findSchedulesForReminder
+            Schedule scheduleWithNullParticipants = new Schedule();
+            scheduleWithNullParticipants.setId(10L);
+            scheduleWithNullParticipants.setTitle("Null participants");
+            scheduleWithNullParticipants.setStatus("SCHEDULED");
+            scheduleWithNullParticipants.setStartTime(LocalDateTime.now().plusMinutes(1));
+            scheduleWithNullParticipants.setReminderTime(1);
+            scheduleWithNullParticipants.setReminderSent(false);
+            scheduleWithNullParticipants.setParticipants(null);
+
+            when(mockScheduleRepository.findSchedulesForReminder(any(LocalDateTime.class)))
+                    .thenReturn(Collections.singletonList(scheduleWithNullParticipants));
+
+            try (MockedStatic<SecurityUtil> mockedSecurity = org.mockito.Mockito.mockStatic(SecurityUtil.class)) {
+                mockedSecurity.when(SecurityUtil::getCurrentUserJWT).thenReturn(Optional.empty());
+
+                // Act
+                scheduleStatusUpdateServiceUnderTest.sendReminderNotifications();
+
+                // Assert
+                verify(mockNotificationProducer, never()).sendNotificationToMultiple(
+                        anyList(), anyString(), anyString(), any());
+                assertTrue(Boolean.TRUE.equals(scheduleWithNullParticipants.getReminderSent()));
+                verify(mockScheduleRepository, times(1)).saveAll(eq(Collections.singletonList(scheduleWithNullParticipants)));
+            }
+        }
+
+        @Test
+        @DisplayName("SCH-STAT-UPD-016: reminderTime null khi build message (spy)")
+        void sendReminderNotifications_whenReminderTimeBecomesNullWhileBuilding_omitsMinutesSuffix() {
+            // Test Case ID: SCH-STAT-UPD-016
+
+            // Arrange
+            Schedule scheduleSpy = spy(new Schedule());
+            scheduleSpy.setId(14L);
+            scheduleSpy.setTitle(null);
+            scheduleSpy.setLocation(null);
+            scheduleSpy.setReminderSent(false);
+            LocalDateTime startTime = LocalDateTime.now().plusMinutes(1);
+            doReturn(startTime).when(scheduleSpy).getStartTime();
+            doReturn(1, 1, (Integer) null).when(scheduleSpy).getReminderTime();
+
+            ScheduleParticipant user = new ScheduleParticipant();
+            user.setParticipantType("USER");
+            user.setParticipantId(55L);
+            scheduleSpy.setParticipants(new HashSet<>(Set.of(user)));
+
+            when(mockScheduleRepository.findSchedulesForReminder(any(LocalDateTime.class)))
+                    .thenReturn(Collections.singletonList(scheduleSpy));
+
+            try (MockedStatic<SecurityUtil> mockedSecurity = org.mockito.Mockito.mockStatic(SecurityUtil.class)) {
+                mockedSecurity.when(SecurityUtil::getCurrentUserJWT).thenReturn(Optional.of("jwt"));
+
+                // Act
+                scheduleStatusUpdateServiceUnderTest.sendReminderNotifications();
+
+                // Assert
+                ArgumentCaptor<String> messageCaptor = ArgumentCaptor.forClass(String.class);
+                verify(mockNotificationProducer, times(1)).sendNotificationToMultiple(
+                        eq(Collections.singletonList(55L)),
+                        eq("Nhắc nhở lịch hẹn"),
+                        messageCaptor.capture(),
+                        eq("jwt"));
+                String message = messageCaptor.getValue();
+                assertTrue(message.startsWith("Bạn có lịch hẹn: "));
+                assertTrue(message.contains(" vào "));
+                verify(mockScheduleRepository, times(1)).saveAll(eq(Collections.singletonList(scheduleSpy)));
+            }
+        }
+
+        @Test
+        @DisplayName("SCH-STAT-UPD-017: startTime null khi build message (spy)")
+        void sendReminderNotifications_whenStartTimeBecomesNullWhileBuilding_skipsTimeClause() {
+            // Test Case ID: SCH-STAT-UPD-017
+
+            // Arrange
+            Schedule scheduleSpy = spy(new Schedule());
+            scheduleSpy.setId(17L);
+            scheduleSpy.setTitle("No startTime in message");
+            scheduleSpy.setLocation("L");
+            scheduleSpy.setReminderSent(false);
+            LocalDateTime startTime = LocalDateTime.now().plusMinutes(1);
+            doReturn(startTime, startTime, (LocalDateTime) null).when(scheduleSpy).getStartTime();
+            doReturn(1).when(scheduleSpy).getReminderTime();
+
+            ScheduleParticipant user = new ScheduleParticipant();
+            user.setParticipantType("USER");
+            user.setParticipantId(100L);
+            scheduleSpy.setParticipants(new HashSet<>(Set.of(user)));
+
+            when(mockScheduleRepository.findSchedulesForReminder(any(LocalDateTime.class)))
+                    .thenReturn(Collections.singletonList(scheduleSpy));
+
+            try (MockedStatic<SecurityUtil> mockedSecurity = org.mockito.Mockito.mockStatic(SecurityUtil.class)) {
+                mockedSecurity.when(SecurityUtil::getCurrentUserJWT).thenReturn(Optional.of("jwt"));
+
+                // Act
+                scheduleStatusUpdateServiceUnderTest.sendReminderNotifications();
+
+                // Assert
+                ArgumentCaptor<String> messageCaptor = ArgumentCaptor.forClass(String.class);
+                verify(mockNotificationProducer, times(1)).sendNotificationToMultiple(
+                        eq(Collections.singletonList(100L)),
+                        eq("Nhắc nhở lịch hẹn"),
+                        messageCaptor.capture(),
+                        eq("jwt"));
+                String message = messageCaptor.getValue();
+                assertTrue(message.contains("Bạn có lịch hẹn: "));
+                assertFalse(message.contains(" vào "));
+                assertTrue(Boolean.TRUE.equals(scheduleSpy.getReminderSent()));
+                verify(mockScheduleRepository, times(1)).saveAll(eq(Collections.singletonList(scheduleSpy)));
+            }
         }
     }
 }
